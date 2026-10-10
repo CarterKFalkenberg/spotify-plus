@@ -1,0 +1,52 @@
+[
+  {
+    "id": "api-proof",
+    "title": "Prove the real Spotify and deployment contracts",
+    "acceptance": [
+      "Pin Node 24 LTS and React Router framework mode, PostgreSQL/Drizzle, Vitest and Playwright; provide npm ci, scripts/check and scripts/verify-stage.mjs.",
+      "Deploy web and worker from the same source on Railway; health reports build SHA and worker heartbeat without sensitive data.",
+      "Consume the bootstrap grant once into encrypted database credentials; bind to immutable account_id; production web OAuth uses PKCE and has no profile scopes.",
+      "Live probe reads saved tracks without printing metadata, confirms fields and paging, creates one private disposable test playlist, adds and replaces >100 tracks when available, and removes it through DELETE /me/library with playlist-only URI guards.",
+      "Prove removal using library containment and current-user playlist membership, not GET /playlists returning 404. Record only redacted contract evidence. Report unsupported cleanup rather than silently using deprecated endpoints.",
+      "Support consent denied, wrong account, ambiguous forbidden access and reconnect states honestly. Implement disconnect data purge and backup deletion design early.",
+      "This is an internal feasibility gate, not a read-only product release."
+    ]
+  },
+  {
+    "id": "core-loop",
+    "title": "Deploy the first useful complete loop",
+    "acceptance": [
+      "Automatic resumable worker import; tagging works during import; first complete sync requires verified stable full passes; no generation from partial import.",
+      "Simple useful bulk artist tagging plus immediate-save tag input, and mobile All/Any/None builder with local count/duration/preview.",
+      "Create real private snapshot playlists, durable retry/reconcile for ambiguous writes, retention selection, description disclosure, Open/Extend/Pin/Unpin/Regenerate/Delete actions.",
+      "Worker-driven expiration works with browser closed; cleanup removes only app-managed playlists and reconciles externally removed rows.",
+      "App-open probe, manual sync, daily full sync, soft removals with tags preserved, and sensible empty-library states.",
+      "Deploy and verify against actual Spotify account. No read-only library handoff qualifies."
+    ]
+  },
+  {
+    "id": "fast-tagging",
+    "title": "Complete the desktop throughput and mobile triage flows",
+    "acceptance": [
+      "Focused queue with all metadata, count-up stats, 1–9 quick slots, session pinning, queue order modes, undo, remove-last-tag, skip/requeue, deep links, artist jump, and help.",
+      "Typing sad and tags with punctuation, accents, emoji and digits works; IME and text-editing keystrokes are safe; implement accepted shortcut policy.",
+      "Browser sorting, text search, untagged filter, artist/album/decade facets, shift range selection, select-all-matching snapshots, group-by actions and sticky bulk action bar.",
+      "First-run groups by size with dismissible guidance; returning home uses accepted policy; new badge feeds mobile cards/sheet/swipe lite mode.",
+      "Case/whitespace tag identity, near-match autocomplete counts, tri-state bulk picker, transaction-based changed-only undo.",
+      "Tag rename, collision merge, preview exact union count, merge rewrites stored AST references, delete confirms assignment count and is session-undoable; unused tags and last-used.",
+      "Deploy; test keyboard and touch layouts with synthetic data and report real-device performance check still needed."
+    ]
+  },
+  {
+    "id": "resilience-and-handoff",
+    "title": "Verify failure recovery, retention and final acceptance",
+    "acceptance": [
+      "Exercise changing pagination, equal-count membership swaps, worker restarts, timed-out create/add writes, rotated refresh tokens, invalid_grant, 429 Retry-After and QUOTA_EXCEEDED without flooding live Spotify.",
+      "Purge removed metadata at accepted deadline while restoring persistent annotations on re-like; disconnect cancels in-flight jobs and prevents resurrection, with no recoverable derived data left in backups.",
+      "Verify expiry date math in America/New_York including month-end and DST; pin/regenerate/cleanup races are serialized.",
+      "Run production checks, smoke the real private create-regenerate-expire path, verify database restore procedure in an isolated database, and record deploy SHA, evidence and review instructions.",
+      "Push feature branch and create or update one draft PR, with concise evidence. Attach PR when Codex app tool is available.",
+      "Mark software ready for review but keep MVP acceptance pending until the user performs the actual phone <1-minute flow and desktop 3–5-second tagging trial."
+    ]
+  }
+]

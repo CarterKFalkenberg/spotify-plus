@@ -1,0 +1,14 @@
+.local
+.local/
+.railway/
+.worktrees/
+.env
+.env.*
+!.env.example
+node_modules/
+build/
+dist/
+coverage/
+test-results/
+playwright-report/
+.DS_Store
