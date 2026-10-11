@@ -3,6 +3,7 @@ import {
   parseLibraryFacets,
   parseLibraryFilter,
   parseLibrarySearch,
+  parseTagAction,
   parseTagManage,
   parseTagSelection,
   parseTagVocabulary,
@@ -34,10 +35,10 @@ Deno.test("fast filters preserve unknown decade and bind seeded random without w
   check(
     parseLibraryFilter({
       ...filter,
-      album: "  Synthetic   Album ",
+      album: "album:" + "a".repeat(64),
       decade: "unknown",
       latestSyncOnly: true,
-    }).album === "Synthetic Album",
+    }).album === "album:" + "a".repeat(64),
   );
   for (
     const change of [
@@ -79,6 +80,39 @@ Deno.test("fast filters preserve unknown decade and bind seeded random without w
     parseLibraryFacets({ filter, facet: "album", cursor: null, limit: 10 })
       .facet === "album",
   );
+});
+Deno.test("album response identities round-trip into filter actions without broadening unavailable albums", () => {
+  const unavailable = "album:" +
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  const groups = [
+    { value: unavailable, name: "Album unavailable" },
+    { value: "album:" + "a".repeat(64), name: "🎷".repeat(250) },
+  ];
+  for (const group of groups) {
+    const selection = {
+      kind: "filter",
+      filter: { ...filter, album: group.value },
+      expectedRevision: rev,
+    };
+    const action = parseTagAction({ selection, action: "add", tagId: id });
+    check(action.selection.kind === "filter");
+    check(action.selection.filter.album === group.value);
+    check(parseLibraryFilter({ ...filter, album: group.value }).album !== null);
+  }
+  check(parseLibraryFilter({ ...filter, album: null }).album === null);
+  check(!Object.hasOwn(parseLibraryFilter(filter), "album"));
+  for (
+    const album of [
+      undefined,
+      "",
+      " \t ",
+      "Synthetic Album",
+      "🎷".repeat(250),
+      "album:" + "a".repeat(63),
+      "album:" + "A".repeat(64),
+      "album:" + "a".repeat(65),
+    ]
+  ) rejects(() => parseLibraryFilter({ ...filter, album }));
 });
 Deno.test("vocabulary intents require normalized collision-safe IDs, exact delete impact and revisions", () => {
   const rename = parseTagManage({

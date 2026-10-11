@@ -183,6 +183,11 @@ $$;
 create function app.normalized_label(p_text text) returns text language sql immutable set search_path='' as $$
  select lower(normalize(btrim(regexp_replace(p_text,'[[:space:]               　﻿]+',' ','g')),NFC));
 $$;
+-- Cached names have no length/nonempty guarantee. Hash their complete normalized
+-- identity, never a truncated display label. Empty names remain a concrete group.
+create function app.album_identity(p_text text) returns text language sql immutable strict set search_path='' as $$
+ select 'album:'||encode(sha256(convert_to(app.normalized_label(p_text),'UTF8')),'hex');
+$$;
 create function app.track_decade(p_date text) returns text language sql immutable set search_path='' as $$
  select case when p_date ~ '^[0-9]{4}($|-)' then (((substring(p_date,1,4)::integer)/10)*10)::text else 'unknown' end;
 $$;
@@ -195,7 +200,7 @@ create or replace function app.filter_keys(p_filter jsonb) returns table(track_k
  and (not (p_filter->>'newOnly')::boolean or (m.removed_at is null and m.acknowledged_at is null))
  and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and m.added_run_id=(select completed_run_id from app.library_state where singleton)))
  and (p_filter->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=p_filter->>'artistId'))
- and (p_filter->>'album' is null or app.normalized_label(m.album)=app.normalized_label(p_filter->>'album'))
+ and (p_filter->>'album' is null or app.album_identity(m.album)=p_filter->>'album')
  and (p_filter->>'decade' is null or app.track_decade(m.release_date)=p_filter->>'decade')
  and (coalesce(p_filter->>'search','')='' or position(lower(normalize(p_filter->>'search',NFC)) in
   lower(normalize(m.title||' '||m.album||' '||coalesce((select string_agg(ar->>'name',' ') from jsonb_array_elements(m.artists) ar),''),NFC)))>0)
@@ -220,7 +225,7 @@ create or replace function public.app_library_search(p_epoch bigint,p_request js
     select m.track_key,ar->>'id' as value,ar->>'name' as name from app.filter_keys(p_request->'filter') k join app.track_metadata m using(track_key)
     cross join lateral jsonb_array_elements(m.artists) ar where grouping='artist' and ar->>'id' is not null
      and (p_request->'filter'->>'artistId' is null or ar->>'id'=p_request->'filter'->>'artistId')
-    union all select m.track_key,app.normalized_label(m.album),m.album from app.filter_keys(p_request->'filter') k join app.track_metadata m using(track_key) where grouping='album'
+    union all select m.track_key,app.album_identity(m.album),case when app.normalized_label(m.album)='' then 'Album unavailable' else m.album end from app.filter_keys(p_request->'filter') k join app.track_metadata m using(track_key) where grouping='album'
     union all select m.track_key,app.track_decade(m.release_date),app.track_decade(m.release_date) from app.filter_keys(p_request->'filter') k join app.track_metadata m using(track_key) where grouping='decade'
    ), groups as (
     select value,min(name) as name,count(distinct track_key) as count,count(distinct track_key) filter(where exists(select 1 from app.track_tags t where t.track_key=entries.track_key and t.present)) as tagged from entries group by value

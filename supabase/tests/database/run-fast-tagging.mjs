@@ -1,13 +1,14 @@
 // Disposable, synthetic PostgreSQL integration harness. Never reads .local or cloud credentials.
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 const container = `spotify-plus-fast-tagging-test-${process.pid}`;
 const network = container + "-network";
 const rest = container + "-rest";
 const root = fileURLToPath(new URL("../../../", import.meta.url));
-async function command(args, input = "") {
-  const child = spawn("docker", args, {
+async function command(args, input = "", executable = "docker") {
+  const child = spawn(executable, args, {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -23,7 +24,7 @@ async function command(args, input = "") {
     child.on("error", reject);
     child.on("close", resolve);
   });
-  if (status !== 0) throw new Error(`Synthetic SQL command failed: ${errors}`);
+  if (status !== 0) throw new Error(`Synthetic test command failed: ${errors}`);
   return output.trim();
 }
 const sql = (statement) =>
@@ -238,6 +239,136 @@ try {
   });
   if (facets.totalOptions !== 0) {
     throw new Error("PostgREST empty facets failed");
+  }
+  // These are intentionally valid cache names outside the old filter-name limit.
+  // Equal long prefixes must not merge, and blank names must never select all.
+  const albums = [
+    "",
+    " \t\n ",
+    "\u00a0\u2003\ufeff",
+    "Synthetic Album",
+    "synthetic  album",
+    "🎷".repeat(240) + "a",
+    "🎷".repeat(240) + "b",
+    "Café",
+    "Cafe\u0301",
+  ];
+  const albumIdentity = (name) =>
+    "album:" + createHash("sha256")
+      .update(name.normalize("NFC").replace(/\s+/gu, " ").trim().toLowerCase())
+      .digest("hex");
+  const expectedKeys = new Map();
+  const albumRows = albums.map((album, index) => ({
+    album,
+    trackKey: (index + 2).toString().padStart(64, "0"),
+  }));
+  for (const { album, trackKey: key } of albumRows) {
+    const value = albumIdentity(album);
+    expectedKeys.set(value, [...(expectedKeys.get(value) ?? []), key]);
+  }
+  await sql(`
+    insert into app.annotations(track_key,epoch)
+      select (fixture->>'trackKey'),1 from jsonb_array_elements(${
+    literal(albumRows)
+  }) fixture;
+    insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at)
+      select fixture->>'trackKey',lpad(ord::text,22,'0'),'Synthetic album fixture','[]'::jsonb,fixture->>'album',now()
+      from jsonb_array_elements(${
+    literal(albumRows)
+  }) with ordinality as fixtures(fixture,ord);
+  `);
+  const albumFilter = {
+    membership: "active",
+    search: "",
+    untagged: false,
+    newOnly: false,
+    artistId: null,
+  };
+  const groups = await rpc("app_library_search", {
+    p_epoch: 1,
+    p_request: {
+      filter: albumFilter,
+      groupBy: "album",
+      cursor: null,
+      limit: 100,
+    },
+  });
+  const albumFacets = await rpc("app_library_facets", {
+    p_epoch: 1,
+    p_request: {
+      filter: albumFilter,
+      facet: "album",
+      cursor: null,
+      limit: 100,
+    },
+  });
+  if (
+    groups.totalTracks !== albums.length ||
+    groups.totalGroups !== expectedKeys.size ||
+    albumFacets.totalOptions !== expectedKeys.size
+  ) {
+    throw new Error("Album groups/facets lost cache names");
+  }
+  const albumTag = await rpc("app_tag_create", {
+    p_epoch: 1,
+    p_name: "Album roundtrip",
+  });
+  for (const row of [...groups.groups, ...albumFacets.options]) {
+    const keys = expectedKeys.get(row.value);
+    if (
+      !keys || row.trackCount !== keys.length ||
+      (row.value === albumIdentity("") && row.name !== "Album unavailable")
+    ) {
+      throw new Error("Album response identity/count mismatch");
+    }
+    const current = await rpc("app_library_status", { p_epoch: 1 });
+    const selection = row.selection ?? {
+      kind: "filter",
+      filter: { ...albumFilter, album: row.value },
+    };
+    // Parse the real SQL response through the same boundary as the HTTP route.
+    const request = JSON.parse(
+      await command(
+        [
+          "eval",
+          "--no-remote",
+          'import { parseTagAction } from "./supabase/functions/_shared/contracts.ts"; ' +
+          "const raw = await new Response(Deno.stdin.readable).json(); " +
+          "console.log(JSON.stringify(parseTagAction(raw)));",
+        ],
+        JSON.stringify({
+          selection: { ...selection, expectedRevision: current.revision },
+          action: "add",
+          tagId: albumTag.tag.id,
+        }),
+        "deno",
+      ),
+    );
+    const result = await rpc("app_tag_action", {
+      p_epoch: 1,
+      p_session_hash: "b".repeat(64),
+      p_request: request,
+    });
+    const actual = JSON.parse(
+      await sql(
+        `select coalesce(jsonb_agg(track_key order by track_key),'[]'::jsonb) from app.track_tags where tag_id='${albumTag.tag.id}' and present;`,
+      ),
+    );
+    if (
+      result.selectedCount !== keys.length ||
+      result.changedCount !== keys.length ||
+      JSON.stringify(actual) !== JSON.stringify([...keys].sort())
+    ) {
+      throw new Error("Returned album selection mutated a different set");
+    }
+    const undone = await rpc("app_tag_undo", {
+      p_epoch: 1,
+      p_session_hash: "b".repeat(64),
+      p_action_id: result.actionId,
+    });
+    if (undone.restoredCount !== keys.length || undone.skippedCount !== 0) {
+      throw new Error("Album roundtrip undo failed");
+    }
   }
   await sql("set role anon;"); // Separate direct privilege check below, independent of test-only REST role.
   if (

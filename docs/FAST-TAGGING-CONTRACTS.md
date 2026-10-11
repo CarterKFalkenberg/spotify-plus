@@ -20,7 +20,7 @@ The existing filter extends with optional fields:
 
 | Field | Values / semantics |
 | --- | --- |
-| `album` | null/absent means unrestricted; otherwise exact cached album identity under NFC, whitespace collapse and case normalization. There is no synthetic Spotify album ID. |
+| `album` | null/absent means unrestricted; otherwise an opaque `album:` prefix plus 64 lowercase hexadecimal characters, returned by album groups/facets. It is SHA-256 of the complete cached name under NFC, whitespace collapse and case normalization. There is no synthetic Spotify album ID. |
 | `decade` | null/absent means unrestricted; integer multiple of ten (0–9990) selects that decade; `"unknown"` explicitly selects unavailable release years. |
 | `latestSyncOnly` | false/absent is unrestricted; true selects active tracks whose addition run is the last completed stable sync. Unlike `newOnly`, acknowledging arrivals does not remove them from this mode. It is invalid with removed membership. |
 
@@ -35,7 +35,12 @@ GroupBy accepts `artist`, `album`, `decade` or null. Groups order by distinct
 filtered track count descending then value. Each group supplies `value`, `name`,
 `trackCount`, `taggedCount`, and its complete revision-bound filter selection.
 Artist groups additionally retain `artistId` for compatibility. Album groups use
-the same normalized identity as album filtering. Unknown decade is a real group.
+the same bounded identity as album filtering. Hashing the complete normalized name
+keeps empty and arbitrarily long cached names selectable without truncation or a
+display-name input limit. Empty/whitespace names form an `Album unavailable`
+group with its own concrete identity, distinct from null's unrestricted filter.
+Clients pass returned identities verbatim and retain `name` only for display.
+Unknown decade is a real group.
 Artist groups never widen an already selected artist, including collaborations.
 
 `POST /api/library/facets` accepts `{filter,facet,cursor,limit}` where facet is

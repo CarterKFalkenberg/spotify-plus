@@ -52,6 +52,7 @@ export interface LibraryFilter {
   readonly untagged: boolean;
   readonly newOnly: boolean;
   readonly artistId: string | null;
+  // Opaque cached-name identity returned by album groups/facets; null is unrestricted.
   readonly album?: string | null;
   readonly decade?: number | "unknown" | null;
   readonly latestSyncOnly?: boolean;
@@ -493,12 +494,15 @@ export function parseLibraryFilter(value: unknown): LibraryFilter {
     (typeof filter.decade !== "number" || !Number.isInteger(filter.decade) ||
       filter.decade < 0 || filter.decade > 9990 || filter.decade % 10 !== 0)
   ) invalid("filter.decade");
+  if (
+    Object.hasOwn(filter, "album") && filter.album !== null &&
+    (typeof filter.album !== "string" ||
+      !/^album:[0-9a-f]{64}$/.test(filter.album))
+  ) invalid("filter.album");
   return {
     ...(Object.hasOwn(filter, "album")
       ? {
-        album: filter.album === null
-          ? null
-          : name(filter.album, 200, "filter.album"),
+        album: filter.album as string | null,
       }
       : {}),
     ...(Object.hasOwn(filter, "decade")
