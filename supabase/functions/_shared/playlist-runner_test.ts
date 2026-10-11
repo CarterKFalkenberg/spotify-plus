@@ -212,8 +212,21 @@ Deno.test("create writes 100-item chunks and verifies actual ordered contents be
   assert(h.state.complete);
   equal(h.state.expiresOn, "2026-02-28");
 });
-Deno.test("real runner and adapter populate a newly created playlist with a zero-limit empty page", async () => {
+async function realAdapterRoundTrip(
+  escaped = false,
+  corruption: "description" | "snapshot" | null = null,
+) {
   const h = harness(125);
+  if (escaped) {
+    h.state.work.labels[id] = 'A & B / "quoted" <tag> &amp; [/Tagger]';
+  }
+  const encode = (value: string) =>
+    value.replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;").replaceAll("'", "&#39;")
+      .replaceAll("/", "&#x2F;");
+  let corrupt = false;
+  let responseCount = 0;
   const calls: string[] = [];
   const pages: { offset: number; count: number; limit: number }[] = [];
   const json = (value: unknown, status = 200) =>
@@ -221,11 +234,13 @@ Deno.test("real runner and adapter populate a newly created playlist with a zero
   const metadata = () => ({
     id: spotifyId,
     name: h.state.name,
-    description: h.state.description,
+    description: escaped ? encode(h.state.description) : h.state.description,
     public: false,
     collaborative: false,
     owner: { id: "synthetic-owner" },
-    snapshot_id: String(h.state.snapshot),
+    snapshot_id: String(
+      h.state.snapshot + (corrupt && corruption === "snapshot" ? 1 : 0),
+    ),
     items: { total: h.state.items.length },
   });
   const client = new SpotifyClient({
@@ -259,7 +274,19 @@ Deno.test("real runner and adapter populate a newly created playlist with a zero
         return Promise.resolve(json([true]));
       }
       if (method === "GET" && url.pathname === `/v1/playlists/${spotifyId}`) {
-        return Promise.resolve(json(metadata()));
+        responseCount++;
+        const value = metadata();
+        if (corrupt && corruption === "description") {
+          value.description += " changed";
+        }
+        return Promise.resolve(json(value));
+      }
+      if (method === "PUT" && url.pathname === `/v1/playlists/${spotifyId}`) {
+        const body = JSON.parse(String(init?.body));
+        equal(Object.keys(body), ["description"]);
+        h.state.description = body.description;
+        corrupt = corruption !== null;
+        return Promise.resolve(new Response(null, { status: 200 }));
       }
       if (
         method === "GET" && url.pathname === `/v1/playlists/${spotifyId}/items`
@@ -325,7 +352,44 @@ Deno.test("real runner and adapter populate a newly created playlist with a zero
     { offset: 100, count: 25, limit: 50 },
   ]);
   equal(calls.filter((call) => call === "POST /v1/me/playlists").length, 1);
-});
+  if (!escaped) return;
+  // User notes include literal entity syntax as well as characters Spotify
+  // escapes; neither may acquire another encoding layer on regeneration.
+  const prefix = "Notes &amp; / <x>  ";
+  const suffix = "  'end' &#47;";
+  h.state.description = prefix + h.state.description + suffix;
+  h.state.name = "Owner renamed synthetic";
+  h.state.work.action = "regenerate";
+  h.state.work.retention = "pinned";
+  h.state.complete = false;
+  const result = await h.run(80000, client);
+  if (corruption) {
+    equal(result?.done, false);
+    equal(h.state.errors, ["remote_changed"]);
+    assert(!h.state.complete);
+    return;
+  }
+  equal(result, { done: true });
+  assert(h.state.complete);
+  equal(h.state.name, "Owner renamed synthetic");
+  assert(h.state.description.startsWith(prefix));
+  assert(h.state.description.endsWith(suffix));
+  equal(h.state.description.split(creationMarker(id)).length, 2);
+  equal(h.state.description.split("[/Tagger]").length, 2);
+  assert(h.state.description.includes("Pinned; never expires"));
+  const once = h.state.description;
+  equal(await h.run(80000, client), { done: true });
+  equal(h.state.description, once);
+  assert(responseCount > 0);
+}
+Deno.test("real runner and adapter populate a newly created playlist with a zero-limit empty page", () =>
+  realAdapterRoundTrip());
+Deno.test("real adapter escaped description round-trip creates, regenerates and preserves literal owner notes", () =>
+  realAdapterRoundTrip(true));
+Deno.test("escaped confirmation still rejects actual description edits", () =>
+  realAdapterRoundTrip(true, "description"));
+Deno.test("escaped confirmation still rejects actual snapshot changes", () =>
+  realAdapterRoundTrip(true, "snapshot"));
 
 Deno.test("ambiguous create resolves durable marker without repeating POST", async () => {
   const h = harness(2);

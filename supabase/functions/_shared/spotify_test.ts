@@ -993,3 +993,34 @@ Deno.test("malformed Retry-After values use a conservative fallback", async () =
     );
   }
 });
+
+Deno.test("playlist description response normalization is shared, single-pass and outbound text stays plain", async () => {
+  const raw =
+    "&#91;Tagger:x&#93; &amp; &lt; &gt; &quot; &apos; &#39; &#x2F; &#47; &#x1F60D; &amp;amp; &amp;#47; &unknown; &#0; &#xD800; &#1114112;";
+  const canonical =
+    "[Tagger:x] & < > \" ' ' / / 😍 &amp; &#47; &unknown; &#0; &#xD800; &#1114112;";
+  const h = harness([
+    json(playlist({ description: raw }), 201),
+    json(playlist({ description: raw })),
+    json(page([playlist({ description: raw })])),
+    new Response(null, { status: 200 }),
+    json(playlist({ description: null })),
+  ]);
+  strictEqual(
+    (await h.client.createPrivatePlaylist({
+      name: "Synthetic",
+      description: canonical,
+    })).description,
+    canonical,
+  );
+  strictEqual((await h.client.getPlaylist(PLAYLIST)).description, canonical);
+  strictEqual(
+    (await h.client.getCurrentUserPlaylistsPage({ offset: 0, limit: 50 }))
+      .items[0].description,
+    canonical,
+  );
+  await h.client.updatePlaylistDescription(PLAYLIST, canonical);
+  strictEqual(JSON.parse(String(h.calls[0].init.body)).description, canonical);
+  strictEqual(JSON.parse(String(h.calls[3].init.body)).description, canonical);
+  strictEqual((await h.client.getPlaylist(PLAYLIST)).description, null);
+});
