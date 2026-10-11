@@ -90,3 +90,50 @@ describe("fast-tagging boundaries", () => {
     ).toThrow();
   });
 });
+
+it("pin positions consume only the remaining ranked tags; membership refresh preserves the current identity", async () => {
+  const { quickSlots, preserveCurrent } = await import("../../app/src/tagging");
+  const a = { id: "a" },
+    b = { id: "b" },
+    c = { id: "c" };
+  expect(quickSlots([a, b, c], { 0: a }, 3)).toEqual([a, b, c]);
+  expect(quickSlots([a, b, c], { 2: a }, 3)).toEqual([b, c, a]);
+  const rows = [{ trackKey: "a" }, { trackKey: "b" }, { trackKey: "c" }];
+  expect(
+    preserveCurrent(
+      rows,
+      1,
+      new Map([
+        ["b", rows[1]!],
+        ["c", rows[2]!],
+      ]),
+    ),
+  ).toEqual({ rows: [rows[1], rows[2]], index: 0 });
+  expect(
+    preserveCurrent(
+      rows,
+      1,
+      new Map([
+        ["a", rows[0]!],
+        ["c", rows[2]!],
+      ]),
+    ),
+  ).toEqual({ rows: [rows[0], rows[2]], index: 1 });
+});
+
+it("a local patch advances only its owned revision and never hides unrelated membership or annotation edits", async () => {
+  const { ownedPatchRevision } = await import("../../app/src/tagging");
+  const before = { library: "1", annotations: "1" };
+  expect(
+    ownedPatchRevision(before, { library: "1", annotations: "2" }, true),
+  ).toEqual({ library: "1", annotations: "2" });
+  expect(
+    ownedPatchRevision(before, { library: "2", annotations: "2" }, true),
+  ).toBe(before);
+  expect(
+    ownedPatchRevision(before, { library: "1", annotations: "3" }, true),
+  ).toBe(before);
+  expect(
+    ownedPatchRevision(before, { library: "1", annotations: "2" }, false),
+  ).toBe(before);
+});

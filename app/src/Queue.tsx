@@ -17,12 +17,19 @@ import {
   search,
   vocabulary,
   sameRevision,
+  acknowledged,
   type FastFilter,
   type Sort,
 } from "./fast-api";
 import { emptyFilter, TrackSummary } from "./Library";
 import { TagPicker } from "./TagPicker";
-import { queueShortcut, skipToTail } from "./tagging";
+import {
+  queueShortcut,
+  skipToTail,
+  quickSlots,
+  preserveCurrent,
+  ownedPatchRevision,
+} from "./tagging";
 export function Queue({
   refresh,
   active,
@@ -63,6 +70,14 @@ export function Queue({
   const seed = useRef(crypto.randomUUID()),
     container = useRef<HTMLDivElement>(null),
     touch = useRef<{ x: number; y: number } | null>(null);
+  const sheetElement = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!sheet) return;
+    const previous = document.activeElement as HTMLElement;
+    sheetElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => previous?.focus();
+  }, [sheet]);
+  const syncedRevision = useRef<LibraryStatusDTO["revision"] | null>(null);
   const queueKeys = useRef(new Set<string>());
   const [retry, setRetry] = useState(0);
   const helpDialog = useRef<HTMLDialogElement>(null);
@@ -71,14 +86,12 @@ export function Queue({
     else helpDialog.current?.close();
   }, [help]);
   const current = rows[index];
-  const slots = Array.from(
-    { length: 9 },
-    (_, i) =>
-      pinned[i] ??
-      frequent.filter((t) => !Object.values(pinned).some((p) => p.id === t.id))[
-        i
-      ],
-  );
+  const rowsRef = useRef(rows),
+    indexRef = useRef(index),
+    generation = useRef(0);
+  rowsRef.current = rows;
+  indexRef.current = index;
+  const slots = quickSlots(frequent, pinned);
   useEffect(() => {
     const c = new AbortController();
     void api(
@@ -95,6 +108,7 @@ export function Queue({
   }, [refresh]);
   useEffect(() => {
     const c = new AbortController();
+    const ownGeneration = ++generation.current;
     setLoading(true);
     setError("");
     setIndex(0);
@@ -117,6 +131,7 @@ export function Queue({
     async function load() {
       let cursor: string | null = null;
       const all: TrackDTO[] = [];
+      let revision: LibraryStatusDTO["revision"] | null = null;
       do {
         const v: ReturnType<typeof search> = await api(
           "/library/search",
@@ -139,6 +154,7 @@ export function Queue({
           !sameRevision(source.expectedRevision, v.revision)
         )
           throw new ApiError("stale_revision", 409);
+        revision = v.revision;
         all.push(
           ...v.tracks.filter(
             (t) =>
@@ -150,7 +166,8 @@ export function Queue({
         );
         cursor = v.nextCursor;
       } while (cursor && !c.signal.aborted);
-      if (!c.signal.aborted) {
+      if (!c.signal.aborted && ownGeneration === generation.current) {
+        syncedRevision.current = revision;
         setRows(all);
         queueKeys.current = new Set(all.map((t) => t.trackKey));
         setLoading(false);
@@ -166,8 +183,17 @@ export function Queue({
   }, [mode, source, retry]);
   // Membership refresh does not reorder the session snapshot or pull in new songs.
   useEffect(() => {
-    if (!queueKeys.current.size) return;
+    if (
+      !active ||
+      !queueKeys.current.size ||
+      (status &&
+        syncedRevision.current &&
+        sameRevision(status.revision, syncedRevision.current))
+    )
+      return;
     const c = new AbortController();
+    const ownGeneration = generation.current,
+      keys = new Set(queueKeys.current);
     async function update() {
       let cursor: string | null = null;
       const live = new Map<string, TrackDTO>();
@@ -180,21 +206,28 @@ export function Queue({
         );
         if (v.groupBy !== null) throw Error();
         for (const t of v.tracks)
-          if (queueKeys.current.has(t.trackKey)) live.set(t.trackKey, t);
+          if (keys.has(t.trackKey)) live.set(t.trackKey, t);
         cursor = v.nextCursor;
       } while (cursor && !c.signal.aborted);
-      if (!c.signal.aborted)
-        setRows((old) =>
-          old
-            .filter((t) => live.has(t.trackKey))
-            .map((t) => live.get(t.trackKey)!),
-        );
+      if (!c.signal.aborted && ownGeneration === generation.current) {
+        if (status) syncedRevision.current = status.revision;
+        const next = preserveCurrent(rowsRef.current, indexRef.current, live);
+        setRows(next.rows);
+        setIndex(next.index);
+      }
     }
     void update().catch((e) => {
       if (!c.signal.aborted) setError(errorMessage(e));
     });
     return () => c.abort();
-  }, [refresh]);
+  }, [
+    status?.revision.library,
+    status?.revision.annotations,
+    active,
+    mode,
+    source,
+    retry,
+  ]);
   useEffect(() => {
     const c = new AbortController();
     setKnown([]);
@@ -221,12 +254,19 @@ export function Queue({
     setError("");
     const key = current.trackKey,
       before = current.tagIds;
+    const coveredBefore = syncedRevision.current;
     try {
       const v = await api("/tag-actions", tagAction, {
         selection: { kind: "tracks", trackKeys: [key] } satisfies Selection,
         ...(typeof tag === "string" ? { tagName: tag } : { tagId: tag.id }),
         action: kind,
       });
+      if (typeof tag !== "string" && syncedRevision.current === coveredBefore)
+        syncedRevision.current = ownedPatchRevision(
+          coveredBefore,
+          v.revision,
+          v.changedCount > 0,
+        );
       setRows((old) =>
         old.map((t) =>
           t.trackKey === key
@@ -288,6 +328,42 @@ export function Queue({
       setBusy(false);
     }
   }
+  async function markReviewed() {
+    if (!current || busy) return;
+    setBusy(true);
+    setError("");
+    const key = current.trackKey;
+    const coveredBefore = syncedRevision.current;
+    try {
+      const v = await api("/library/acknowledge", acknowledged, {
+        trackKeys: [key],
+      });
+      if (syncedRevision.current === coveredBefore)
+        syncedRevision.current = ownedPatchRevision(
+          coveredBefore,
+          v.revision,
+          v.changedCount > 0,
+        );
+      setRows((old) =>
+        old.map((t) =>
+          t.trackKey === key && t.metadata
+            ? {
+                ...t,
+                metadata: {
+                  ...t.metadata,
+                  acknowledgedAt: new Date().toISOString(),
+                },
+              }
+            : t,
+        ),
+      );
+      onChanged();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   function advance(delta: number) {
     setIndex((i) => Math.min(Math.max(0, i + delta), rows.length - 1));
   }
@@ -309,7 +385,14 @@ export function Queue({
       aria-labelledby="queue-title"
       ref={container}
       onKeyDown={(e) => {
-        if (!active || matchMedia("(max-width:640px)").matches || busy) return;
+        if (
+          !active ||
+          help ||
+          pinSlot !== null ||
+          matchMedia("(max-width:640px)").matches ||
+          busy
+        )
+          return;
         const el = e.target as HTMLElement;
         const editable = el.matches(
           'input,textarea,select,[contenteditable="true"]',
@@ -372,8 +455,7 @@ export function Queue({
           {error}{" "}
           <button
             onClick={() => {
-              setMode("newest");
-              onChanged();
+              setRetry((v) => v + 1);
             }}
           >
             Refresh queue
@@ -408,7 +490,38 @@ export function Queue({
       {current && (
         <div
           className={`queue-card ${sheet ? "sheet-open" : ""}`}
+          ref={sheetElement}
+          role={sheet ? "dialog" : undefined}
+          aria-modal={sheet ? true : undefined}
+          aria-label={sheet ? "Tag song" : undefined}
+          onKeyDown={(e) => {
+            if (!sheet) return;
+            if (e.key === "Escape") {
+              setSheet(false);
+              e.stopPropagation();
+            }
+            if (e.key === "Tab") {
+              const controls = [
+                ...e.currentTarget.querySelectorAll<HTMLElement>(
+                  "button:not(:disabled),a[href],input:not(:disabled)",
+                ),
+              ].filter((el) => el.getClientRects().length);
+              const first = controls[0],
+                last = controls.at(-1);
+              if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last?.focus();
+              } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first?.focus();
+              }
+            }
+          }}
           onTouchStart={(e) => {
+            if ((e.target as HTMLElement).closest("input,button,a")) {
+              touch.current = null;
+              return;
+            }
             const p = e.touches[0];
             if (p) touch.current = { x: p.clientX, y: p.clientY };
           }}
@@ -478,6 +591,7 @@ export function Queue({
           </div>
           <TagPicker
             label="Tag current song"
+            showEmptySuggestions={false}
             autoFocus={active && !matchMedia("(max-width:640px)").matches}
             refresh={refresh}
             disabled={busy}
@@ -485,6 +599,11 @@ export function Queue({
             onChoose={mutate}
           />
           <div className="queue-actions">
+            {current.metadata?.acknowledgedAt === null && (
+              <button disabled={busy} onClick={() => void markReviewed()}>
+                Mark arrival reviewed
+              </button>
+            )}
             <button disabled={index === 0 || busy} onClick={() => advance(-1)}>
               ← Previous
             </button>

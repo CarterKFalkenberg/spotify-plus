@@ -340,7 +340,10 @@ export function Library({
             <option value="decade">Decade</option>
           </select>
         </label>
-        <button onClick={() => onQueue(filter)}>
+        <button
+          disabled={filter.membership === "removed"}
+          onClick={() => onQueue(filter)}
+        >
           Send this filter to queue
         </button>
       </div>
@@ -589,7 +592,11 @@ export function Library({
                 onMutate={(tag, kind) => mutate(tag, selection, kind)}
               />
             )}
-            <button className="compact" onClick={() => onQueue(selection)}>
+            <button
+              className="compact"
+              disabled={filter.membership === "removed"}
+              onClick={() => onQueue(selection)}
+            >
               Send selection to queue
             </button>
             <TagPicker

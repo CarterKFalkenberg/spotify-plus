@@ -59,3 +59,46 @@ export function skipToTail<T>(rows: readonly T[], index: number): T[] {
   if (item !== undefined) result.push(item);
   return result;
 }
+export function quickSlots<T extends { id: string }>(
+  ranked: readonly T[],
+  pins: Record<number, T>,
+  size = 9,
+): (T | undefined)[] {
+  const unpinned = ranked.filter(
+    (t) => !Object.values(pins).some((p) => p.id === t.id),
+  );
+  let next = 0;
+  return Array.from({ length: size }, (_, i) => pins[i] ?? unpinned[next++]);
+}
+export function preserveCurrent<T extends { trackKey: string }>(
+  old: readonly T[],
+  index: number,
+  live: Map<string, T>,
+) {
+  const key = old[index]?.trackKey;
+  const rows = old
+    .filter((t) => live.has(t.trackKey))
+    .map((t) => live.get(t.trackKey)!);
+  const retained = rows.findIndex((t) => t.trackKey === key);
+  return {
+    rows,
+    index:
+      retained >= 0 ? retained : Math.max(0, Math.min(index, rows.length - 1)),
+  };
+}
+/** Existing-ID assignment and acknowledgement RPCs each advance annotations
+ * exactly once iff they change rows. A greater jump includes unrelated edits;
+ * a different library revision includes membership changes. Neither is covered
+ * by patching a single song. Name-based creation can add another revision and
+ * deliberately does not use this optimization. */
+export function ownedPatchRevision(
+  previous: { library: string; annotations: string } | null,
+  result: { library: string; annotations: string },
+  changed: boolean,
+) {
+  if (!previous || previous.library !== result.library) return previous;
+  return BigInt(result.annotations) ===
+    BigInt(previous.annotations) + (changed ? 1n : 0n)
+    ? result
+    : previous;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TagDTO } from "../../supabase/functions/_shared/contracts";
-import { api, undoAction, errorMessage } from "./api";
+import { api, ApiError, undoAction, errorMessage } from "./api";
 import {
   vocabulary,
   managePreview,
@@ -49,7 +49,15 @@ export function Vocabulary({
             }
           })
           .catch((e) => {
-            if (!c.signal.aborted) setError(errorMessage(e));
+            if (!c.signal.aborted) {
+              setError(errorMessage(e));
+              if (
+                e instanceof ApiError &&
+                e.code === "stale_revision" &&
+                cursor
+              )
+                setCursor(null);
+            }
           }),
       150,
     );
@@ -115,6 +123,7 @@ export function Vocabulary({
       setSelected(null);
       setSources([]);
       setTarget(null);
+      setCursor(null);
       onChanged();
     } catch (e) {
       setError(errorMessage(e));
@@ -173,6 +182,7 @@ export function Vocabulary({
           <button
             onClick={() => {
               setPreview(null);
+              setCursor(null);
               onChanged();
             }}
           >
@@ -404,6 +414,7 @@ export function Vocabulary({
                     ? `Restored ${v.restoredCount}; ${v.skippedCount} later changes were preserved.`
                     : "",
                 );
+                setCursor(null);
                 onChanged();
               } catch (e) {
                 setError(errorMessage(e));

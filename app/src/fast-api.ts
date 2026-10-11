@@ -1,5 +1,7 @@
 import {
   parseLibraryRevision,
+  parseId,
+  type LibrarySort,
   parseSelection,
   type LibraryFilter,
   type LibraryRevision,
@@ -7,13 +9,8 @@ import {
   type TrackDTO,
 } from "../../supabase/functions/_shared/contracts";
 import { ApiError, tag, track } from "./api";
-export type FastFilter = LibraryFilter & {
-  album?: string | null;
-  decade?: number | "unknown" | null;
-  latestSyncOnly?: boolean;
-};
-export type Sort =
-  "newest" | "oldest" | "title" | "artist" | "album" | "year" | "random";
+export type FastFilter = LibraryFilter;
+export type Sort = LibrarySort;
 export type Facet = "artist" | "album" | "decade";
 export type Group = {
   value: string;
@@ -145,7 +142,7 @@ export function manage(value: unknown) {
   const v = object(value);
   return {
     ...managePreview(v),
-    actionId: v.actionId === null ? null : string(v.actionId),
+    actionId: v.actionId === null ? null : parseId(v.actionId),
     changedCount: count(v.changedCount),
     tag: v.tag === null ? null : tag(v.tag),
   };
@@ -172,5 +169,12 @@ export function facetFilter(
                   ? "unknown"
                   : Number(value),
           }),
+  };
+}
+export function acknowledged(value: unknown) {
+  const v = object(value);
+  return {
+    revision: parseLibraryRevision(v.revision),
+    changedCount: count(v.changedCount),
   };
 }

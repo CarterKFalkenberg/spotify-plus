@@ -178,7 +178,7 @@ async function choose(page: Page, label = "Add All of tag") {
   await page.getByLabel(label, { exact: true }).fill("Synthetic");
   await page
     .locator(".suggestions")
-    .getByRole("button", { name: "Synthetic tag 1 3 songs" })
+    .getByRole("option", { name: "Synthetic tag 1 3 songs" })
     .click();
 }
 async function builder(page: Page) {
@@ -480,7 +480,7 @@ test("import browsing stays available while create is gated; manual sync and new
   ).toContain("manual");
   await page.getByRole("button", { name: "2 new", exact: true }).click();
   await expect(
-    page.getByText("Showing new additions.", { exact: false }),
+    page.getByRole("heading", { name: "Tagging queue", exact: true }),
   ).toBeVisible();
   await expect
     .poll(
@@ -490,6 +490,7 @@ test("import browsing stays available while create is gated; manual sync and new
     )
     .toBe(true);
   if (!isMobile) {
+    await library(page);
     await page.getByLabel("Untagged", { exact: true }).check();
     await page.getByLabel("Search your library").fill("Synthetic");
   }

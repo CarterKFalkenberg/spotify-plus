@@ -63,9 +63,9 @@ function FacetSelect({
         : filter.decade;
   return (
     <label>
-      {facet[0]?.toUpperCase()}
-      {facet.slice(1)}
+      {`${facet[0]?.toUpperCase()}${facet.slice(1)}`}
       <select
+        aria-label={`${facet[0]?.toUpperCase()}${facet.slice(1)}`}
         value={value ?? ""}
         onChange={(e) =>
           onChange(facetFilter(filter, facet, e.target.value || null))

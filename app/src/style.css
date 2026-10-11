@@ -1119,3 +1119,32 @@ dialog::backdrop {
     min-width: 130px;
   }
 }
+.suggestions > .suggestion-selected {
+  background: #eaf0df;
+}
+.suggestions [role="option"] {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  border: 0;
+  padding: 8px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.suggestions [role="option"]:hover,
+.suggestions [role="option"][aria-selected="true"] {
+  background: #eaf0df;
+}
+.suggestion-prefix {
+  font-size: 11px;
+  padding: 8px;
+  color: #6b7a57;
+}
+.queue-card .suggestions {
+  position: relative;
+  top: auto;
+  margin-top: 6px;
+  box-shadow: none;
+}
