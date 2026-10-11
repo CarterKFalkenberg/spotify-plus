@@ -1,6 +1,9 @@
 export interface Database {
   rpc<T>(name: string, arguments_?: Record<string, unknown>): Promise<T>;
 }
+// PostgREST returns 204 for these SQL `returns void` contracts. Every other RPC
+// must return JSON, so an unexpected empty success remains a boundary failure.
+const VOID_RPCS = new Set(["app_jobs_started", "app_pacing_defer"]);
 // Deliberately expose RPCs only; durable changes belong in database transactions.
 export class ServiceDatabase implements Database {
   constructor(
@@ -36,6 +39,7 @@ export class ServiceDatabase implements Database {
         }
         throw new DatabaseError("unavailable");
       }
+      if (response.status === 204 && VOID_RPCS.has(name)) return undefined as T;
       return await response.json() as T;
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
