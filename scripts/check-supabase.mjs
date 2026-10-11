@@ -58,7 +58,7 @@ function command(executable, args, input = undefined) {
         if (executable === "deno") {
           try {
             const result = JSON.parse(errors.trim());
-            if (/^local_rest_[a-z_]+_failed$/.test(result.blocker))
+            if (/^local_(rest|backup)_[a-z_]+_failed$/.test(result.blocker))
               blocker = result.blocker;
           } catch {
             /* Preserve a fixed blocker for unexpected tool output. */
@@ -250,6 +250,41 @@ enabled = false
     restProof.assertions < 1
   )
     throw new Error("local_rest_proof_missing");
+  // The existing REST proof leaves the synthetic owner disconnected. Load the
+  // backup-only fixture afterward so its real Storage/restore checks cannot
+  // replace or alter the earlier authentication/library/playlist assertions.
+  await sql(
+    readFileSync(
+      resolve(fixture, "supabase/tests/database/rest-backups-fixture.sql"),
+      "utf8",
+    ),
+  );
+  const backupProof = JSON.parse(
+    await command(
+      "deno",
+      [
+        "run",
+        "--no-prompt",
+        "--no-remote",
+        "--allow-net=127.0.0.1:61021",
+        resolve(fixture, "supabase/tests/database/rest-backups.ts"),
+      ],
+      JSON.stringify({
+        origin: localStatus.API_URL,
+        serviceKey: localStatus.SERVICE_ROLE_KEY,
+      }),
+    ),
+  );
+  if (
+    backupProof.status !== "passed" ||
+    !Number.isInteger(backupProof.assertions) ||
+    backupProof.assertions < 1 ||
+    !Number.isInteger(backupProof.storageRaceIterations) ||
+    backupProof.storageRaceIterations < 4 ||
+    backupProof.isolatedRestore !== true ||
+    backupProof.lateUploadRejected !== true
+  )
+    throw new Error("local_backup_proof_missing");
   const result = await sql(`select json_build_object(
     'cron',exists(select 1 from pg_extension where extname='pg_cron'),
     'net',exists(select 1 from pg_extension where extname='pg_net'),
@@ -310,6 +345,7 @@ enabled = false
       snapshotSha: snapshot.digest("hex"),
       ...assertions,
       rest: restProof,
+      annotationBackups: backupProof,
       scheduledAuthenticatedHttp: true,
       scheduledResponseCorrelated: true,
       browserRequired: false,

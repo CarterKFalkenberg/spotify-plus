@@ -17,6 +17,7 @@ export interface JobContext {
   now?: () => number;
   library?: FeatureJob;
   playlist?: FeatureJob;
+  annotationBackup?: FeatureJob;
 }
 export async function drainJobs(
   context: JobContext,
@@ -60,7 +61,46 @@ export async function drainJobs(
           });
           continue;
         }
-        if (!await backups.purge()) throw new Error("backup_purge_pending");
+        const paths = await db.rpc<string[]>("app_backup_purge_targets", {
+          p_epoch: job.payload.epoch,
+        });
+        const work = { deadline: deadline - 10000, now };
+        if (now() >= work.deadline) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: 1000,
+          });
+          continue;
+        }
+        if (
+          !await backups.purge(
+            paths,
+            work,
+            (path) =>
+              db.rpc<boolean>("app_backup_purge_checkpoint", {
+                p_epoch: job.payload.epoch,
+                p_id: job.id,
+                p_lease: job.leaseToken,
+                p_path: path,
+              }),
+          )
+        ) {
+          throw new Error("backup_purge_pending");
+        }
+        const remaining = await db.rpc<string[]>("app_backup_purge_targets", {
+          p_epoch: job.payload.epoch,
+        });
+        if (remaining.length || now() >= work.deadline) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: 1000,
+          });
+          continue;
+        }
         if (
           !await db.rpc<boolean>("app_job_renew", {
             p_id: job.id,
@@ -89,6 +129,18 @@ export async function drainJobs(
             p_outcome: "queued",
             p_retry_ms: result.retryMs ?? 1000,
             p_error: (result.retryMs ?? 0) >= 60000 ? "library_unstable" : null,
+          });
+          continue;
+        }
+      } else if (job.kind === "annotation_backup" && context.annotationBackup) {
+        const result = await context.annotationBackup(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
           });
           continue;
         }

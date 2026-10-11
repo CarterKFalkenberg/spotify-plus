@@ -1,6 +1,6 @@
 import { mockResponse } from "./testing.ts";
 import { PrivateBackups } from "./backups.ts";
-import { equal, rejects } from "./testing.ts";
+import { assert, equal, rejects } from "./testing.ts";
 Deno.test("backup purge uses fixed private Storage bucket API then verifies emptiness", async () => {
   const calls: string[] = [];
   const backups = new PrivateBackups(
@@ -33,4 +33,162 @@ Deno.test("backup purge never treats remaining objects or provider errors as suc
       ).purge(),
     (e) => e instanceof Error && e.message === "backup_storage_unavailable",
   );
+});
+Deno.test("snapshot buckets are created only on an explicit once-only grant and uploads never recreate them", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  const calls: string[] = [];
+  let exists = true;
+  const backups = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    (url, init) => {
+      const route = new URL(String(url)).pathname;
+      calls.push(`${init?.method ?? "GET"} ${route}`);
+      if (
+        route.endsWith("/bucket") && init?.method === "POST"
+      ) return mockResponse("{}");
+      if (route.includes("/bucket/")) {
+        return exists
+          ? mockResponse(
+            JSON.stringify({
+              public: false,
+              file_size_limit: 5242880,
+              allowed_mime_types: ["application/octet-stream"],
+            }),
+          )
+          : mockResponse("{}", { status: 404 });
+      }
+      return mockResponse("{}", { status: 404 });
+    },
+  );
+  equal(await backups.ensure(path, false), true);
+  assert(!calls.some((call) => call === "POST /storage/v1/bucket"));
+  calls.length = 0;
+  equal(await backups.ensure(path, true), true);
+  equal(calls.filter((call) => call === "POST /storage/v1/bucket").length, 1);
+  calls.length = 0;
+  exists = false;
+  equal(await backups.ensure(path, false), false);
+  await rejects(() => backups.upload(path, "late"));
+  assert(!calls.some((call) => call === "POST /storage/v1/bucket"));
+});
+Deno.test("retirement requires actual bucket disappearance and does not treat provider errors as absence", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  let deleted = false;
+  const backups = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    (_url, init) => {
+      if (init?.method === "DELETE") {
+        deleted = true;
+        return mockResponse("{}");
+      }
+      if (init?.method === "POST") return mockResponse("{}");
+      return mockResponse("{}", deleted ? { status: 404 } : {});
+    },
+  );
+  equal(await backups.retire(path), true);
+  await rejects(() =>
+    new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse("{}", { status: 403 }),
+    ).retire(path)
+  );
+  const stillPresent = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    () => mockResponse("{}"),
+  );
+  equal(await stillPresent.retire(path), false);
+});
+Deno.test("Storage cleanup rejects unbounded batches and stops provider work at its remaining deadline", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  let calls = 0, clock = 0;
+  const backups = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    () => {
+      calls++;
+      clock += 10000;
+      return mockResponse("{}");
+    },
+  );
+  await rejects(() => backups.remove([path, path]));
+  equal(calls, 0);
+  await rejects(() => backups.purge([path, path]));
+  equal(calls, 0);
+  await rejects(() =>
+    backups.retire(path, { deadline: 15000, now: () => clock })
+  );
+  equal(calls, 2);
+});
+Deno.test("purge persists target absence before a later legacy cleanup failure", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  let checkpoints = 0;
+  const backups = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    (url) =>
+      String(url).includes("/empty")
+        ? mockResponse("{}", { status: 500 })
+        : mockResponse("{}", { status: 404 }),
+  );
+  await rejects(() =>
+    backups.purge([path], undefined, (confirmed) => {
+      equal(confirmed, path);
+      checkpoints++;
+      return Promise.resolve(true);
+    })
+  );
+  equal(checkpoints, 1);
+});
+Deno.test("Storage semantic 404 inside HTTP 400 is absence, while other 400 responses remain failures", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  for (
+    const body of [
+      { statusCode: "404", code: "NoSuchKey", error: "not_found" },
+      { statusCode: 404, error: "not_found" },
+      { code: "NoSuchBucket", message: "Bucket not found" },
+    ]
+  ) {
+    const backups = new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse(JSON.stringify(body), { status: 400 }),
+    );
+    equal(await backups.read(path), null);
+  }
+  for (
+    const body of [{
+      statusCode: "404",
+      code: "NoSuchBucket",
+      error: "Bucket not found",
+    }, { statusCode: 404, error: "Bucket not found" }]
+  ) {
+    const backups = new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse(JSON.stringify(body), { status: 400 }),
+    );
+    equal(await backups.retire(path), true);
+  }
+  for (
+    const body of [
+      { statusCode: "403", code: "NoSuchKey" },
+      { statusCode: "403", error: "Unauthorized" },
+      { statusCode: "400", code: "InvalidRequest" },
+      { statusCode: "404", code: "TenantNotFound" },
+      null,
+      [],
+    ]
+  ) {
+    const backups = new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse(JSON.stringify(body), { status: 400 }),
+    );
+    await rejects(() => backups.read(path));
+    await rejects(() => backups.retire(path));
+  }
 });

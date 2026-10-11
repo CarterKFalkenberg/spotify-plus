@@ -1,3 +1,7 @@
+import {
+  AnnotationBackupCodec,
+  annotationBackupJob,
+} from "../_shared/annotation-backups.ts";
 import { runtimeConfig } from "../_shared/config.ts";
 import { SecretBox } from "../_shared/crypto.ts";
 import { ServiceDatabase } from "../_shared/database.ts";
@@ -10,10 +14,16 @@ declare const EdgeRuntime: { waitUntil(task: Promise<unknown>): void };
 const config = runtimeConfig();
 const db = new ServiceDatabase(config.supabaseUrl, config.serviceKey);
 const box = new SecretBox(config.tokenEncryptionKey);
+const backups = new PrivateBackups(config.supabaseUrl, config.serviceKey);
 const jobs = {
   db,
   sha: config.sha,
-  backups: new PrivateBackups(config.supabaseUrl, config.serviceKey),
+  backups,
+  annotationBackup: annotationBackupJob(
+    db,
+    backups,
+    new AnnotationBackupCodec(new SecretBox(config.backupEncryptionKey)),
+  ),
   library: createLibraryRunner({
     db,
     annotationBox: new SecretBox(config.annotationKey),
