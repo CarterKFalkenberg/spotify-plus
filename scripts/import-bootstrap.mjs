@@ -37,6 +37,10 @@ export async function importBootstrap(root) {
   }
   let grant = readJson(path);
   requireCheck(
+    !Object.hasOwn(grant, "refreshAttemptedAt"),
+    "bootstrap_refresh_ambiguous_reconnect_required",
+  );
+  requireCheck(
     grant.clientId === config.spotifyClientId &&
       grant.userId === config.spotifyExpectedUserId &&
       typeof grant.accountId === "string" &&
@@ -44,40 +48,64 @@ export async function importBootstrap(root) {
     "bootstrap_grant_mismatch",
   );
   if (!(Date.parse(grant.accessExpiresAt) > Date.now() + 60_000)) {
-    const response = await privateFetch(
-      "https://accounts.spotify.com/api/token",
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: config.spotifyClientId,
-          refresh_token: grant.refreshToken,
-        }),
-      },
-    );
-    requireCheck(response.ok, "bootstrap_refresh_failed_no_import");
-    const tokens = await response.json();
-    requireCheck(
-      typeof tokens.access_token === "string" &&
-        tokens.access_token.length > 0 &&
-        Number.isFinite(tokens.expires_in) &&
-        tokens.expires_in > 0 &&
-        (tokens.refresh_token === undefined ||
-          (typeof tokens.refresh_token === "string" &&
-            tokens.refresh_token.length > 0)),
-      "bootstrap_refresh_ambiguous_reconnect_required",
-    );
-    grant = {
+    // Save before dispatch so a crash/lost response cannot replay a possibly
+    // rotated refresh token. A fresh setup OAuth grant replaces this whole file.
+    privateJson(path, {
       ...grant,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? grant.refreshToken,
-      accessExpiresAt: new Date(
-        Date.now() + tokens.expires_in * 1000,
-      ).toISOString(),
-    };
-    // Persist rotation before anything that can fail later. authorizedAt remains original.
-    privateJson(path, grant);
+      refreshAttemptedAt: new Date().toISOString(),
+    });
+    try {
+      const response = await privateFetch(
+        "https://accounts.spotify.com/api/token",
+        {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: config.spotifyClientId,
+            refresh_token: grant.refreshToken,
+          }),
+        },
+      );
+      const tokens = await response.json();
+      if (response.status === 400 && tokens?.error === "invalid_grant") {
+        // A definitive OAuth refusal did not rotate the grant.
+        privateJson(path, grant);
+        requireCheck(false, "bootstrap_refresh_rejected_reconnect_required");
+      }
+      requireCheck(
+        response.ok &&
+          tokens !== null &&
+          typeof tokens === "object" &&
+          typeof tokens.access_token === "string" &&
+          tokens.access_token.length > 0 &&
+          Number.isSafeInteger(tokens.expires_in) &&
+          tokens.expires_in > 0 &&
+          tokens.expires_in <= 86400 &&
+          (tokens.refresh_token === undefined ||
+            (typeof tokens.refresh_token === "string" &&
+              tokens.refresh_token.length > 0)),
+        "bootstrap_refresh_ambiguous_reconnect_required",
+      );
+      const refreshed = {
+        ...grant,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? grant.refreshToken,
+        accessExpiresAt: new Date(
+          Date.now() + tokens.expires_in * 1000,
+        ).toISOString(),
+      };
+      // Clear the marker only with the safely saved rotation. authorizedAt stays original.
+      privateJson(path, refreshed);
+      grant = refreshed;
+    } catch (error) {
+      requireCheck(
+        false,
+        error.code === "bootstrap_refresh_rejected_reconnect_required"
+          ? error.code
+          : "bootstrap_refresh_ambiguous_reconnect_required",
+      );
+    }
   }
   const response = await privateFetch(url, {
     method: "POST",

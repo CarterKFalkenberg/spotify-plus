@@ -70,13 +70,23 @@ it("persists refresh rotation and original authorization date before importing, 
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init) => {
-      if (String(url).includes("accounts.spotify.com"))
+      if (String(url).includes("accounts.spotify.com")) {
+        const marked = JSON.parse(readFileSync(path, "utf8"));
+        expect(Number.isFinite(Date.parse(marked.refreshAttemptedAt))).toBe(
+          true,
+        );
+        expect(marked.authorizedAt).toBe(grant.authorizedAt);
+        expect(statSync(path).mode & 0o777).toBe(0o600);
         return Response.json({
           access_token: "fresh-synthetic-access",
           refresh_token: "rotated-synthetic-refresh",
           expires_in: 3600,
         });
+      }
       if (init.method === "POST") {
+        expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty(
+          "refreshAttemptedAt",
+        );
         expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
           refreshToken: "rotated-synthetic-refresh",
           authorizedAt: grant.authorizedAt,
@@ -176,4 +186,171 @@ it("a success body without a secure session cookie cannot create a local owner s
   );
   expect(existsSync(resolve(local, "owner-session.json"))).toBe(false);
   expect(existsSync(path)).toBe(true);
+});
+
+for (const outcome of [
+  "lost response",
+  "malformed JSON",
+  "incomplete grant",
+  "null grant",
+  "date overflow",
+  "expiry beyond one day",
+  "fractional expiry",
+]) {
+  it(`an ambiguous refresh (${outcome}) durably prevents a second refresh or import`, async () => {
+    const { root, local, path, grant } = fixture();
+    let refreshes = 0,
+      imports = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init) => {
+        if (String(url).includes("accounts.spotify.com")) {
+          refreshes++;
+          expect(JSON.parse(readFileSync(path, "utf8"))).toHaveProperty(
+            "refreshAttemptedAt",
+          );
+          if (outcome === "lost response")
+            throw new TypeError("synthetic lost response");
+          if (outcome === "malformed JSON") return new Response("{");
+          if (outcome === "null grant") return Response.json(null);
+          if (
+            [
+              "date overflow",
+              "expiry beyond one day",
+              "fractional expiry",
+            ].includes(outcome)
+          )
+            return Response.json({
+              access_token: "possibly-rotated",
+              refresh_token: "new-refresh",
+              expires_in:
+                outcome === "date overflow"
+                  ? 1e308
+                  : outcome === "expiry beyond one day"
+                    ? 86401
+                    : 3600.5,
+            });
+          return Response.json({
+            access_token: "possibly-rotated",
+            expires_in: 3600,
+            refresh_token: "",
+          });
+        }
+        if (init.method === "POST") imports++;
+        return Response.json({ consumed: false });
+      }),
+    );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(importBootstrap(root)).rejects.toThrow(
+        "bootstrap_refresh_ambiguous_reconnect_required",
+      );
+    }
+    expect(refreshes).toBe(1);
+    expect(imports).toBe(0);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+      ...grant,
+      refreshAttemptedAt: expect.any(String),
+    });
+    expect(existsSync(resolve(local, "owner-session.json"))).toBe(false);
+    expect(existsSync(resolve(local, "spotify-bootstrap-consumed.json"))).toBe(
+      false,
+    );
+  });
+}
+for (const accessExpiresAt of [
+  "2020-01-01T00:00:00Z",
+  "2099-01-01T00:00:00Z",
+]) {
+  it(`a surviving crash marker blocks refresh and import regardless of access expiry (${accessExpiresAt})`, async () => {
+    const { root, path, grant } = fixture();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        ...grant,
+        accessExpiresAt,
+        refreshAttemptedAt: "2026-10-11T00:00:00Z",
+      }),
+    );
+    const fetch = vi.fn(async (url, init) => {
+      expect(String(url)).not.toContain("accounts.spotify.com");
+      expect(init.method).not.toBe("POST");
+      return Response.json({ consumed: false });
+    });
+    vi.stubGlobal("fetch", fetch);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(importBootstrap(root)).rejects.toThrow(
+        "bootstrap_refresh_ambiguous_reconnect_required",
+      );
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toHaveProperty(
+      "refreshAttemptedAt",
+    );
+  });
+}
+it("a fresh setup grant replaces the uncertain file and restores normal import", async () => {
+  const { root, path, grant } = fixture();
+  writeFileSync(
+    path,
+    JSON.stringify({ ...grant, refreshAttemptedAt: "2026-10-11T00:00:00Z" }),
+  );
+  let consumed = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init) => {
+      expect(String(url)).not.toContain("accounts.spotify.com");
+      if (init.method === "POST") {
+        const imported = JSON.parse(init.body);
+        expect(imported.authorizedAt).toBe("2026-10-11T12:00:00Z");
+        expect(imported.refreshToken).toBe("new-consent-refresh");
+        expect(imported).not.toHaveProperty("refreshAttemptedAt");
+        consumed = true;
+        return Response.json(
+          { consumed },
+          {
+            headers: {
+              "set-cookie": `__Host-sp_session=${"b".repeat(43)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
+            },
+          },
+        );
+      }
+      return Response.json({ consumed });
+    }),
+  );
+  await expect(importBootstrap(root)).rejects.toThrow(
+    "bootstrap_refresh_ambiguous_reconnect_required",
+  );
+  // connect-spotify writes a complete new helper grant instead of spreading old fields.
+  writeFileSync(
+    path,
+    JSON.stringify({
+      ...grant,
+      authorizedAt: "2026-10-11T12:00:00Z",
+      accessToken: "new-consent-access",
+      refreshToken: "new-consent-refresh",
+      accessExpiresAt: "2099-01-01T00:00:00Z",
+    }),
+  );
+  expect(await importBootstrap(root)).toEqual({
+    consumed: true,
+    previouslyCommitted: false,
+    sessionIssued: true,
+  });
+  expect(existsSync(path)).toBe(false);
+});
+it("a definitive invalid_grant refusal clears only the attempt marker and never imports", async () => {
+  const { root, path, grant } = fixture();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init) => {
+      if (String(url).includes("accounts.spotify.com"))
+        return Response.json({ error: "invalid_grant" }, { status: 400 });
+      expect(init.method).not.toBe("POST");
+      return Response.json({ consumed: false });
+    }),
+  );
+  await expect(importBootstrap(root)).rejects.toThrow(
+    "bootstrap_refresh_rejected_reconnect_required",
+  );
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(grant);
 });

@@ -121,7 +121,7 @@ The user started the native goal on October 11, 2026 after setup/preflight had p
 node scripts/connect-spotify.mjs
 ```
 
-Open the printed URL, verify the Spotify account and consent. Keep port 3000 free. The helper validates state/account/scopes and saves `.local/spotify-bootstrap.json` with mode 600. It reads only account identity and makes no playlist changes.
+Open the printed URL, verify the Spotify account and consent. Keep port 3000 free. The helper validates state/account/scopes and saves `.local/spotify-bootstrap.json` with mode 600. It reads only account identity and makes no playlist changes. If the import helper reports `bootstrap_refresh_ambiguous_reconnect_required`, a previous refresh may have rotated the token before its response was lost. Do not remove the saved `refreshAttemptedAt` marker or retry the old grant. Complete this setup OAuth flow again; the new grant replaces the entire marked file and allows import to proceed safely.
 
 ```sh
 ./scripts/build --check
