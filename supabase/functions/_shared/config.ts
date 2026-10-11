@@ -30,6 +30,7 @@ export function runtimeConfig() {
     ownerBindingKey: requiredEnv("OWNER_BINDING_KEY"),
     tokenEncryptionKey: requiredEnv("TOKEN_ENCRYPTION_KEY"),
     annotationKey: requiredEnv("ANNOTATION_KEY"),
+    backupEncryptionKey: requiredEnv("BACKUP_ENCRYPTION_KEY"),
     supabaseUrl: requiredEnv("SUPABASE_URL"),
     serviceKey: requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
   };

@@ -59,6 +59,7 @@ export function deploymentFiles(config, keys, sha, root) {
     OWNER_BINDING_KEY: keys.ownerBindingKey,
     TOKEN_ENCRYPTION_KEY: keys.tokenEncryptionKey,
     ANNOTATION_KEY: keys.annotationKey,
+    BACKUP_ENCRYPTION_KEY: keys.backupEncryptionKey,
     PROXY_SECRET: keys.proxySecret,
     CRON_SECRET: keys.cronSecret,
     BOOTSTRAP_SECRET: keys.bootstrapSecret,
