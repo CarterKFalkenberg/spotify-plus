@@ -31,3 +31,20 @@ The user subsequently requested the complete MVP build, deployment, verification
 - Every PR still requires the installed two-axis `code-review`, final `pr-writing`, passing CI and resolved conversations on the exact head, up-to-date integration checks and an expected-head merge. New changes invalidate affected review evidence. Application milestones still require deployment and redacted live verification; smaller task PRs do not complete a milestone by themselves.
 
 Before software completion, perform a deep independent architecture/repository review, fix concrete findings through reviewed PRs, and rerun affected checks plus final end-to-end and deployed smoke verification. The final deployment must correspond to final merged code. Shut down the temporary review automation before ending the goal. Keep actual phone timing and personal tagging-speed acceptance pending for the user's return; they do not require an indefinitely running software-build goal. These instructions preserve the original MVP and all privacy, cost, authorization and product-acceptance constraints.
+
+## Model roles and review heartbeat correction — October 11, 2026
+
+The user later corrected the earlier native-goal model assignment: `gpt-6-astra`
+owns orchestration and review, including both per-PR Standards/Spec axes and the
+scheduled reviewer. Implementation exclusively uses `gpt-6.1-sol`. This supersedes
+the earlier role assignment above; historical results and evidence remain unchanged.
+The subsequent human correction sets Medium reasoning effort for every role,
+including implementation, orchestration, both review axes and the scheduled reviewer.
+
+The orchestrator replaced the standalone new-chat-per-run review cron with an
+ACTIVE five-minute `spotify-plus-build-review` heartbeat in the existing dedicated
+review chat `01a12ce4-03c8-7100-b8c3-f6faf1b10368`. The heartbeat inherits the chat's
+model and effort, set to Astra/Medium through the supported tool. This records the reported supported
+configuration change, not proof that a particular review ran; inspect actual
+schedule state and the independent ledger when resuming. Ownership, privacy,
+review gates and final automation shutdown requirements remain in force.
