@@ -7,6 +7,7 @@ import {
   parseLibrarySync,
   parseQueryPreview,
   parseTagAction,
+  parseTagLookup,
   parseTagSearch,
   parseUndoTagAction,
 } from "../_shared/contracts.ts";
@@ -81,6 +82,15 @@ export async function libraryApi(
     const request = parseCreateTag(await readJson(req));
     return json(
       await db.rpc("app_tag_create", { p_epoch: epoch, p_name: request.name }),
+    );
+  }
+  if (path === "/api/tags/lookup") {
+    const request = parseTagLookup(await readJson(req));
+    return json(
+      await db.rpc("app_tags_lookup", {
+        p_epoch: epoch,
+        p_tag_ids: request.tagIds,
+      }),
     );
   }
   if (path === "/api/tag-actions") {

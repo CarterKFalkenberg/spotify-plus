@@ -43,6 +43,7 @@ library. SQL evaluation must use these semantics and separately limit membership
 | Track keys | Exactly 64 lowercase hex characters; opaque to the browser, with server-only derivation and ownership lookup |
 | Revisions | Canonical decimal strings from `0` through PostgreSQL's signed bigint maximum; JSON numbers would lose precision |
 | Explicit selection / acknowledgement | 1–200 distinct keys; use a filter selection for larger bulk actions, and batches for acknowledgement |
+| Tag ID lookup | 1–200 distinct UUIDs; resolves assigned or stored-query tag names beyond the autocomplete page |
 | Pages | 1–100 rows or groups; first cursor is `null`, later opaque base64url cursor is 16–512 characters |
 | Search | At most 200 Unicode code points after NFC and whitespace normalization |
 | Tag / playlist name | Nonempty; at most 80 / 100 normalized Unicode code points, preserving display casing, punctuation, accents, digits and emoji |
@@ -91,6 +92,19 @@ assignment is a no-op. Undo identifies a server-recorded action and restores onl
 its changed edges that have not been superseded by later edits; counts distinguish
 restored and skipped edges. It never accepts a client-provided previous snapshot.
 
+An Add action accepts exactly one of `tagId` or `tagName`; Remove requires
+`tagId`. Name-based Add freezes and validates the supplied selection before
+creating vocabulary in the same owner/session transaction. It then creates or
+resolves the normalized tag identity and applies the normal changed-only action.
+Stale or missing selections roll back without orphan tags; a filter selecting zero
+tracks fails with `unknown_track` for name-based Add. Existing ID-based actions
+retain their semantics. Every `TagActionResponse` includes the resolved `tag:
+TagDTO` for immediate display, alongside `actionId`, `selectedCount`,
+`changedCount` and `revision`. UI must use this single operation when creating and
+applying a tag to a frozen group, instead of separately creating vocabulary and
+replacing the selection's expected revision. Undo changes assignments only; the
+created vocabulary identity remains available for reuse.
+
 The core filter is explicit active/removed membership, normalized free text,
 untagged, new-only, and an optional exact Spotify artist ID. Search matches cached
 track title, artist names and album locally, case-insensitively; persistence owns
@@ -123,12 +137,23 @@ remaining GET defaults are applied by their handlers as noted below.
 | `POST /library/acknowledge` | `parseAcknowledge` | `AcknowledgeResponse` |
 | `GET /tags?search=&limit=20` | `parseTagSearch`; defaults empty search and 20 | `TagSearchResponse` with `hasMore` |
 | `POST /tags` | `parseCreateTag` | `CreateTagResponse`, returning an existing identity on normalized-name collision |
-| `POST /tag-actions` | `parseTagAction`, explicit `add` or `remove` | `TagActionResponse` with server action ID and changed count |
+| `POST /tags/lookup` | `parseTagLookup`, `{tagIds: string[]}` | `TagLookupResponse` with ordered `tags` and current `revision` |
+| `POST /tag-actions` | `parseTagAction`, `add` with `tagId` or `tagName`; `remove` with `tagId` | `TagActionResponse` with resolved tag, server action ID and changed count |
 | `POST /tag-actions/:id/undo` | `parseUndoTagAction`, empty JSON object | `UndoTagActionResponse` |
 | `POST /query/preview` | `parseQueryPreview` | `QueryPreviewResponse` |
 | `GET /playlists?limit=50` (optional cursor) | `parsePageRequest`; handler defaults absent cursor to null and limit to 50 | `PlaylistListResponse` |
 | `POST /playlists` | `parseCreatePlaylist` | `PlaylistMutationResponse` |
 | `POST /playlists/:id/actions` | `parsePlaylistAction` | `PlaylistMutationResponse` |
+
+Tag lookup returns explicit `TagDTO` projections in request order. Duplicate IDs
+(including case-normalized duplicates) fail validation. Any missing, deleted or
+other-owner ID rejects the entire request with `unknown_tag` (409), without partial
+names. UI refreshes the affected library or playlist state after this conflict and
+shows removed-tag feedback if a stored query still references the ID; it must not
+invent placeholder names. Lookup follows the same authenticated epoch, origin and
+16 KiB body boundaries as other POST routes. Existing `GET /tags` search and
+`hasMore` semantics remain unchanged; callers can batch known IDs without needing
+to know their names or enumerate the vocabulary.
 
 No DTO contains tokens, session IDs, account IDs, owner epochs, leases, management
 keys or raw provider payloads. Timestamps are UTC ISO instants. `expiresOn` is a

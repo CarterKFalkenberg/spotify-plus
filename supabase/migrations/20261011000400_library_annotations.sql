@@ -288,6 +288,24 @@ create function public.app_tags_search(p_epoch bigint,p_search text default '',p
   return jsonb_build_object('tags',rows,'hasMore',total>p_limit,'revision',app.library_revision());
  end;
 $$;
+-- ID lookup is separate from bounded autocomplete: every requested current-owner ID
+-- must exist, and output follows request order with no raw database row spreading.
+create function public.app_tags_lookup(p_epoch bigint,p_tag_ids jsonb) returns jsonb
+ language plpgsql security definer set search_path='' as $$
+ declare ids uuid[]; rows jsonb;
+ begin
+  perform app.require_owner(p_epoch);
+  if jsonb_typeof(p_tag_ids) is distinct from 'array' then raise exception 'invalid_input'; end if;
+  if jsonb_array_length(p_tag_ids) not between 1 and 200 then raise exception 'invalid_input'; end if;
+  if exists(select 1 from jsonb_array_elements(p_tag_ids) v where jsonb_typeof(v) is distinct from 'string'
+   or not coalesce(v#>>'{}' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',false)) then raise exception 'invalid_input'; end if;
+  select array_agg(value::uuid order by ordinality) into ids from jsonb_array_elements_text(p_tag_ids) with ordinality;
+  if cardinality(ids)<>(select count(distinct id) from unnest(ids) id) then raise exception 'invalid_input'; end if;
+  if exists(select 1 from unnest(ids) requested where not exists(select 1 from app.tags t where t.id=requested and t.epoch=p_epoch)) then raise exception 'unknown_tag'; end if;
+  select jsonb_agg(app.tag_dto(id) order by ordinality) into rows from unnest(ids) with ordinality as requested(id,ordinality);
+  return jsonb_build_object('tags',rows,'revision',app.library_revision());
+ end;
+$$;
 create function public.app_tag_create(p_epoch bigint,p_name text) returns jsonb
  language plpgsql security definer set search_path='' as $$
  declare tag_id uuid; created boolean:=false; normalized text;
@@ -319,13 +337,24 @@ create function app.selection_keys(p_epoch bigint,p_selection jsonb) returns tex
 $$;
 create function public.app_tag_action(p_epoch bigint,p_session_hash text,p_request jsonb) returns jsonb
  language plpgsql security definer set search_path='' as $$
- declare keys text[]; v_tag_id uuid:=(p_request->>'tagId')::uuid; desired boolean; action_id uuid; changed integer:=0; key text; old_edge app.track_tags; next_version bigint;
+ declare keys text[]; v_tag_id uuid; resolved jsonb; desired boolean; action_id uuid; changed integer:=0; key text; old_edge app.track_tags; next_version bigint;
  begin
   perform app.require_owner(p_epoch);
   if not exists(select 1 from app.sessions where token_hash=p_session_hash and epoch=p_epoch and expires_at>now()) then raise exception 'inactive_epoch'; end if;
-  if not exists(select 1 from app.tags where id=v_tag_id and epoch=p_epoch) then raise exception 'unknown_tag'; end if;
-  if p_request->>'action' not in ('add','remove') then raise exception 'invalid_input'; end if;
-  desired:=p_request->>'action'='add'; keys:=app.selection_keys(p_epoch,p_request->'selection');
+  if p_request->>'action' is null or p_request->>'action' not in ('add','remove') then raise exception 'invalid_input'; end if;
+  desired:=p_request->>'action'='add';
+  if (p_request ? 'tagId') = (p_request ? 'tagName') or (p_request ? 'tagName' and not desired) then raise exception 'invalid_input'; end if;
+  -- Freeze the exact selection against the caller's revision BEFORE vocabulary creation
+  -- changes the annotation revision. Any later error rolls both changes back together.
+  keys:=app.selection_keys(p_epoch,p_request->'selection');
+  if p_request ? 'tagName' then
+   if cardinality(keys)=0 then raise exception 'unknown_track'; end if;
+   resolved:=public.app_tag_create(p_epoch,p_request->>'tagName');
+   v_tag_id:=(resolved->'tag'->>'id')::uuid;
+  else
+   v_tag_id:=(p_request->>'tagId')::uuid;
+   if not exists(select 1 from app.tags where id=v_tag_id and epoch=p_epoch) then raise exception 'unknown_tag'; end if;
+  end if;
   insert into app.tag_actions(epoch,session_hash,tag_id) values(p_epoch,p_session_hash,v_tag_id) returning id into action_id;
   foreach key in array keys loop
    select * into old_edge from app.track_tags where track_key=key and app.track_tags.tag_id=v_tag_id;
@@ -340,7 +369,7 @@ create function public.app_tag_action(p_epoch bigint,p_session_hash text,p_reque
    update app.library_state set annotation_revision=annotation_revision+1 where singleton and epoch=p_epoch;
    if desired then update app.tags set last_used_at=now() where id=v_tag_id and epoch=p_epoch; end if;
   end if;
-  return jsonb_build_object('actionId',action_id,'selectedCount',cardinality(keys),'changedCount',changed,'revision',app.library_revision());
+  return jsonb_build_object('actionId',action_id,'tag',app.tag_dto(v_tag_id),'selectedCount',cardinality(keys),'changedCount',changed,'revision',app.library_revision());
  end;
 $$;
 create function public.app_tag_undo(p_epoch bigint,p_session_hash text,p_action_id uuid) returns jsonb
