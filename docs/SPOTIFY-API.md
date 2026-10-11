@@ -28,6 +28,12 @@ All API paths below are relative to `https://api.spotify.com/v1`.
 
 The migration guide still contains some superseded field/app-limit statements and the endpoint reference can retain legacy schema fields. Follow dated later changelogs and validate actual responses rather than generating a broad client blindly from a schema. New applications are subject to the narrower dev-mode surface. [Migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide).
 
+### Empty playlist-items pagination — October 11, 2026
+
+The current [playlist-items reference](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items), read on October 11, describes the response `limit` as the maximum set by the request or default. The orchestrator's redacted live diagnostic for [issue #32](https://github.com/CarterKFalkenberg/spotify-plus/issues/32) nevertheless observed HTTP 200 for a newly created disposable playlist requested with `offset=0&limit=50`, returning `total:0`, `offset:0`, `limit:0`, `items:[]`, and `next:null`. Strict limit equality prevented the creation job from reaching population after it had recorded the remote playlist ID.
+
+The adapter therefore accepts a zero response limit only for that empty first, terminal playlist-items page. It retains the actual returned limit and requires the requested offset to match. All other pages still require an echoed limit, bounded item counts, and validated same-endpoint next URLs. Saved-track and playlist-collection contracts and every write guard remain unchanged. Synthetic adapter negatives and a runner/real-adapter transport regression cover creation, this empty read, population, and full ordered verification; authenticated recovery and deployed proof remain the orchestrator's responsibility.
+
 ## OAuth and scopes
 
 Setup and initial implementation request exactly:
