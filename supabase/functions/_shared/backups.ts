@@ -112,6 +112,28 @@ export class PrivateBackups implements BackupStorage, AnnotationObjectStorage {
     await this.call(`bucket/${id}`, "DELETE", undefined, work);
     return !await this.bucketExists(id, work);
   }
+  private async missing(
+    response: Response,
+    kind: "bucket" | "object",
+  ): Promise<boolean> {
+    if (response.status === 404) return true;
+    if (response.status !== 400) return false;
+    // Storage's REST error handler may wrap a semantic 404 in HTTP 400.
+    // Match only fixed missing-resource codes, never generic bad requests,
+    // authentication failures, timeouts or provider diagnostics.
+    // https://github.com/supabase/storage/blob/master/src/http/error-handler.ts
+    const body = await response.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+    if (
+      body.statusCode !== undefined && body.statusCode !== "404" &&
+      body.statusCode !== 404
+    ) return false;
+    if (body.code === "NoSuchBucket") return true;
+    if (kind === "object" && body.code === "NoSuchKey") return true;
+    return (body.statusCode === "404" || body.statusCode === 404) &&
+      (body.code === "not_found" || body.error === "not_found" ||
+        (kind === "bucket" && body.error === "Bucket not found"));
+  }
   private async bucketExists(id: string, work?: BackupWork): Promise<boolean> {
     try {
       const response = await this.request(
@@ -122,7 +144,7 @@ export class PrivateBackups implements BackupStorage, AnnotationObjectStorage {
           redirect: "error",
         },
       );
-      if (response.status === 404) return false;
+      if (await this.missing(response, "bucket")) return false;
       if (!response.ok) throw new Error();
       return true;
     } catch (error) {
@@ -158,7 +180,7 @@ export class PrivateBackups implements BackupStorage, AnnotationObjectStorage {
           redirect: "error",
         },
       );
-      if (response.status === 404) return null;
+      if (await this.missing(response, "object")) return null;
       if (
         !response.ok ||
         Number(response.headers.get("content-length") ?? 0) > MAX_BACKUP_BYTES

@@ -140,16 +140,20 @@ try {
     p_kind: "annotation_backup",
     p_epoch: epoch,
   });
-  await drainJobs({
+  const copied = await drainJobs({
     db,
     backups: storage,
     sha: "a".repeat(40),
     library,
     annotationBackup: annotationBackupJob(db, storage, codec),
   });
+  phase = "encrypted_daily_copy_worker";
+  check(copied.retried === 0 && copied.completed >= 1);
+  phase = "encrypted_daily_copy_record";
   const latest = await fixture("latest");
   check(typeof latest.id === "string");
   const path = backupPath({ epoch, id: latest.id });
+  phase = "encrypted_daily_copy_storage";
   const encrypted = await storage.read(path);
   check(encrypted !== null && !encrypted.includes("Synthetic"));
   phase = "isolated_restore";

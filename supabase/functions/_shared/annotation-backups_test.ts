@@ -8,7 +8,8 @@ import {
   validateSnapshot,
 } from "./annotation-backups.ts";
 import { SecretBox, sha256 } from "./crypto.ts";
-import { assert, database, equal, rejects } from "./testing.ts";
+import { assert, database, equal, mockResponse, rejects } from "./testing.ts";
+import { PrivateBackups } from "./backups.ts";
 const key = btoa("k".repeat(32));
 const codec = new AnnotationBackupCodec(new SecretBox(key));
 const id = "00000000-0000-4000-8000-000000000001";
@@ -394,4 +395,100 @@ Deno.test("slow bucket creation yields with its durable intent and cannot start 
   );
   equal(uploadsAllowed, 0);
   equal(objects.uploads, 0);
+});
+
+Deno.test("first daily copy handles actual Storage HTTP400 missing-object envelope and retains authenticated ciphertext", async () => {
+  const value = await fixture();
+  let state = "new",
+    bucket = false,
+    ciphertext: string | null = null,
+    committed = 0;
+  const objects = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    (url, init) => {
+      const route = new URL(String(url)).pathname;
+      if (route === "/storage/v1/bucket" && init?.method === "POST") {
+        bucket = true;
+        return mockResponse("{}");
+      }
+      if (route.includes("/bucket/")) {
+        return bucket
+          ? mockResponse(
+            JSON.stringify({
+              public: false,
+              file_size_limit: 5242880,
+              allowed_mime_types: ["application/octet-stream"],
+            }),
+          )
+          : mockResponse(
+            JSON.stringify({
+              statusCode: "404",
+              code: "NoSuchBucket",
+              error: "Bucket not found",
+            }),
+            { status: 400 },
+          );
+      }
+      if (route.includes("/object/") && init?.method === "POST") {
+        assert(bucket);
+        equal(new Headers(init.headers).get("x-upsert"), "false");
+        ciphertext = String(init.body);
+        return mockResponse("{}");
+      }
+      if (route.includes("/object/")) {
+        return ciphertext === null
+          ? mockResponse(
+            JSON.stringify({
+              statusCode: "404",
+              code: "NoSuchKey",
+              error: "not_found",
+              message: "Object not found",
+            }),
+            { status: 400 },
+          )
+          : mockResponse(ciphertext);
+      }
+      throw new Error("unexpected_storage_request");
+    },
+  );
+  const db = database((name) => {
+    if (name === "app_backup_retention") return [];
+    if (name === "app_backup_prepare") {
+      const { keyLink: _, ...snapshot } = value;
+      return { snapshot, encryptedKey, state };
+    }
+    if (name === "app_backup_bucket_start") {
+      state = "creating";
+      return true;
+    }
+    if (name === "app_backup_upload_allowed") {
+      state = "uploading";
+      return true;
+    }
+    if (name === "app_backup_commit") {
+      state = "retained";
+      committed++;
+      return true;
+    }
+    return true;
+  });
+  equal(
+    await annotationBackupJob(db, objects, codec)({
+      id,
+      epoch: 1,
+      kind: "annotation_backup",
+      attempts: 1,
+      leaseToken: tag,
+      payload: {},
+    }, Infinity),
+    { done: true, retryMs: 1000 },
+  );
+  equal(committed, 1);
+  assert(ciphertext !== null);
+  const decoded = await codec.decode(ciphertext, value);
+  equal(decoded.tags, value.tags);
+  equal(decoded.assignments, value.assignments);
+  equal(decoded.revision, value.revision);
+  equal(decoded.day, value.day);
 });

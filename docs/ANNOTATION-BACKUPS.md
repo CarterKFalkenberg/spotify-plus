@@ -46,7 +46,10 @@ is distinct from an application annotation copy.
 
 After bucket creation, the worker checks the exact snapshot identity, active
 account epoch and current SQL job lease before uploading. Uploads never create or
-overwrite buckets/objects. Lost upload acknowledgement is reconciled by reading
+overwrite buckets/objects. Missing-object and missing-bucket responses are
+classified from their fixed Storage codes, including a 404 error wrapped in
+HTTP 400 by the REST error handler. Generic bad requests and authentication/transport errors remain failures.
+Lost upload acknowledgement is reconciled by reading
 and authenticating the existing object before committing a successful copy.
 Before allocating any new daily target, the worker finishes pending retired-target
 cleanup; a prolonged deletion outage cannot accumulate new daily buckets.

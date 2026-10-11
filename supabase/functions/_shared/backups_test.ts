@@ -143,3 +143,52 @@ Deno.test("purge persists target absence before a later legacy cleanup failure",
   );
   equal(checkpoints, 1);
 });
+Deno.test("Storage semantic 404 inside HTTP 400 is absence, while other 400 responses remain failures", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  for (
+    const body of [
+      { statusCode: "404", code: "NoSuchKey", error: "not_found" },
+      { statusCode: 404, error: "not_found" },
+      { code: "NoSuchBucket", message: "Bucket not found" },
+    ]
+  ) {
+    const backups = new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse(JSON.stringify(body), { status: 400 }),
+    );
+    equal(await backups.read(path), null);
+  }
+  for (
+    const body of [{
+      statusCode: "404",
+      code: "NoSuchBucket",
+      error: "Bucket not found",
+    }, { statusCode: 404, error: "Bucket not found" }]
+  ) {
+    const backups = new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse(JSON.stringify(body), { status: 400 }),
+    );
+    equal(await backups.retire(path), true);
+  }
+  for (
+    const body of [
+      { statusCode: "403", code: "NoSuchKey" },
+      { statusCode: "403", error: "Unauthorized" },
+      { statusCode: "400", code: "InvalidRequest" },
+      { statusCode: "404", code: "TenantNotFound" },
+      null,
+      [],
+    ]
+  ) {
+    const backups = new PrivateBackups(
+      "https://synthetic.example",
+      "synthetic-service",
+      () => mockResponse(JSON.stringify(body), { status: 400 }),
+    );
+    await rejects(() => backups.read(path));
+    await rejects(() => backups.retire(path));
+  }
+});
