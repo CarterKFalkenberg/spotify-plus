@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import type {
+import {
   PlaylistListResponse,
   ManagedPlaylistDTO,
   Retention,
   PlaylistActionRequest,
   QueryNode,
+  parsePlaylistAction,
+  parseId,
 } from "../../supabase/functions/_shared/contracts";
 import {
   api,
   playlists,
   playlistMutation,
-  tags,
+  lookupTags,
   blockMessage,
   errorMessage,
+  rejectsIntent,
   ApiError,
 } from "./api";
 import { RetentionPicker } from "./Builder";
@@ -24,16 +27,35 @@ function date(value: string) {
     timeZone: "America/New_York",
   });
 }
+import { playlistIntentKey as intentKey } from "./intents";
+function readIntents(): Map<string, PlaylistActionRequest> {
+  try {
+    const raw = sessionStorage.getItem(intentKey);
+    return new Map(
+      raw
+        ? JSON.parse(raw).map(([id, intent]: [string, unknown]) => [
+            parseId(id),
+            parsePlaylistAction(intent),
+          ])
+        : [],
+    );
+  } catch {
+    return new Map();
+  }
+}
 export function Playlists({ refresh }: { refresh: number }) {
   const [data, setData] = useState<PlaylistListResponse | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [reconnect, setReconnect] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ManagedPlaylistDTO | null>(null);
   const [period, setPeriod] = useState<Retention>("month");
+  const lookupConflict = useRef<string | null>(null);
+  const [tagError, setTagError] = useState("");
   const [tagNames, setTagNames] = useState<Record<string, string>>({});
-  const intents = useRef(new Map<string, PlaylistActionRequest>());
+  const intents = useRef(readIntents());
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (confirm) dialog.current?.showModal();
@@ -41,13 +63,43 @@ export function Playlists({ refresh }: { refresh: number }) {
   }, [confirm]);
   useEffect(() => {
     const controller = new AbortController();
-    void api("/tags?limit=100", tags, undefined, controller.signal)
-      .then((v) =>
-        setTagNames(Object.fromEntries(v.tags.map((t) => [t.id, t.name]))),
-      )
-      .catch(() => {});
+    function ids(node: QueryNode): string[] {
+      return node.op === "tag"
+        ? [node.tagId]
+        : node.op === "not"
+          ? ids(node.child)
+          : node.children.flatMap(ids);
+    }
+    void lookupTags(
+      data?.playlists.flatMap((item) => ids(item.query.root)) ?? [],
+      controller.signal,
+    )
+      .then((resolved) => {
+        if (!controller.signal.aborted) {
+          setTagError("");
+          setTagNames(
+            Object.fromEntries(resolved.map((tag) => [tag.id, tag.name])),
+          );
+        }
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setTagNames({});
+          setTagError(errorMessage(error));
+          if (error instanceof ApiError && error.code === "unknown_tag") {
+            const key = JSON.stringify(
+              data?.playlists.map((item) => item.query),
+            );
+            if (lookupConflict.current !== key) {
+              lookupConflict.current = key;
+              setCursor(null);
+              setAttempt((value) => value + 1);
+            }
+          }
+        }
+      });
     return () => controller.abort();
-  }, [refresh]);
+  }, [data]);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -73,12 +125,16 @@ export function Playlists({ refresh }: { refresh: number }) {
       clearTimeout(timer);
     };
   }, [refresh, cursor, attempt]);
-  function renderQuery(node: QueryNode): string {
-    return node.op === "tag"
-      ? (tagNames[node.tagId] ?? "Tag")
-      : node.op === "not"
-        ? `NOT ${renderQuery(node.child)}`
-        : `(${node.children.map(renderQuery).join(node.op === "and" ? " + " : " OR ")})`;
+  function renderQuery(node: QueryNode): string | null {
+    if (node.op === "tag") return tagNames[node.tagId] ?? null;
+    if (node.op === "not") {
+      const child = renderQuery(node.child);
+      return child === null ? null : `NOT ${child}`;
+    }
+    const children = node.children.map(renderQuery);
+    return children.some((child) => child === null)
+      ? null
+      : `(${children.join(node.op === "and" ? " + " : " OR ")})`;
   }
   async function act(
     item: ManagedPlaylistDTO,
@@ -99,6 +155,7 @@ export function Playlists({ refresh }: { refresh: number }) {
             : {}),
         } as PlaylistActionRequest);
       intents.current.set(item.id, intent);
+      sessionStorage.setItem(intentKey, JSON.stringify([...intents.current]));
       const result = await api(
         `/playlists/${item.id}/actions`,
         playlistMutation,
@@ -107,14 +164,20 @@ export function Playlists({ refresh }: { refresh: number }) {
       if (result.requestId !== intent.requestId)
         throw new Error("unconfirmed_intent");
       intents.current.delete(item.id);
+      sessionStorage.setItem(intentKey, JSON.stringify([...intents.current]));
       setConfirm(null);
       setAttempt((v) => v + 1);
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        [400, 401, 403, 409].includes(error.status)
-      )
+      if (rejectsIntent(error)) {
         intents.current.delete(item.id);
+        sessionStorage.setItem(intentKey, JSON.stringify([...intents.current]));
+      }
+      setReconnect(
+        error instanceof ApiError &&
+          (error.status === 401 ||
+            error.code === "reconnect" ||
+            error.code === "unauthorized"),
+      );
       setError(errorMessage(error));
     } finally {
       setBusy(null);
@@ -153,9 +216,15 @@ export function Playlists({ refresh }: { refresh: number }) {
           " Cleanup may be delayed; free hosting can pause. Overdue work resumes when service recovers."}
         {data?.cleanupBlockedBy && ` ${blockMessage[data.cleanupBlockedBy]}`}
       </p>
+      {tagError && (
+        <p role="alert" className="notice">
+          {tagError} Refresh playlists to resolve the current query tags.
+        </p>
+      )}
       {error && (
         <p role="alert" className="notice">
-          {error}
+          {error}{" "}
+          {reconnect && <a href="/auth/spotify/start">Reconnect Spotify</a>}
         </p>
       )}
       {!data && !error && <p role="status">Loading playlists…</p>}
@@ -187,7 +256,9 @@ export function Playlists({ refresh }: { refresh: number }) {
               </span>
             </div>
             <h3>{item.name}</h3>
-            <p className="query-summary">{renderQuery(item.query.root)}</p>
+            <p className="query-summary">
+              {renderQuery(item.query.root) || "Resolving query tags…"}
+            </p>
             <p className="expiry">
               {item.expiresOn === null
                 ? "Pinned · never expires"

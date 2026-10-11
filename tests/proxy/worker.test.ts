@@ -270,6 +270,7 @@ describe("core product proxy boundary", () => {
     "/api/library/search",
     "/api/library/acknowledge",
     "/api/tags",
+    "/api/tags/lookup",
     "/api/tag-actions",
     "/api/tag-actions/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/undo",
     "/api/query/preview",
@@ -297,37 +298,35 @@ describe("core product proxy boundary", () => {
     expect((await handleRequest(request(path), env, remote)).status).toBe(400);
     expect(remote).not.toHaveBeenCalled();
   });
-  it("enforces origin, content type, and actual streamed body size before forwarding", async () => {
-    const remote = vi.fn();
-    expect(
-      (
-        await handleRequest(
-          post("/api/playlists", "{}", { origin: "https://evil.test" }),
-          env,
-          remote,
-        )
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await handleRequest(
-          post("/api/playlists", "{}", { "content-type": "text/plain" }),
-          env,
-          remote,
-        )
-      ).status,
-    ).toBe(415);
-    expect(
-      (
-        await handleRequest(
-          post("/api/playlists", "a".repeat(16385)),
-          env,
-          remote,
-        )
-      ).status,
-    ).toBe(413);
-    expect(remote).not.toHaveBeenCalled();
-  });
+  it.each(["/api/playlists", "/api/tags/lookup"])(
+    "enforces origin, content type, and actual streamed body size for %s",
+    async (path) => {
+      const remote = vi.fn();
+      expect(
+        (
+          await handleRequest(
+            post(path, "{}", { origin: "https://evil.test" }),
+            env,
+            remote,
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await handleRequest(
+            post(path, "{}", { "content-type": "text/plain" }),
+            env,
+            remote,
+          )
+        ).status,
+      ).toBe(415);
+      expect(
+        (await handleRequest(post(path, "a".repeat(16385)), env, remote))
+          .status,
+      ).toBe(413);
+      expect(remote).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     "/api/playlists/arbitrary/actions",
     "/api/tag-actions/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/delete",

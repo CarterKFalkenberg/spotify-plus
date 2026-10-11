@@ -117,14 +117,14 @@ export function Workspace() {
         <div className="library-status" role="status">
           {status.blockedBy
             ? blockMessage[status.blockedBy]
-            : status.syncPhase === "verifying"
-              ? "Verifying your library — checking that the complete import is stable."
-              : status.syncPhase === "importing"
-                ? `${status.importedCount.toLocaleString()} of ${status.reportedTotal?.toLocaleString() ?? "unknown total"} imported · Browse and tag while songs arrive.`
-                : status.initialSyncComplete
-                  ? `${status.activeCount.toLocaleString()} songs · ${status.activeCount - status.untaggedCount} tagged${status.lastCompletedAt ? ` · Last synced ${new Date(status.lastCompletedAt).toLocaleDateString()}` : ""}`
-                  : status.reportedTotal === 0
-                    ? "Your Spotify library is empty. Like a song in Spotify to get started."
+            : status.reportedTotal === 0
+              ? "Your Spotify library is empty. Like a song in Spotify to get started."
+              : status.syncPhase === "verifying"
+                ? "Verifying your library — checking that the complete import is stable."
+                : status.syncPhase === "importing"
+                  ? `${status.importedCount.toLocaleString()} of ${status.reportedTotal?.toLocaleString() ?? "unknown total"} imported · Browse and tag while songs arrive.`
+                  : status.initialSyncComplete
+                    ? `${status.activeCount.toLocaleString()} songs · ${status.activeCount - status.untaggedCount} tagged${status.lastCompletedAt ? ` · Last synced ${new Date(status.lastCompletedAt).toLocaleDateString()}` : ""}`
                     : "Your first import is queued. Songs will appear as they arrive."}
           {status.blockedBy === "reconnect" && (
             <>

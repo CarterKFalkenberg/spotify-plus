@@ -127,6 +127,10 @@ test("disconnect requires confirmation, sends exact contract, and waits for purg
     });
   });
   await page.goto("/");
+  await page.evaluate(() => {
+    sessionStorage.setItem("tagger-pending-create", "{}");
+    sessionStorage.setItem("tagger-pending-playlist-actions", "[]");
+  });
   await page
     .getByRole("button", { name: "Disconnect & delete app data" })
     .click();
@@ -154,6 +158,12 @@ test("disconnect requires confirmation, sends exact contract, and waits for purg
     page.getByRole("link", { name: "Connect Spotify", exact: true }),
   ).toHaveCount(0);
   expect(calls).toBe(1);
+  expect(
+    await page.evaluate(() => [
+      sessionStorage.getItem("tagger-pending-create"),
+      sessionStorage.getItem("tagger-pending-playlist-actions"),
+    ]),
+  ).toEqual([null, null]);
   purged = true;
   await expect(
     page.getByRole("heading", { name: "Start with your Spotify" }),

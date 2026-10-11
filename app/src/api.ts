@@ -106,8 +106,8 @@ function bool(value: unknown): boolean {
 function nullable<T>(value: unknown, parse: (v: unknown) => T): T | null {
   return value === null ? null : parse(value);
 }
-function rows<T>(value: unknown, parse: (v: unknown) => T): T[] {
-  return Array.isArray(value) && value.length <= 100
+function rows<T>(value: unknown, parse: (v: unknown) => T, limit = 100): T[] {
+  return Array.isArray(value) && value.length <= limit
     ? value.map(parse)
     : fail();
 }
@@ -144,7 +144,7 @@ export function track(value: unknown): TrackDTO {
     m = v.metadata === null ? null : obj(v.metadata);
   return {
     trackKey: parseTrackKey(v.trackKey),
-    tagIds: rows(v.tagIds, parseId),
+    tagIds: rows(v.tagIds, parseId, 10000),
     metadata: m && {
       title: str(m.title),
       artists: rows(m.artists, (v) => {
@@ -291,6 +291,7 @@ export function tagAction(value: unknown): TagActionResponse {
   const v = obj(value);
   return {
     actionId: parseId(v.actionId),
+    tag: tag(v.tag),
     changedCount: count(v.changedCount),
     selectedCount: count(v.selectedCount),
     revision: parseLibraryRevision(v.revision),
@@ -313,3 +314,51 @@ export const blockMessage: Record<WorkBlock, string> = {
   unavailable:
     "The service is unavailable. Saved work will resume after recovery.",
 };
+
+/** Resolve known IDs, never enumerate or guess vocabulary names. */
+export async function lookupTags(
+  ids: readonly string[],
+  signal?: AbortSignal,
+): Promise<TagDTO[]> {
+  const unique = [...new Set(ids.map(parseId))];
+  const result: TagDTO[] = [];
+  for (let start = 0; start < unique.length; start += 200) {
+    const batch = unique.slice(start, start + 200);
+    const response = await api(
+      "/tags/lookup",
+      (value) => {
+        const v = obj(value);
+        const resolved = rows(v.tags, tag, 200);
+        parseLibraryRevision(v.revision);
+        if (
+          resolved.length !== batch.length ||
+          resolved.some((item, index) => item.id !== batch[index])
+        )
+          fail();
+        return resolved;
+      },
+      { tagIds: batch },
+      signal,
+    );
+    result.push(...response);
+  }
+  return result;
+}
+
+// Auth/origin failures occur before replay lookup and cannot resolve an earlier
+// accepted-but-lost response. Only transactional validation rejections do so.
+export function rejectsIntent(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    [
+      "stale_revision",
+      "unknown_tag",
+      "initial_sync_incomplete",
+      "no_playable_matches",
+      "playlist_busy",
+      "unknown_playlist",
+      "invalid_action",
+    ].includes(error.code)
+  );
+}

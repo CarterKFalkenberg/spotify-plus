@@ -1,25 +1,34 @@
 import { useEffect, useState } from "react";
-import { api, tags, createdTag, errorMessage } from "./api";
+import { api, tags, errorMessage } from "./api";
 import type { TagDTO } from "../../supabase/functions/_shared/contracts";
 export function TagPicker({
   label,
   onChoose,
-  allowCreate = false,
+  onCreate,
   disabled = false,
+  actionLabel = "Add",
 }: {
   label: string;
   onChoose: (tag: TagDTO) => Promise<void> | void;
-  allowCreate?: boolean;
+  onCreate?: (name: string) => Promise<void> | void;
   disabled?: boolean;
+  actionLabel?: "Add" | "Remove";
 }) {
+  const allowCreate = !!onCreate;
   const [text, setText] = useState("");
   const [options, setOptions] = useState<readonly TagDTO[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
   useEffect(() => {
-    const controller = new AbortController();
     setOptions([]);
+    if (!focused || disabled) {
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       void api(
         `/tags?search=${encodeURIComponent(text)}&limit=20`,
@@ -28,25 +37,30 @@ export function TagPicker({
         controller.signal,
       )
         .then((value) => {
+          if (controller.signal.aborted) return;
+          setSearching(false);
           setOptions(value.tags);
           setError("");
         })
         .catch((error) => {
-          if (!controller.signal.aborted) setError(errorMessage(error));
+          if (!controller.signal.aborted) {
+            setSearching(false);
+            setError(errorMessage(error));
+          }
         });
     }, 150);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [text]);
+  }, [text, focused, disabled]);
   async function choose(item?: TagDTO) {
-    if (busy || disabled || (!item && !text.trim())) return;
+    if (busy || searching || disabled || (!item && !text.trim())) return;
     setBusy(true);
     setError("");
     try {
-      const next = item ?? (await api("/tags", createdTag, { name: text })).tag;
-      await onChoose(next);
+      if (item) await onChoose(item);
+      else await onCreate?.(text);
       setText("");
       setFocused(false);
     } catch (error) {
@@ -71,8 +85,12 @@ export function TagPicker({
             maxLength={640}
             placeholder={allowCreate ? "Find or create a tag…" : "Find a tag…"}
             disabled={disabled || busy}
-            onFocus={() => setFocused(true)}
+            onFocus={() => {
+              if (!focused) setSearching(true);
+              setFocused(true);
+            }}
             onChange={(event) => {
+              setSearching(true);
               setText(event.target.value);
               setFocused(true);
             }}
@@ -83,10 +101,11 @@ export function TagPicker({
           disabled={
             disabled ||
             busy ||
+            searching ||
             (!options.length && (!allowCreate || !text.trim()))
           }
         >
-          {busy ? "Saving…" : "Add"}
+          {busy ? "Saving…" : actionLabel}
         </button>
       </form>
       {focused && (
@@ -102,11 +121,12 @@ export function TagPicker({
               ×
             </button>
           </div>
+          {searching && <p role="status">Finding tags…</p>}
           {options.map((item) => (
             <button
               type="button"
               key={item.id}
-              disabled={busy || disabled}
+              disabled={busy || searching || disabled}
               onClick={() => void choose(item)}
             >
               <span>{item.name}</span>
@@ -123,7 +143,7 @@ export function TagPicker({
               <button
                 type="button"
                 className="create-tag"
-                disabled={busy || disabled}
+                disabled={busy || searching || disabled}
                 onClick={() => void choose()}
               >
                 Create “{text.trim()}”

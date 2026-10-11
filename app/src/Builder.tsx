@@ -8,10 +8,17 @@ import {
   type Retention,
   type CreatePlaylistRequest,
 } from "../../supabase/functions/_shared/contracts";
-import { api, preview, playlistMutation, errorMessage, ApiError } from "./api";
+import {
+  api,
+  preview,
+  playlistMutation,
+  errorMessage,
+  rejectsIntent,
+  ApiError,
+} from "./api";
 import { TagPicker } from "./TagPicker";
 import { TrackSummary } from "./Library";
-const intentKey = "tagger-pending-create";
+import { createIntentKey as intentKey } from "./intents";
 function readIntent(): CreatePlaylistRequest | null {
   try {
     const raw = sessionStorage.getItem(intentKey);
@@ -37,6 +44,7 @@ export function RetentionPicker({
     <label>
       {label}
       <select
+        aria-label={label}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as Retention)}
@@ -63,8 +71,10 @@ export function Builder({
   >({ all: [], any: [], none: [] });
   const [result, setResult] = useState<{
     key: string;
+    refresh: number;
     value: QueryPreviewResponse;
   } | null>(null);
+  const [reconnect, setReconnect] = useState(false);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [retention, setRetention] = useState<Retention>("month");
@@ -118,7 +128,7 @@ export function Builder({
             current === version.current &&
             JSON.stringify(value.query) === key
           )
-            setResult({ key, value });
+            setResult({ key, refresh, value });
           else if (current === version.current)
             setError(
               "The preview did not match your query. Update your tags and try again.",
@@ -134,7 +144,8 @@ export function Builder({
       controller.abort();
     };
   }, [key, refresh, pending]);
-  const matched = result?.key === key ? result.value : null;
+  const matched =
+    result?.key === key && result.refresh === refresh ? result.value : null;
   const canCreate =
     matched &&
     initialComplete &&
@@ -166,14 +177,17 @@ export function Builder({
       setSubmitted(true);
       onCreated();
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        [400, 401, 403, 409].includes(error.status)
-      ) {
+      if (rejectsIntent(error)) {
         sessionStorage.removeItem(intentKey);
         setPending(null);
         setResult(null);
       }
+      setReconnect(
+        error instanceof ApiError &&
+          (error.status === 401 ||
+            error.code === "reconnect" ||
+            error.code === "unauthorized"),
+      );
       setError(errorMessage(error));
     } finally {
       setBusy(false);
@@ -319,6 +333,7 @@ export function Builder({
                             throw new Error("stale_page");
                           setResult({
                             key: capturedKey,
+                            refresh,
                             value: {
                               ...next,
                               tracks: [...matched.tracks, ...next.tracks],
@@ -377,7 +392,8 @@ export function Builder({
       )}
       {error && (
         <p role="alert" className="notice">
-          {error}
+          {error}{" "}
+          {reconnect && <a href="/auth/spotify/start">Reconnect Spotify</a>}
         </p>
       )}
       {submitted && (

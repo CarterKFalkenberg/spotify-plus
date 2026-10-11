@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   LibraryFilter,
   LibrarySearchResponse,
@@ -12,7 +12,8 @@ import {
   tagAction,
   undoAction,
   errorMessage,
-  tags,
+  lookupTags,
+  ApiError,
 } from "./api";
 import { TagPicker } from "./TagPicker";
 export const emptyFilter: LibraryFilter = {
@@ -72,7 +73,10 @@ export function Library({
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
+  const lookupConflict = useRef<string | null>(null);
+  const [tagError, setTagError] = useState("");
   const [knownTags, setKnownTags] = useState<readonly TagDTO[]>([]);
+  const [undoFeedback, setUndoFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<{ id: string; message: string } | null>(
     null,
@@ -102,7 +106,9 @@ export function Library({
         { filter, groupBy: grouped ? "artist" : null, cursor, limit: 50 },
         controller.signal,
       )
-        .then(setData)
+        .then((value) => {
+          if (!controller.signal.aborted) setData(value);
+        })
         .catch((error) => {
           if (!controller.signal.aborted) setError(errorMessage(error));
         });
@@ -114,32 +120,56 @@ export function Library({
   }, [filter, grouped, cursor, refresh]);
   useEffect(() => {
     const controller = new AbortController();
-    void api("/tags?limit=100", tags, undefined, controller.signal)
-      .then((v) => setKnownTags(v.tags))
-      .catch(() => {});
+    setKnownTags([]);
+    if (data?.groupBy === null) {
+      void lookupTags(
+        data.tracks.flatMap((track) => track.tagIds),
+        controller.signal,
+      )
+        .then((resolved) => {
+          if (!controller.signal.aborted) setKnownTags(resolved);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          setTagError(errorMessage(error));
+          if (error instanceof ApiError && error.code === "unknown_tag") {
+            const key = JSON.stringify(
+              data.tracks.map((track) => track.tagIds),
+            );
+            if (lookupConflict.current !== key) {
+              lookupConflict.current = key;
+              setCursor(null);
+              onChanged();
+            }
+          }
+        });
+    }
     return () => controller.abort();
-  }, [refresh]);
+  }, [data]);
   function changeFilter(next: LibraryFilter) {
+    setTagError("");
+    setData(null);
     setFilter(next);
     setCursor(null);
     setSelection(null);
   }
   async function mutate(
-    tag: TagDTO,
+    tag: TagDTO | string,
     selection: Selection,
     kind: "add" | "remove",
   ) {
     setBusy(true);
+    setUndoFeedback("");
     setError("");
     try {
       const result = await api("/tag-actions", tagAction, {
         selection,
-        tagId: tag.id,
+        ...(typeof tag === "string" ? { tagName: tag } : { tagId: tag.id }),
         action: kind,
       });
       setAction({
         id: result.actionId,
-        message: `${kind === "add" ? "Added" : "Removed"} “${tag.name}” ${kind === "add" ? "to" : "from"} ${result.changedCount} songs.`,
+        message: `${kind === "add" ? "Added" : "Removed"} “${result.tag.name}” ${kind === "add" ? "to" : "from"} ${result.changedCount} songs.`,
       });
       setCursor(null);
       onChanged();
@@ -230,6 +260,8 @@ export function Library({
             type="checkbox"
             checked={grouped}
             onChange={(e) => {
+              setData(null);
+              setSelection(null);
               setGrouped(e.target.checked);
               setCursor(null);
             }}
@@ -252,6 +284,12 @@ export function Library({
         <p className="notice">
           Tags stay safe when you remove a song from Spotify. Re-liking restores
           them. Cached song details disappear after 90 days.
+        </p>
+      )}
+      {tagError && (
+        <p role="alert" className="notice">
+          {tagError} Current assignments were rechecked; refresh results to
+          retry.
         </p>
       )}
       {error && (
@@ -323,7 +361,7 @@ export function Library({
                   <div className="desktop-bulk">
                     <TagPicker
                       label={`Tag all ${group.trackCount} songs by ${group.name}`}
-                      allowCreate
+                      onCreate={(name) => mutate(name, group.selection, "add")}
                       disabled={busy}
                       onChoose={(tag) => mutate(tag, group.selection, "add")}
                     />
@@ -370,32 +408,41 @@ export function Library({
                   <div className="track-content">
                     <TrackSummary track={track} />
                     <div className="chips">
-                      {track.tagIds.map((id) => (
-                        <button
-                          className="chip"
-                          key={id}
-                          disabled={busy}
-                          aria-label={`Remove ${knownTags.find((t) => t.id === id)?.name ?? "tag"} from ${track.metadata?.title ?? "track"}`}
-                          onClick={() =>
-                            void mutate(
-                              knownTags.find((t) => t.id === id) ?? {
-                                id,
-                                name: "tag",
-                                activeTrackCount: 0,
-                                lastUsedAt: null,
-                              },
-                              { kind: "tracks", trackKeys: [track.trackKey] },
-                              "remove",
-                            ).catch(() => {})
-                          }
-                        >
-                          {knownTags.find((t) => t.id === id)?.name ?? "Tag"} ×
-                        </button>
-                      ))}
+                      {track.tagIds.map((id) => {
+                        const tag = knownTags.find((item) => item.id === id);
+                        return tag ? (
+                          <button
+                            className="chip"
+                            key={id}
+                            disabled={busy}
+                            aria-label={`Remove ${tag.name} from ${track.metadata?.title ?? "track"}`}
+                            onClick={() =>
+                              void mutate(
+                                tag,
+                                { kind: "tracks", trackKeys: [track.trackKey] },
+                                "remove",
+                              ).catch(() => {})
+                            }
+                          >
+                            {tag.name} ×
+                          </button>
+                        ) : null;
+                      })}
+                      {track.tagIds.some(
+                        (id) => !knownTags.some((tag) => tag.id === id),
+                      ) && (
+                        <span className="muted">Resolving assigned tags…</span>
+                      )}
                     </div>
                     <TagPicker
                       label={`Tag ${track.metadata?.title ?? "track"}`}
-                      allowCreate
+                      onCreate={(name) =>
+                        mutate(
+                          name,
+                          { kind: "tracks", trackKeys: [track.trackKey] },
+                          "add",
+                        )
+                      }
                       disabled={busy}
                       onChoose={(tag) =>
                         mutate(
@@ -440,41 +487,26 @@ export function Library({
             </strong>
             <TagPicker
               label="Add tag to selection"
-              allowCreate
+              onCreate={(name) => mutate(name, selection, "add")}
               disabled={busy}
               onChoose={(tag) => mutate(tag, selection, "add")}
             />
-            <div>
-              <label>
-                Remove tag from selection
-                <select
-                  defaultValue=""
-                  disabled={busy}
-                  onChange={(event) => {
-                    const tag = knownTags.find(
-                      (t) => t.id === event.target.value,
-                    );
-                    if (tag)
-                      void mutate(tag, selection, "remove").catch(() => {});
-                    event.target.value = "";
-                  }}
-                >
-                  <option value="" disabled>
-                    Choose tag to remove…
-                  </option>
-                  {knownTags.map((tag) => (
-                    <option key={tag.id} value={tag.id}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            <TagPicker
+              label="Remove tag from selection"
+              actionLabel="Remove"
+              disabled={busy}
+              onChoose={(tag) => mutate(tag, selection, "remove")}
+            />
             <button className="compact" onClick={() => setSelection(null)}>
               Clear selection
             </button>
           </div>
         )}
+      {undoFeedback && (
+        <p role="status" className="notice">
+          {undoFeedback}
+        </p>
+      )}
       {action && (
         <div className="toast" role="status">
           {action.message}
@@ -489,10 +521,10 @@ export function Library({
                   {},
                 );
                 setAction(null);
-                setError(
+                setUndoFeedback(
                   result.skippedCount
                     ? `Restored ${result.restoredCount}; ${result.skippedCount} later edits were preserved.`
-                    : "",
+                    : `Restored ${result.restoredCount} changed assignments.`,
                 );
                 onChanged();
               } catch (error) {

@@ -9,6 +9,7 @@ import {
 } from "react-router";
 import { disconnect, readSession, type Session } from "./session";
 import "./style.css";
+import { forgetPlaylistIntents } from "./intents";
 import { Workspace } from "./Workspace";
 const authErrors: Readonly<Record<string, { title: string; detail: string }>> =
   {
@@ -108,6 +109,7 @@ function Home() {
     setDeleteFailed(false);
     try {
       await disconnect();
+      forgetPlaylistIntents();
       setSession({ authenticated: false, connection: "disconnecting" });
       setConfirming(false);
       setAttempt((value) => value + 1);
@@ -116,7 +118,11 @@ function Home() {
       // before offering another destructive request; never infer deletion locally.
       try {
         const next = await readSession(AbortSignal.timeout(10000));
-        if (!next.authenticated) {
+        if (
+          !next.authenticated &&
+          ["disconnecting", "disconnected"].includes(next.connection)
+        ) {
+          forgetPlaylistIntents();
           setSession(next);
           setFailed(false);
           setConfirming(false);

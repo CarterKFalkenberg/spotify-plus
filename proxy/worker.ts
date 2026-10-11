@@ -15,6 +15,7 @@ const routes: Readonly<Record<string, string>> = {
   "/api/library/search": "POST",
   "/api/library/acknowledge": "POST",
   "/api/tags": "GET POST",
+  "/api/tags/lookup": "POST",
   "/api/tag-actions": "POST",
   "/api/query/preview": "POST",
   "/api/playlists": "GET POST",
