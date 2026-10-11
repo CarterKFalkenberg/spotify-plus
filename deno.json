@@ -1,0 +1,8 @@
+{
+  "compilerOptions": { "strict": true, "noImplicitOverride": true },
+  "fmt": { "lineWidth": 100 },
+  "tasks": {
+    "check": "deno check supabase/functions/api/index.ts supabase/functions/jobs/index.ts",
+    "test": "deno test supabase/functions/"
+  }
+}
