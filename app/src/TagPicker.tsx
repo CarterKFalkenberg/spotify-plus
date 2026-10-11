@@ -1,31 +1,59 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { api, tags, errorMessage } from "./api";
-import type { TagDTO } from "../../supabase/functions/_shared/contracts";
+import { inspectTagOptions } from "./selection-tags";
+import type {
+  TagDTO,
+  Selection,
+  LibraryRevision,
+} from "../../supabase/functions/_shared/contracts";
 export function TagPicker({
   label,
   onChoose,
   onCreate,
   disabled = false,
   actionLabel = "Add",
+  autoFocus = false,
+  refresh = 0,
+  showEmptySuggestions = true,
+  selection,
+  selectionRevision,
 }: {
   label: string;
   onChoose: (tag: TagDTO) => Promise<void> | void;
   onCreate?: (name: string) => Promise<void> | void;
   disabled?: boolean;
   actionLabel?: "Add" | "Remove";
+  autoFocus?: boolean;
+  refresh?: number;
+  showEmptySuggestions?: boolean;
+  selection?: Selection;
+  selectionRevision?: LibraryRevision | undefined;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const allowCreate = !!onCreate;
+  const optionsId = useId();
+  const [highlight, setHighlight] = useState(0);
   const [text, setText] = useState("");
   const [options, setOptions] = useState<readonly TagDTO[]>([]);
   const [error, setError] = useState("");
+  const [inspection, setInspection] = useState<Awaited<
+    ReturnType<typeof inspectTagOptions>
+  > | null>(null);
+  const [lookupFailed, setLookupFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
+  const composing = useRef(false);
+  useEffect(() => {
+    if (autoFocus) input.current?.focus();
+  }, [autoFocus]);
   useEffect(() => {
     setOptions([]);
-    if (!focused || disabled) {
+    setInspection(null);
+    setLookupFailed(false);
+    setHighlight(0);
+    if (!focused || disabled || (!showEmptySuggestions && !text.trim())) {
       setSearching(false);
       return;
     }
@@ -38,8 +66,19 @@ export function TagPicker({
         undefined,
         controller.signal,
       )
-        .then((value) => {
+        .then(async (value) => {
           if (controller.signal.aborted) return;
+          const states =
+            selection && selectionRevision
+              ? await inspectTagOptions(
+                  value.tags,
+                  selection,
+                  selectionRevision,
+                  controller.signal,
+                )
+              : null;
+          if (controller.signal.aborted) return;
+          setInspection(states);
           setSearching(false);
           setOptions(value.tags);
           setError("");
@@ -47,6 +86,7 @@ export function TagPicker({
         .catch((error) => {
           if (!controller.signal.aborted) {
             setSearching(false);
+            setLookupFailed(true);
             setError(errorMessage(error));
           }
         });
@@ -55,9 +95,24 @@ export function TagPicker({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [text, focused, disabled]);
+  }, [
+    text,
+    focused,
+    disabled,
+    refresh,
+    showEmptySuggestions,
+    selection,
+    selectionRevision,
+  ]);
   async function choose(item?: TagDTO) {
-    if (busy || searching || disabled || (!item && !text.trim())) return;
+    if (
+      busy ||
+      searching ||
+      lookupFailed ||
+      disabled ||
+      (!item && !text.trim())
+    )
+      return;
     setBusy(true);
     setError("");
     try {
@@ -88,7 +143,9 @@ export function TagPicker({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (options[0]) void choose(options[0]);
+          if (composing.current) return;
+          if (options[highlight] ?? options[0])
+            void choose(options[highlight] ?? options[0]);
           else if (allowCreate) void choose();
         }}
       >
@@ -96,6 +153,53 @@ export function TagPicker({
           {label}
           <input
             ref={input}
+            autoComplete="off"
+            role="combobox"
+            aria-expanded={focused && (showEmptySuggestions || !!text.trim())}
+            aria-controls={optionsId}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              focused && options[highlight]
+                ? `${optionsId}-${highlight}`
+                : undefined
+            }
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
+            onKeyDown={(event) => {
+              if (composing.current || event.nativeEvent.isComposing) {
+                if (event.key === "Enter") event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+              if (
+                !event.nativeEvent.isComposing &&
+                !composing.current &&
+                options.length &&
+                (event.key === "ArrowDown" || event.key === "ArrowUp")
+              ) {
+                event.preventDefault();
+                setHighlight(
+                  (i) =>
+                    (i +
+                      (event.key === "ArrowDown" ? 1 : -1) +
+                      options.length) %
+                    options.length,
+                );
+              }
+              if (event.key === "Escape") {
+                setFocused(false);
+                event.stopPropagation();
+              }
+              if (
+                event.key === "Enter" &&
+                (event.nativeEvent.isComposing || composing.current)
+              )
+                event.preventDefault();
+            }}
             value={text}
             maxLength={640}
             placeholder={allowCreate ? "Find or create a tag…" : "Find a tag…"}
@@ -118,13 +222,14 @@ export function TagPicker({
             disabled ||
             busy ||
             searching ||
+            lookupFailed ||
             (!options.length && (!allowCreate || !text.trim()))
           }
         >
           {busy ? "Saving…" : actionLabel}
         </button>
       </form>
-      {focused && (
+      {focused && (showEmptySuggestions || !!text.trim()) && (
         <div className="suggestions">
           <div className="suggestion-heading">
             Your tags{" "}
@@ -138,28 +243,57 @@ export function TagPicker({
             </button>
           </div>
           {searching && <p role="status">Finding tags…</p>}
-          {options.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              disabled={busy || searching || disabled}
-              onClick={() => void choose(item)}
-            >
-              <span>{item.name}</span>
-              <small>{item.activeTrackCount} songs</small>
-            </button>
-          ))}
+          <div
+            id={optionsId}
+            role="listbox"
+            aria-label={`${label} tag suggestions`}
+          >
+            {options.map((item, index) => (
+              <Fragment key={item.id}>
+                {item.name.includes(":") &&
+                  options.filter(
+                    (t) => t.name.split(":")[0] === item.name.split(":")[0],
+                  ).length > 1 &&
+                  options[index - 1]?.name.split(":")[0] !==
+                    item.name.split(":")[0] && (
+                    <div className="suggestion-prefix" role="presentation">
+                      {item.name.split(":")[0]}:
+                    </div>
+                  )}
+                <button
+                  type="button"
+                  id={`${optionsId}-${index}`}
+                  role="option"
+                  aria-selected={index === highlight}
+                  className={index === highlight ? "suggestion-selected" : ""}
+                  disabled={busy || searching || lookupFailed || disabled}
+                  onClick={() => void choose(item)}
+                >
+                  <span>{item.name}</span>
+                  <small>
+                    {inspection
+                      ? `${inspection.tags[index]?.state} · ${inspection.tags[index]?.assignedCount} of ${inspection.selectedCount} selected`
+                      : `${item.activeTrackCount} songs`}
+                  </small>
+                </button>
+              </Fragment>
+            ))}
+          </div>
           {allowCreate &&
             text.trim() &&
             !options.some(
               (item) =>
-                item.name.toLocaleLowerCase() ===
-                text.trim().replace(/\s+/g, " ").toLocaleLowerCase(),
+                item.name.normalize("NFC").toLocaleLowerCase() ===
+                text
+                  .normalize("NFC")
+                  .trim()
+                  .replace(/\s+/g, " ")
+                  .toLocaleLowerCase(),
             ) && (
               <button
                 type="button"
                 className="create-tag"
-                disabled={busy || searching || disabled}
+                disabled={busy || searching || lookupFailed || disabled}
                 onClick={() => void choose()}
               >
                 Create “{text.trim()}”
