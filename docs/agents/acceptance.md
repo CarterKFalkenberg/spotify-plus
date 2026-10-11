@@ -10,7 +10,7 @@ The complete scope is `docs/PRODUCT-BRIEF.md`, amended by `docs/DECISIONS.md`. `
 4. Review the committed change with `code-review` against the pinned base and originating scope. Fix actionable Standards and Spec findings; repeat affected checks and review after changes. Use `pr-writing` for the final PR description, including actual evidence and limitations.
 5. Merge only after required CI passes on the verified head and repository gates are satisfied. Record the PR, verified head, merge SHA and evidence. If anything fails or needs human input, preserve progress and leave the milestone incomplete.
 
-These live/deployment gates apply to application milestones. The bootstrap setup PR instead requires the setup/runner tests, skill/reference validation, independent review and passing CI; it must not claim that the future application or live API already works.
+These live/deployment gates apply to application milestones. Bounded implementation tickets may ship in several reviewed PRs, but a stage remains incomplete until every stage criterion and common gate passes against the integrated deployment. Each code PR still runs appropriate checks; the orchestrator owns shared live verification and deployment. Setup/workflow-only PRs instead require relevant setup/runner tests, skill/reference validation where affected, independent review and passing CI; they must not claim that the future application or live API already works.
 
 ## Required coverage across the stages
 
@@ -19,4 +19,8 @@ These live/deployment gates apply to application milestones. The bootstrap setup
 - **Fast tagging:** queue and bulk selection/undo semantics; tag normalization, rename/merge/query identity; safe input/IME shortcuts; first-run and returning-session routing; desktop and mobile layouts, including deep links.
 - **Resilience:** ambiguous writes, pagination changes, retry limits, disconnect races, expiry/DST/month-end math, 90-day metadata purge with persistent assignments, recovery from free-tier pausing, encrypted annotation restore and quota checks.
 
-Software completion requires all four stages verified and merged. Product acceptance additionally requires the user to perform the real phone flow in under a minute and the familiar-song tagging trial at roughly 3–5 seconds per song. Do not report emulation as those human checks or close the overall MVP acceptance while they remain pending.
+Software completion requires all four stages verified and merged, followed by the independent architecture/repository review requested on October 11, 2026. Assess UI/domain/transport/persistence/job boundaries, transaction and race correctness, authorization/secrets, recovery, dependencies, coverage, Free quotas, accessibility, naming, duplication, dead code, formatting/linting, CI and operational instructions. Ticket concrete findings and fix them through the same reviewed PR gates; stop cleanup when no actionable findings remain rather than redesigning indefinitely.
+
+After cleanup, rerun affected checks plus final end-to-end and deployed smoke verification, confirm the deployed revision corresponds to final merged code, and stop the temporary build-review automation. Record the URL, merged PRs/issues, actual test/live evidence, deployed revisions, operational limits and shutdown confirmation before marking the software goal complete.
+
+Product acceptance additionally requires the user to perform the real phone flow in under a minute and the familiar-song tagging trial at roughly 3–5 seconds per song. Do not report emulation as those human checks or close overall MVP acceptance while they remain pending. The software-build goal may end after the preceding software gates with these human checks explicitly pending for the user's return.

@@ -15,14 +15,16 @@ Read `docs/PRODUCT-BRIEF.md`, `docs/DECISIONS.md`, `docs/PLAN.md`, `docs/HOSTING
 - Use durable SQL jobs with leases/retry timestamps, invoked through pg_cron/pg_net and bounded Supabase functions. Do not rely on a permanent process or self-invocation chain. Do not claim cron prevents free-project pausing, offset pagination is a snapshot, or checkpoints make POST writes idempotent.
 - Make updates additive and preserve user tags. No destructive production migrations without explicit authorization. Existing Spotify names and non-Tagger description text survive regeneration.
 - Automatic approval review may still reject an action. Do not bypass the sandbox, change global permission settings, or treat a denied operation as success. Preserve work, identify the action/reason, and record the required user action.
-- Use one implementation session per milestone. Subagents expressly required by an invoked installed skill, including the two code-review axes, are permitted. Do not create an unrelated agent team.
+- Use the native goal with bounded delegated tasks, explicit ownership and one isolated worktree/branch per implementation task. The user's October 11, 2026 instruction supersedes the earlier one-session-per-milestone and restricted-team convention. Define interfaces/dependencies before parallel work; never edit another agent's active checkout.
+- Implementation and per-PR Standards/Spec reviewers use `gpt-6-astra`; the main orchestrator and scheduled reviewer use `gpt-6.1-sol`. The orchestrator owns integration, verification, merges, shared migration ordering, deployments and Spotify mutations. Agent reports are evidence to inspect, never proof of acceptance or human approval.
+- Keep durable coordination in GitHub issues and `.local/build-coordination/state.json`; the independent scheduled reviewer owns `.local/build-review/ledger.json`. Follow `docs/AUTONOMY.md` for review automation and shutdown. Do not run the optional unattended shell runner alongside the native goal; `scripts/build --check` is permitted.
 - When final software checks pass, stop for the user's actual phone and tagging-speed acceptance. Software readiness and product acceptance are distinct.
 
 ## Agent skills
 
 - Skills are installed in `.agents/skills`. Read `docs/agents/skills.md` for exact entrypoints and dependencies, and `docs/agents/delivery.md` for autonomy boundaries. Open each applicable SKILL.md before following it; a mention in this file is not a substitute for its instructions.
-- Planning: `grill-with-docs` and `wayfinder`, with their installed dependencies. Preserve the accepted decisions; only unresolved human decisions require human input.
-- Every PR: use `code-review` against the recorded base and originating spec, fix actionable findings, then use `pr-writing` for the final title/body. In the CLI runner, the launcher performs the merge after independent verification; in a native goal loop, the agent performs the equivalent gates and merge directly.
+- Planning: the user waived the remaining pre-build planning-readiness interview on October 11, 2026. Preserve accepted decisions and proceed; do not restart grilling or invent human answers. Use `grill-with-docs` or `wayfinder` only when further planning is actually requested.
+- Every PR: use `code-review` against the recorded base and current head with the originating spec, fix actionable findings, then use `pr-writing` for the final title/body. The native orchestrator independently verifies and merges the exact tested head; the optional CLI launcher performs equivalent gates when it is the sole orchestrator. Periodic review never replaces per-PR review.
 - Issue tracker: GitHub Issues in this repository; see `docs/agents/issue-tracker.md`.
 - Domain docs: single context with lazy `GLOSSARY.md` and `docs/adr/`; see `docs/agents/domain.md`.
 
