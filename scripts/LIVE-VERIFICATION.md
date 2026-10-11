@@ -147,6 +147,17 @@ updates only. Official [details](https://developer.spotify.com/documentation/web
 and [item read](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items)
 contracts were read October 11, 2026; these source checks do not prove live behavior.
 
+Readiness polling allows up to 120 five-second waits. An `incomplete` playlist
+with `unavailable` or `rateLimited` can still have an active operation whose
+queued/running durable job will retry naturally. The verifier checks that narrow
+status-only database projection before continuing; stalled/parked work, reconnect
+and quota blocks fail without submitting a Retry action. Completion racing the
+DTO read permits another poll, but only a ready, unblocked product DTO ends the
+wait. Persistent temporary failure still times out and preserves the registry.
+This wait does not relax the worker's snapshot/description guards or the proof's
+ordered-content assertions; `remote_changed` alone cannot identify which guard
+failed or establish provider eventual consistency.
+
 After waiting out the final API background drain and requiring quiet jobs, the
 operator accelerates only the exact registered disposable playlist's app deadline
 to yesterday in America/New_York. This is an accelerated test deadline, not elapsed
