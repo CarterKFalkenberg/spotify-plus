@@ -58,6 +58,7 @@ export function deploymentFiles(config, keys, sha, root) {
     SPOTIFY_EXPECTED_USER_ID: config.spotifyExpectedUserId,
     OWNER_BINDING_KEY: keys.ownerBindingKey,
     TOKEN_ENCRYPTION_KEY: keys.tokenEncryptionKey,
+    ANNOTATION_KEY: keys.annotationKey,
     PROXY_SECRET: keys.proxySecret,
     CRON_SECRET: keys.cronSecret,
     BOOTSTRAP_SECRET: keys.bootstrapSecret,
