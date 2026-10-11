@@ -137,6 +137,8 @@ describe("deployment proof boundaries", () => {
     ).toThrow("invalid_runtime_key");
     const files = deploymentFiles(config, keys, head, "/synthetic/repo");
     expect(files.workerSecrets).toEqual({ PROXY_SECRET: keys.proxySecret });
+    expect(files.runtime.ANNOTATION_KEY).toBe(keys.annotationKey);
+    expect(files.worker.vars).not.toHaveProperty("ANNOTATION_KEY");
     expect(Object.keys(files.worker.vars).sort()).toEqual([
       "APP_ORIGIN",
       "FRONTEND_SHA",

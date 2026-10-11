@@ -1,3 +1,4 @@
+import type { FeatureJob } from "./library.ts";
 import type { Database } from "./database.ts";
 import type { BackupStorage } from "./backups.ts";
 import { SpotifyError } from "./spotify.ts";
@@ -14,6 +15,8 @@ export interface JobContext {
   backups: BackupStorage;
   sha: string;
   now?: () => number;
+  library?: FeatureJob;
+  playlist?: FeatureJob;
 }
 export async function drainJobs(
   context: JobContext,
@@ -71,6 +74,34 @@ export async function drainJobs(
             p_epoch: job.payload.epoch,
           })
         ) {
+          continue;
+        }
+      } else if (
+        (job.kind === "library_sync" || job.kind === "library_probe") &&
+        context.library
+      ) {
+        const result = await context.library(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
+            p_error: (result.retryMs ?? 0) >= 60000 ? "library_unstable" : null,
+          });
+          continue;
+        }
+      } else if (job.kind === "playlist" && context.playlist) {
+        const result = await context.playlist(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
+          });
           continue;
         }
       } else {
