@@ -51,7 +51,7 @@ try {
   ]);
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      await command(["exec", container, "pg_isready", "-U", "postgres"]);
+      await command(["exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]);
       break;
     } catch {
       if (attempt === 59) throw new Error("Disposable database did not start");
