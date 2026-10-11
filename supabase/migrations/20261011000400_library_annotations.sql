@@ -478,7 +478,8 @@ create function public.app_library_page_commit(p_epoch bigint,p_id uuid,p_lease 
    or jsonb_typeof(p_rows) is distinct from 'array' or jsonb_array_length(p_rows)+p_unresolved<>p_received
    or (p_next_offset is not null and (p_next_offset<>p_offset+p_received or p_received=0)) then raise exception 'invalid_input'; end if;
   r.invalid_pass:=r.invalid_pass or p_unresolved>0 or (r.reported_total is not null and r.reported_total<>p_total);
-  r.reported_total:=coalesce(r.reported_total,p_total);
+  -- Progress follows the latest page total; invalid_pass remembers any earlier change.
+  r.reported_total:=p_total;
   foreach key in array array(select value->>'trackKey' from jsonb_array_elements(p_rows)) loop
    if key is null or key !~ '^[0-9a-f]{64}$' then raise exception 'invalid_input'; end if;
   end loop;
