@@ -1,6 +1,11 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { api, tags, errorMessage } from "./api";
-import type { TagDTO } from "../../supabase/functions/_shared/contracts";
+import { inspectTagOptions } from "./selection-tags";
+import type {
+  TagDTO,
+  Selection,
+  LibraryRevision,
+} from "../../supabase/functions/_shared/contracts";
 export function TagPicker({
   label,
   onChoose,
@@ -10,6 +15,8 @@ export function TagPicker({
   autoFocus = false,
   refresh = 0,
   showEmptySuggestions = true,
+  selection,
+  selectionRevision,
 }: {
   label: string;
   onChoose: (tag: TagDTO) => Promise<void> | void;
@@ -19,6 +26,8 @@ export function TagPicker({
   autoFocus?: boolean;
   refresh?: number;
   showEmptySuggestions?: boolean;
+  selection?: Selection;
+  selectionRevision?: LibraryRevision | undefined;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -28,6 +37,10 @@ export function TagPicker({
   const [text, setText] = useState("");
   const [options, setOptions] = useState<readonly TagDTO[]>([]);
   const [error, setError] = useState("");
+  const [inspection, setInspection] = useState<Awaited<
+    ReturnType<typeof inspectTagOptions>
+  > | null>(null);
+  const [lookupFailed, setLookupFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -37,6 +50,8 @@ export function TagPicker({
   }, [autoFocus]);
   useEffect(() => {
     setOptions([]);
+    setInspection(null);
+    setLookupFailed(false);
     setHighlight(0);
     if (!focused || disabled || (!showEmptySuggestions && !text.trim())) {
       setSearching(false);
@@ -51,8 +66,19 @@ export function TagPicker({
         undefined,
         controller.signal,
       )
-        .then((value) => {
+        .then(async (value) => {
           if (controller.signal.aborted) return;
+          const states =
+            selection && selectionRevision
+              ? await inspectTagOptions(
+                  value.tags,
+                  selection,
+                  selectionRevision,
+                  controller.signal,
+                )
+              : null;
+          if (controller.signal.aborted) return;
+          setInspection(states);
           setSearching(false);
           setOptions(value.tags);
           setError("");
@@ -60,6 +86,7 @@ export function TagPicker({
         .catch((error) => {
           if (!controller.signal.aborted) {
             setSearching(false);
+            setLookupFailed(true);
             setError(errorMessage(error));
           }
         });
@@ -68,9 +95,24 @@ export function TagPicker({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [text, focused, disabled, refresh, showEmptySuggestions]);
+  }, [
+    text,
+    focused,
+    disabled,
+    refresh,
+    showEmptySuggestions,
+    selection,
+    selectionRevision,
+  ]);
   async function choose(item?: TagDTO) {
-    if (busy || searching || disabled || (!item && !text.trim())) return;
+    if (
+      busy ||
+      searching ||
+      lookupFailed ||
+      disabled ||
+      (!item && !text.trim())
+    )
+      return;
     setBusy(true);
     setError("");
     try {
@@ -128,6 +170,11 @@ export function TagPicker({
               composing.current = false;
             }}
             onKeyDown={(event) => {
+              if (composing.current || event.nativeEvent.isComposing) {
+                if (event.key === "Enter") event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
               if (
                 !event.nativeEvent.isComposing &&
                 !composing.current &&
@@ -175,6 +222,7 @@ export function TagPicker({
             disabled ||
             busy ||
             searching ||
+            lookupFailed ||
             (!options.length && (!allowCreate || !text.trim()))
           }
         >
@@ -218,11 +266,15 @@ export function TagPicker({
                   role="option"
                   aria-selected={index === highlight}
                   className={index === highlight ? "suggestion-selected" : ""}
-                  disabled={busy || searching || disabled}
+                  disabled={busy || searching || lookupFailed || disabled}
                   onClick={() => void choose(item)}
                 >
                   <span>{item.name}</span>
-                  <small>{item.activeTrackCount} songs</small>
+                  <small>
+                    {inspection
+                      ? `${inspection.tags[index]?.state} · ${inspection.tags[index]?.assignedCount} of ${inspection.selectedCount} selected`
+                      : `${item.activeTrackCount} songs`}
+                  </small>
                 </button>
               </Fragment>
             ))}
@@ -241,7 +293,7 @@ export function TagPicker({
               <button
                 type="button"
                 className="create-tag"
-                disabled={busy || searching || disabled}
+                disabled={busy || searching || lookupFailed || disabled}
                 onClick={() => void choose()}
               >
                 Create “{text.trim()}”

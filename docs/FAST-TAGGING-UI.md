@@ -28,7 +28,8 @@ retains its traversal seed.
 Quick slots start from most-used vocabulary. Session pins retain explicit tag
 identities. Enter favors established suggestions; new tags have a distinct last
 row. Input is never repurposed for bare letter commands, even while empty.
-Alt/Option letters trigger the accepted actions; non-composing empty input also
+Alt/Option letters use physical key codes, including macOS characters such as
+Option+S producing `ß`, to trigger the accepted actions; non-composing empty input also
 accepts 1–9 and left/right navigation. Repeated keys, control/meta combinations,
 nonempty input arrows and IME Enter/number keys remain outside these actions.
 Autocomplete supports up/down suggestion navigation and preserves focus/drafts
@@ -41,6 +42,14 @@ identities. Album display names are never constructed into filters, including
 Select-all and group selections retain their captured filters and revisions;
 a refresh warns instead of silently renewing them. The sticky bar reports exact
 server tri-state inspection and separates idempotent Add from explicit Remove.
+Selection choices can be searched and paginated across the complete vocabulary.
+Both autocomplete pickers inspect their displayed IDs against the captured
+selection before exposing all/some/none counts. Empty vocabulary makes no invalid
+empty-ID inspection; a failed/stale inspection cannot submit a guessed choice.
+Facet refresh invalidates the displayed options and cursor as one context, so
+sync/tag changes cannot leave stale facets or reuse a prior revision's cursor.
+Management preview errors and recovery remain inside the active dialog while
+preserving the rename draft.
 Mutation toasts report changed assignments and changed-only session undo.
 
 Vocabulary supports name/usage/last-used order and the truly unused view. Rename,

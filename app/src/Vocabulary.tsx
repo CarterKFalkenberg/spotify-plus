@@ -8,6 +8,7 @@ import {
   type ManageIntent,
 } from "./fast-api";
 import { TagPicker } from "./TagPicker";
+import { ManagementNotice } from "./ManagementNotice";
 export function Vocabulary({
   refresh,
   onChanged,
@@ -281,6 +282,14 @@ export function Vocabulary({
           {selected?.activeTrackCount} active songs. Changes apply globally;
           playlist snapshots stay as created.
         </p>
+        <ManagementNotice
+          error={error}
+          busy={busy}
+          onRefresh={() => {
+            setCursor(null);
+            onChanged();
+          }}
+        />
         <label>
           New tag name
           <input

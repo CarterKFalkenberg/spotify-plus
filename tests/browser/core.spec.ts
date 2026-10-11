@@ -118,9 +118,20 @@ async function mock(page: Page, override?: Override) {
         totalOptions: 0,
         nextCursor: null,
       };
-    else if (path === "/api/tags/selection")
-      json = { revision, selectedCount: 3, tags: [] };
-    else if (path === "/api/tags/vocabulary")
+    else if (path === "/api/tags/selection") {
+      const body = route.request().postDataJSON();
+      const selectedCount =
+        body.selection.kind === "tracks" ? body.selection.trackKeys.length : 3;
+      json = {
+        revision,
+        selectedCount,
+        tags: body.tagIds.map((value: string) => ({
+          tag: tag(parseInt(value.slice(0, 8), 16)),
+          assignedCount: 1,
+          state: selectedCount === 1 ? "all" : "some",
+        })),
+      };
+    } else if (path === "/api/tags/vocabulary")
       json = { revision, tags: [tag()], hasMore: false, nextCursor: null };
     else if (path === "/api/tags")
       json = { tags: [tag()], hasMore: false, revision };
@@ -178,7 +189,7 @@ async function choose(page: Page, label = "Add All of tag") {
   await page.getByLabel(label, { exact: true }).fill("Synthetic");
   await page
     .locator(".suggestions")
-    .getByRole("option", { name: "Synthetic tag 1 3 songs" })
+    .getByRole("option", { name: /^Synthetic tag 1 / })
     .click();
 }
 async function builder(page: Page) {

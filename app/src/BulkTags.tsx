@@ -4,8 +4,8 @@ import type {
   LibraryRevision,
   TagDTO,
 } from "../../supabase/functions/_shared/contracts";
-import { api, tags, errorMessage } from "./api";
-import { tagSelection } from "./fast-api";
+import { errorMessage } from "./api";
+import { loadBulkTags } from "./selection-tags";
 export function BulkTags({
   selection,
   revision,
@@ -19,46 +19,63 @@ export function BulkTags({
   busy: boolean;
   onMutate: (tag: TagDTO, kind: "add" | "remove") => Promise<void>;
 }) {
-  const [data, setData] = useState<ReturnType<typeof tagSelection> | null>(
-      null,
-    ),
+  const [data, setData] = useState<Awaited<
+      ReturnType<typeof loadBulkTags>
+    > | null>(null),
     [error, setError] = useState("");
+  const [search, setSearch] = useState(""),
+    [cursor, setCursor] = useState<string | null>(null),
+    [retry, setRetry] = useState(0);
+  useEffect(() => {
+    setCursor(null);
+  }, [selection, revision, refresh]);
   useEffect(() => {
     const c = new AbortController();
     setData(null);
     setError("");
     async function load() {
-      const vocab = await api(
-        "/tags?search=&limit=100",
-        tags,
-        undefined,
-        c.signal,
-      );
-      const v = await api(
-        "/tags/selection",
-        tagSelection,
-        {
-          selection,
-          tagIds: vocab.tags.map((t) => t.id),
-          expectedRevision:
-            selection.kind === "filter" ? selection.expectedRevision : revision,
-        },
+      const v = await loadBulkTags(
+        search,
+        cursor,
+        selection,
+        revision,
         c.signal,
       );
       if (!c.signal.aborted) setData(v);
     }
-    void load().catch((e) => {
-      if (!c.signal.aborted) setError(errorMessage(e));
-    });
-    return () => c.abort();
-  }, [selection, revision, refresh]);
+    const timer = setTimeout(
+      () =>
+        void load().catch((e) => {
+          if (!c.signal.aborted) setError(errorMessage(e));
+        }),
+      150,
+    );
+    return () => {
+      clearTimeout(timer);
+      c.abort();
+    };
+  }, [selection, revision, refresh, search, cursor, retry]);
   return (
     <div className="bulk-states">
+      <label>
+        Find selection tags
+        <input
+          type="search"
+          value={search}
+          maxLength={200}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setCursor(null);
+          }}
+          placeholder="Search the whole vocabulary…"
+        />
+      </label>
       {data && (
         <>
           <small>
-            {data.selectedCount} songs · Add fills missing tags; Remove
-            explicitly clears.
+            {data.selectedCount === null
+              ? "No matching vocabulary yet. Create a tag below to begin."
+              : `${data.selectedCount} songs · Add fills missing tags; Remove explicitly clears.`}
           </small>
           <div className="chips">
             {data.tags.map((t) => (
@@ -85,7 +102,30 @@ export function BulkTags({
           </div>
         </>
       )}
-      {error && <p role="alert">{error}</p>}
+      {data?.nextCursor && (
+        <button className="compact" onClick={() => setCursor(data.nextCursor)}>
+          More selection tags
+        </button>
+      )}
+      {cursor && (
+        <button className="compact" onClick={() => setCursor(null)}>
+          First selection tags
+        </button>
+      )}
+      {error && (
+        <p role="alert">
+          {error}{" "}
+          <button
+            className="compact"
+            onClick={() => {
+              setCursor(null);
+              setRetry((v) => v + 1);
+            }}
+          >
+            Retry selection tags
+          </button>
+        </p>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 export function queueShortcut(
   event: {
     key: string;
+    code?: string;
     altKey: boolean;
     ctrlKey: boolean;
     metaKey: boolean;
@@ -32,7 +33,12 @@ export function queueShortcut(
         "?": "help",
         h: "help",
       } as Record<string, string>
-    )[event.key.toLowerCase()] ?? null
+    )[
+      (event.altKey && /^Key[A-Z]$/.test(event.code ?? "")
+        ? event.code!.slice(3)
+        : event.key
+      ).toLowerCase()
+    ] ?? null
   );
 }
 export function rangeSelection(

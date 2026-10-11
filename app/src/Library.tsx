@@ -303,7 +303,7 @@ export function Library({
           Group by artist
         </label>
       </div>
-      <Facets filter={filter} onChange={changeFilter} />
+      <Facets filter={filter} refresh={refresh} onChange={changeFilter} />
       <div className="library-filters desktop-bulk">
         <label>
           Sort songs
@@ -603,12 +603,18 @@ export function Library({
             </button>
             <TagPicker
               label="Add tag to selection"
+              selection={selection}
+              selectionRevision={data?.revision}
+              refresh={refresh}
               onCreate={(name) => mutate(name, selection, "add")}
               disabled={busy}
               onChoose={(tag) => mutate(tag, selection, "add")}
             />
             <TagPicker
               label="Remove tag from selection"
+              selection={selection}
+              selectionRevision={data?.revision}
+              refresh={refresh}
               actionLabel="Remove"
               disabled={busy}
               onChoose={(tag) => mutate(tag, selection, "remove")}

@@ -175,3 +175,26 @@ it("rejects JSON arrays masquerading as valid response enums and preserves valid
     ).toThrow("invalid_response");
   }
 });
+
+it("uses physical modified-letter codes for real macOS Option characters while preserving composition and text", () => {
+  const shortcuts = [
+    ["ß", "KeyS", "skip"],
+    ["Ω", "KeyZ", "undo"],
+    ["®", "KeyR", "remove"],
+    ["ø", "KeyO", "open"],
+    ["å", "KeyA", "artist"],
+    ["˙", "KeyH", "help"],
+  ];
+  for (const [character, code, action] of shortcuts) {
+    const event = { ...key(character!, { altKey: true }), code: code! };
+    expect(queueShortcut(event, true, "draft")).toBe(action);
+    expect(
+      queueShortcut({ ...event, isComposing: true }, true, "draft"),
+    ).toBeNull();
+    expect(queueShortcut({ ...event, repeat: true }, true, "")).toBeNull();
+    expect(queueShortcut({ ...event, altKey: false }, true, "")).toBeNull();
+  }
+  expect(
+    queueShortcut({ ...key("Dead", { altKey: true }), code: "KeyE" }, true, ""),
+  ).toBeNull();
+});

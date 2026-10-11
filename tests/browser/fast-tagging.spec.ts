@@ -183,11 +183,19 @@ async function mock(
           body.selection.kind === "tracks"
             ? body.selection.trackKeys.length
             : 3,
-        tags: tags.map((t) => ({
-          tag: t,
-          assignedCount: t.id === id(1) ? 1 : 0,
-          state: t.id === id(1) ? "some" : "none",
-        })),
+        tags: body.tagIds.map((tagId: string) => {
+          const t = tags.find((t) => t.id === tagId)!;
+          const selectedCount =
+            body.selection.kind === "tracks"
+              ? body.selection.trackKeys.length
+              : 3;
+          return {
+            tag: t,
+            assignedCount: t.id === id(1) ? 1 : 0,
+            state:
+              t.id === id(1) ? (selectedCount === 1 ? "all" : "some") : "none",
+          };
+        }),
       };
     else if (path === "/api/tag-actions") {
       if (options.failAction)
