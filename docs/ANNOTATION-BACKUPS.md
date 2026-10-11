@@ -3,6 +3,10 @@
 The jobs function creates one encrypted annotation snapshot per UTC day and keeps
 the three latest successful daily copies. Maintenance and the existing SQL job
 leases/retry timestamps schedule this work; no process needs to remain running.
+Daily backup scheduling, job claiming and lease checkpoints also continue during
+Spotify reconnect state, because authenticated annotation editing remains available.
+OAuth failures park Spotify work while preserving annotation-only backup jobs;
+backup execution never reads Spotify credentials or contacts Spotify.
 Copies contain only live tag UUIDs/display names/normalized identity and present
 track-HMAC/tag edges. Removed-track HMAC assignments remain recoverable after
 metadata expires. Deleted vocabulary, undo journals, cached Spotify metadata,
@@ -15,6 +19,10 @@ the existing encrypted annotation-key record. This linkage verifies the same
 per-account HMAC key without including that key or its ciphertext in the backup.
 The stable `BACKUP_ENCRYPTION_KEY` remains a Supabase runtime secret; deployment
 transfers the existing private runtime key. Never rotate it casually or print it.
+The compact document budget is 3,744,914 UTF-8 bytes. SQL permits 4,264,933 bytes
+for its expanded JSONB representation: the compact budget plus a conservative
+520,019-byte separator-space allowance derived from the strict field/array caps.
+This avoids rejecting a valid encrypted snapshot because PostgreSQL adds spaces.
 The payload and ciphertext have strict schema/size budgets below the private
 bucket's 5 MiB limit; unsupported versions fail closed.
 
@@ -42,6 +50,11 @@ overwrite buckets/objects. Lost upload acknowledgement is reconciled by reading
 and authenticating the existing object before committing a successful copy.
 Before allocating any new daily target, the worker finishes pending retired-target
 cleanup; a prolonged deletion outage cannot accumulate new daily buckets.
+Cleanup claims one target per invocation, records each verified bucket absence in
+SQL immediately, and resumes only unconfirmed targets. Storage timeouts shrink to
+the remaining worker deadline, with ten seconds reserved for SQL/job checkpoints.
+Disconnect uses the same bounded progress rather than rescanning already purged
+registry rows; an actually reappearing empty bucket is still detected and removed.
 Retention first retires old targets, deletes them through the Storage API, and
 verifies absence before completing. A failed deletion retries without discarding
 the successful new daily copy.

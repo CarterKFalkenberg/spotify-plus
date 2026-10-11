@@ -102,3 +102,44 @@ Deno.test("retirement requires actual bucket disappearance and does not treat pr
   );
   equal(await stillPresent.retire(path), false);
 });
+Deno.test("Storage cleanup rejects unbounded batches and stops provider work at its remaining deadline", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  let calls = 0, clock = 0;
+  const backups = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    () => {
+      calls++;
+      clock += 10000;
+      return mockResponse("{}");
+    },
+  );
+  await rejects(() => backups.remove([path, path]));
+  equal(calls, 0);
+  await rejects(() => backups.purge([path, path]));
+  equal(calls, 0);
+  await rejects(() =>
+    backups.retire(path, { deadline: 15000, now: () => clock })
+  );
+  equal(calls, 2);
+});
+Deno.test("purge persists target absence before a later legacy cleanup failure", async () => {
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  let checkpoints = 0;
+  const backups = new PrivateBackups(
+    "https://synthetic.example",
+    "synthetic-service",
+    (url) =>
+      String(url).includes("/empty")
+        ? mockResponse("{}", { status: 500 })
+        : mockResponse("{}", { status: 404 }),
+  );
+  await rejects(() =>
+    backups.purge([path], undefined, (confirmed) => {
+      equal(confirmed, path);
+      checkpoints++;
+      return Promise.resolve(true);
+    })
+  );
+  equal(checkpoints, 1);
+});

@@ -1,6 +1,8 @@
+import { BackupDeadline, type BackupWork } from "./backup-budget.ts";
 import { SecretBox, sha256 } from "./crypto.ts";
 import type { Database } from "./database.ts";
 import type { FeatureJob } from "./library.ts";
+export const MAX_SNAPSHOT_BYTES = 3744914;
 export const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const hash = /^[a-f0-9]{64}$/;
 const uuid = /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
@@ -80,7 +82,7 @@ export function validateSnapshot(value: unknown): AnnotationSnapshot {
   }
   if (
     new TextEncoder().encode(JSON.stringify(value)).length >
-      MAX_BACKUP_BYTES / 1.4
+      MAX_SNAPSHOT_BYTES
   ) return fail();
   return value as unknown as AnnotationSnapshot;
 }
@@ -120,11 +122,11 @@ export class AnnotationBackupCodec {
   }
 }
 export interface AnnotationObjectStorage {
-  ensure(path: string, create: boolean): Promise<boolean>;
-  retire(path: string): Promise<boolean>;
-  read(path: string): Promise<string | null>;
-  upload(path: string, ciphertext: string): Promise<void>;
-  remove(paths: string[]): Promise<void>;
+  ensure(path: string, create: boolean, work?: BackupWork): Promise<boolean>;
+  retire(path: string, work?: BackupWork): Promise<boolean>;
+  read(path: string, work?: BackupWork): Promise<string | null>;
+  upload(path: string, ciphertext: string, work?: BackupWork): Promise<void>;
+  remove(paths: string[], work?: BackupWork): Promise<void>;
 }
 interface BackupPlan {
   snapshot: Omit<AnnotationSnapshot, "keyLink">;
@@ -135,94 +137,109 @@ export function annotationBackupJob(
   db: Database,
   storage: AnnotationObjectStorage,
   codec: AnnotationBackupCodec,
+  options: { now?: () => number } = {},
 ): FeatureJob {
-  return async (job) => {
-    if (job.epoch === null || job.kind !== "annotation_backup") {
-      throw new Error("invalid_backup_job");
-    }
-    const args = { p_epoch: job.epoch, p_id: job.id, p_lease: job.leaseToken };
-    // Finish retired targets before allocating another day's copy. A prolonged
-    // deletion outage therefore cannot accumulate new daily buckets indefinitely.
-    const pending = await db.rpc<string[] | null>("app_backup_retention", args);
-    if (!pending) return null;
-    if (pending.length) {
-      await storage.remove(pending);
-      for (const path of pending) {
-        if (await storage.read(path) !== null) {
-          throw new Error("backup_retention_pending");
+  const now = options.now ?? Date.now;
+  return async (job, deadline) => {
+    const work = { deadline: deadline - 10000, now };
+    const available = () => now() < work.deadline;
+    if (!available()) return { done: false, retryMs: 1000 };
+    try {
+      if (job.epoch === null || job.kind !== "annotation_backup") {
+        throw new Error("invalid_backup_job");
+      }
+      const args = {
+        p_epoch: job.epoch,
+        p_id: job.id,
+        p_lease: job.leaseToken,
+      };
+      // One target per attempt, checkpointed immediately. A deletion outage cannot
+      // accumulate fresh daily targets or make a retry rescan confirmed absences.
+      const cleanup = async () => {
+        if (!available()) return "yield";
+        const pending = await db.rpc<string[] | null>(
+          "app_backup_retention",
+          args,
+        );
+        if (!pending) return "stale";
+        if (!pending.length) return "done";
+        if (!available()) return "yield";
+        const path = pending[0];
+        await storage.remove([path], work);
+        if (
+          !await db.rpc<boolean>("app_backup_retention_finish", {
+            ...args,
+            p_paths: [path],
+          })
+        ) return "stale";
+        // Bound this invocation to one cleanup target even with many overdue days.
+        return "yield";
+      };
+      const before = await cleanup();
+      if (before === "stale") return null;
+      if (before === "yield") return { done: false, retryMs: 1000 };
+      if (!available()) return { done: false, retryMs: 1000 };
+      const plan = await db.rpc<BackupPlan | null>("app_backup_prepare", args);
+      if (!plan) return null;
+      const expected = {
+        ...plan.snapshot,
+        keyLink: await sha256(plan.encryptedKey),
+      };
+      const path = backupPath(expected);
+      if (!available()) return { done: false, retryMs: 1000 };
+      const snapshotArgs = { ...args, p_snapshot_id: expected.id };
+      if (plan.state !== "retained") {
+        const create = plan.state === "new" &&
+          await db.rpc<boolean>("app_backup_bucket_start", snapshotArgs);
+        if (!await storage.ensure(path, create, work)) {
+          await db.rpc("app_backup_abandon", snapshotArgs);
+          return { done: false, retryMs: 60000 };
+        }
+        if (!available()) return { done: false, retryMs: 1000 };
+        if (!await db.rpc<boolean>("app_backup_upload_allowed", snapshotArgs)) {
+          // Only this snapshot bucket is retired; never touch a later connection.
+          if (
+            await db.rpc<boolean>("app_backup_retire_allowed", {
+              p_epoch: job.epoch,
+              p_snapshot_id: expected.id,
+            })
+          ) await storage.retire(path, work);
+          return null;
         }
       }
-      if (
-        !await db.rpc<boolean>("app_backup_retention_finish", {
-          ...args,
-          p_paths: pending,
-        })
-      ) return null;
-    }
-    const plan = await db.rpc<BackupPlan | null>("app_backup_prepare", args);
-    if (!plan) return null;
-    const expected = {
-      ...plan.snapshot,
-      keyLink: await sha256(plan.encryptedKey),
-    };
-    const path = backupPath(expected);
-    const snapshotArgs = { ...args, p_snapshot_id: expected.id };
-    if (plan.state !== "retained") {
-      const create = plan.state === "new" &&
-        await db.rpc<boolean>("app_backup_bucket_start", snapshotArgs);
-      if (!await storage.ensure(path, create)) {
-        await db.rpc("app_backup_abandon", snapshotArgs);
-        return { done: false, retryMs: 60000 };
-      }
-      if (!await db.rpc<boolean>("app_backup_upload_allowed", snapshotArgs)) {
-        // Only this snapshot bucket is retired; never touch a later connection.
+      if (plan.state !== "retained") {
+        // Read first: an upload may have succeeded before its acknowledgement was lost.
+        let encrypted = await storage.read(path, work);
+        if (encrypted === null) {
+          encrypted = await codec.encode(expected);
+          if (!available()) return { done: false, retryMs: 1000 };
+          await storage.upload(path, encrypted, work);
+        }
+        if (!available()) return { done: false, retryMs: 1000 };
+        const actual = await codec.decode(encrypted, expected);
+        if (!available()) return { done: false, retryMs: 1000 };
+        if (actual.day !== expected.day) {
+          throw new Error("invalid_annotation_backup");
+        }
         if (
-          await db.rpc<boolean>("app_backup_retire_allowed", {
-            p_epoch: job.epoch,
-            p_snapshot_id: expected.id,
+          !await db.rpc<boolean>("app_backup_commit", {
+            ...args,
+            p_snapshot_id: actual.id,
+            p_revision: actual.revision,
+            p_key_link: actual.keyLink,
           })
-        ) await storage.retire(path);
-        return null;
+        ) return null;
       }
+      const after = await cleanup();
+      return after === "stale"
+        ? null
+        : { done: after === "done", retryMs: 1000 };
+    } catch (error) {
+      if (error instanceof BackupDeadline) {
+        return { done: false, retryMs: 1000 };
+      }
+      throw error;
     }
-    if (plan.state !== "retained") {
-      // Read first: an upload may have succeeded before its acknowledgement was lost.
-      let encrypted = await storage.read(path);
-      if (encrypted === null) {
-        encrypted = await codec.encode(expected);
-        await storage.upload(path, encrypted);
-      }
-      const actual = await codec.decode(encrypted, expected);
-      if (actual.day !== expected.day) {
-        throw new Error("invalid_annotation_backup");
-      }
-      if (
-        !await db.rpc<boolean>("app_backup_commit", {
-          ...args,
-          p_snapshot_id: actual.id,
-          p_revision: actual.revision,
-          p_key_link: actual.keyLink,
-        })
-      ) return null;
-    }
-    const obsolete = await db.rpc<string[] | null>(
-      "app_backup_retention",
-      args,
-    );
-    if (!obsolete) return null;
-    await storage.remove(obsolete);
-    for (const old of obsolete) {
-      if (await storage.read(old) !== null) {
-        throw new Error("backup_retention_pending");
-      }
-    }
-    if (
-      !await db.rpc<boolean>("app_backup_retention_finish", {
-        ...args,
-        p_paths: obsolete,
-      })
-    ) return null;
-    return { done: true };
   };
 }
 // Operator-only helper. Never called from API or a scheduled job.

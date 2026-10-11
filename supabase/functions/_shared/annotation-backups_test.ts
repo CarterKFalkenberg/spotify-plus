@@ -101,6 +101,7 @@ Deno.test("lost upload acknowledgement is reconciled without duplicate upload or
   const value = await fixture(), objects = storage();
   let state = "new", fail = true, commits = 0;
   const db = database((name) => {
+    if (name === "app_backup_retention") return [];
     if (name === "app_backup_prepare") {
       const { keyLink: _, ...snapshot } = value;
       return { snapshot, encryptedKey, state };
@@ -140,7 +141,7 @@ Deno.test("lost upload acknowledgement is reconciled without duplicate upload or
       payload: {},
     };
   await rejects(() => run(job, Infinity));
-  equal(await run(job, Infinity), { done: true });
+  equal(await run(job, Infinity), { done: true, retryMs: 1000 });
   equal(objects.uploads, 1);
   equal(commits, 1);
 });
@@ -183,7 +184,8 @@ Deno.test("retention failures retry without discarding the successful new copy",
     };
   await rejects(() => run(job, Infinity));
   equal(confirmed, 0);
-  equal(await run(job, Infinity), { done: true });
+  equal(await run(job, Infinity), { done: false, retryMs: 1000 });
+  equal(await run(job, Infinity), { done: true, retryMs: 1000 });
   equal(objects.uploads, 0);
   equal(confirmed, 1);
 });
@@ -191,6 +193,7 @@ Deno.test("disconnected creation cannot upload, and a lost lease cannot delete a
   for (const retired of [true, false]) {
     const value = await fixture(), objects = storage();
     const db = database((name) => {
+      if (name === "app_backup_retention") return [];
       if (name === "app_backup_prepare") {
         const { keyLink: _, ...snapshot } = value;
         return { snapshot, encryptedKey, state: "creating" };
@@ -283,7 +286,7 @@ Deno.test("operator restore authenticates ciphertext before transaction and carr
 });
 
 Deno.test("realistic 3000 assignments and near-size-limit snapshots round trip without argument-limit failure", async () => {
-  for (const count of [3000, 28000]) {
+  for (const count of [3000, 29000]) {
     const value = await fixture();
     value.assignments = Array.from(
       { length: count },
@@ -298,4 +301,97 @@ Deno.test("realistic 3000 assignments and near-size-limit snapshots round trip w
     (_, i) => ({ trackKey: i.toString(16).padStart(64, "0"), tagId: tag }),
   );
   await rejects(() => codec.encode(oversized));
+});
+Deno.test("backup deadline yields before any SQL or Storage work when checkpoint reserve is all that remains", async () => {
+  let calls = 0;
+  const db = database(() => {
+    calls++;
+    throw new Error("unexpected_work");
+  });
+  const result = await annotationBackupJob(db, storage(), codec, {
+    now: () => 70001,
+  })({
+    id,
+    epoch: 1,
+    kind: "annotation_backup",
+    attempts: 1,
+    leaseToken: tag,
+    payload: {},
+  }, 80000);
+  equal(result, { done: false, retryMs: 1000 });
+  equal(calls, 0);
+});
+Deno.test("retired cleanup checkpoints one target per invocation and resumes only the unconfirmed target", async () => {
+  const value = await fixture(),
+    objects = storage(),
+    pending = [backupPath({ ...value, id }), backupPath({ ...value, id: tag })];
+  let clock = 0, checkpoints = 0, prepares = 0;
+  objects.remove = (paths, work) => {
+    equal(paths.length, 1);
+    equal(work?.deadline, clock + 70000);
+    objects.objects.delete(paths[0]);
+    clock += 60000;
+    return Promise.resolve();
+  };
+  const db = database((name, args) => {
+    if (name === "app_backup_retention") return [...pending];
+    if (name === "app_backup_retention_finish") {
+      equal(args.p_paths, [pending[0]]);
+      pending.shift();
+      checkpoints++;
+      return true;
+    }
+    if (name === "app_backup_prepare") {
+      prepares++;
+      throw new Error("allocation_before_cleanup");
+    }
+    return true;
+  });
+  const run = annotationBackupJob(db, objects, codec, { now: () => clock }),
+    job = {
+      id,
+      epoch: 1,
+      kind: "annotation_backup",
+      attempts: 1,
+      leaseToken: tag,
+      payload: {},
+    };
+  equal(await run(job, clock + 80000), { done: false, retryMs: 1000 });
+  equal(checkpoints, 1);
+  equal(prepares, 0);
+  equal(await run(job, clock + 80000), { done: false, retryMs: 1000 });
+  equal(checkpoints, 2);
+  equal(pending.length, 0);
+  equal(prepares, 0);
+});
+Deno.test("slow bucket creation yields with its durable intent and cannot start upload past the deadline", async () => {
+  const value = await fixture(), objects = storage();
+  let clock = 0, uploadsAllowed = 0;
+  objects.ensure = (_path, _create, work) => {
+    equal(work?.deadline, 70000);
+    clock = 70001;
+    return Promise.resolve(true);
+  };
+  const db = database((name) => {
+    if (name === "app_backup_retention") return [];
+    if (name === "app_backup_prepare") {
+      const { keyLink: _, ...snapshot } = value;
+      return { snapshot, encryptedKey, state: "new" };
+    }
+    if (name === "app_backup_upload_allowed") uploadsAllowed++;
+    return true;
+  });
+  equal(
+    await annotationBackupJob(db, objects, codec, { now: () => clock })({
+      id,
+      epoch: 1,
+      kind: "annotation_backup",
+      attempts: 1,
+      leaseToken: tag,
+      payload: {},
+    }, 80000),
+    { done: false, retryMs: 1000 },
+  );
+  equal(uploadsAllowed, 0);
+  equal(objects.uploads, 0);
 });

@@ -191,3 +191,40 @@ Deno.test("immediate playlist drain shares leases and enforces the 20-job invoca
   });
   equal([claims, handled, finishes, result.completed], [20, 20, 20, 20]);
 });
+Deno.test("disconnect cleanup checkpoints a bounded batch and requeues while another target remains", async () => {
+  let claimed = false, checkpointed = false, finished = false;
+  const path = "1-00000000-0000-4000-8000-000000000001.bin";
+  const db = database((name, args) => {
+    if (name === "app_job_claim") {
+      if (claimed) return null;
+      claimed = true;
+      return purgeJob;
+    }
+    if (name === "app_account_status") {
+      return { epoch: 2, state: "disconnecting" };
+    }
+    if (name === "app_backup_purge_targets") return [path];
+    if (name === "app_backup_purge_checkpoint") {
+      equal(args.p_path, path);
+      checkpointed = true;
+      return true;
+    }
+    if (name === "app_disconnect_finish") finished = true;
+    if (name === "app_job_finish") equal(args.p_outcome, "queued");
+    return true;
+  });
+  await drainJobs({
+    db,
+    sha,
+    now: () => 0,
+    backups: {
+      purge: async (paths, work, checkpoint) => {
+        equal(paths, [path]);
+        equal(work?.deadline, 70000);
+        return await checkpoint!(path);
+      },
+    },
+  });
+  assert(checkpointed);
+  assert(!finished);
+});

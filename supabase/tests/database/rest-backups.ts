@@ -210,11 +210,18 @@ try {
   const disconnected = await db.rpc<{ epoch: number }>("app_disconnect", {
     p_epoch: epoch,
   });
-  const targets = await db.rpc<string[]>("app_backup_purge_targets", {
-    p_epoch: disconnected.epoch,
-  });
-  check(await storage.purge(targets));
-  check(await db.rpc("app_disconnect_finish", { p_epoch: disconnected.epoch }));
+  // Exercise the real bounded purge job and its durable per-target checkpoints.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await drainJobs({ db, backups: storage, sha: "a".repeat(40) });
+    const current = await db.rpc<{ state: string }>("app_account_status");
+    if (current.state === "disconnected") break;
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  }
+  check(
+    (await db.rpc<{ epoch: number; state: string }>("app_account_status"))
+      .state === "disconnected",
+  );
+  check(disconnected.epoch === epoch + 1);
   release();
   check(await late);
   check(await storage.read(path) === null);
