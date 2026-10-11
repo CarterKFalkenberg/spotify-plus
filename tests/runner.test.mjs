@@ -64,7 +64,7 @@ fs.writeFileSync(out, JSON.stringify({status:'ready',summary:'synthetic stage',e
 `;
   for (const exe of ['codex', 'gh', 'deno', 'supabase', 'wrangler', 'docker']) writeFileSync(resolve(bin, exe), fake, { mode: 0o755 });
   const preload = resolve(root, '.local/mock-fetch.mjs');
-  writeFileSync(preload, `import cp from 'node:child_process'; globalThis.fetch=async()=>({ok:true,json:async()=>{const sha=cp.execFileSync('git',['rev-parse','HEAD'],{cwd:process.env.TAGGER_TEST_ROOT+'/.worktrees/build'}).toString().trim();return {buildSha:sha,apiBuildSha:sha,jobsBuildSha:sha};}});`);
+  writeFileSync(preload, `import cp from 'node:child_process'; globalThis.fetch=async(url)=>({ok:true,json:async()=>{if(String(url).startsWith('https://api.supabase.com/v1/projects/')) return {id:process.env.TAGGER_TEST_MODE==='wrong-project'?'other':'test-supabaseProjectRef',status:'ACTIVE_HEALTHY'};const sha=cp.execFileSync('git',['rev-parse','HEAD'],{cwd:process.env.TAGGER_TEST_ROOT+'/.worktrees/build'}).toString().trim();return {buildSha:sha,apiBuildSha:sha,jobsBuildSha:sha};}});`);
   const env = { ...process.env, PATH: bin + ':' + process.env.PATH, TAGGER_TEST_ROOT: root,
     TAGGER_TEST_MODE: mode, NODE_OPTIONS: `--import=${preload}` };
   const run = args => spawnSync(process.execPath, ['scripts/build.mjs', ...args], { cwd: root, env, encoding: 'utf8', timeout: 30000 });
@@ -89,7 +89,7 @@ test('runner completes stages, preserves main, ignores secrets, and resumes with
 
 test('preflight stops before Codex if the configured Supabase project is inaccessible', () => {
   const f = fixture('wrong-project'); const result = f.run([]);
-  assert.equal(result.status, 1); assert.match(result.stderr, /cannot see the configured project/);
+  assert.equal(result.status, 1); assert.match(result.stderr, /scoped Supabase token access/);
   assert.equal(existsSync(resolve(f.root, '.local/calls')), false);
 });
 

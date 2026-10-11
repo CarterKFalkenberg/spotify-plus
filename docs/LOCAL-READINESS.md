@@ -30,3 +30,9 @@ Node 24.21.0 was installed from the official `nodejs.org` macOS ARM64 archive af
 Playwright and its readiness harness are installed under the project tools directory; browser binaries use the normal Playwright cache. A different application-pinned Playwright version may require its matching browser download. Emulation is not personal phone acceptance.
 
 The session's current execution policy allowed these operations without permission prompts. This does not guarantee future sessions have the same policy, credentials remain valid, or account usage remains available. The complete Supabase local stack and application integration tests will run after scaffolding; the Docker smoke check does not prove them. Provider permissions are checked after the free accounts are configured.
+
+## Supabase access verification — October 11, 2026
+
+Supabase setup is verified: the configured project is healthy, its organization is on Free with the spend cap enabled, and the project-scoped token can read project/function/secret-management/storage configuration and execute a read-only SQL query. CLI linking succeeded in an isolated temporary directory. A separate TLS PostgreSQL connection verified the saved database password with `SELECT 1`; `pg_cron` and `pg_net` are available to install during the build.
+
+Credential files are owner-only, ignored and untracked. These checks created no tables, migrations, functions or cloud resources. Actual function deployment, storage writes, scheduler execution and application tests remain the first build milestone. No additional Supabase credential or MCP connection is needed now; refresh the short-lived token if it expires before the build.
