@@ -13,5 +13,12 @@
     "noEmit": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["app", "proxy", "tests/proxy", "tests/browser", "*.config.ts"]
+  "include": [
+    "app",
+    "proxy",
+    "tests/proxy",
+    "tests/frontend",
+    "tests/browser",
+    "*.config.ts"
+  ]
 }
