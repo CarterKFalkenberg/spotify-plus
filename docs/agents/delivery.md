@@ -25,17 +25,17 @@ Final phone/desktop product acceptance remains a human check after software deli
 
 ## Native goal ownership and continuity
 
-The user's [October 11 decision](../DECISIONS.md#autonomous-native-goal--october-11-2026) authorizes bounded delegation and agent communication, superseding the former one-session-per-milestone limit. The main `gpt-6.1-sol` chat orchestrates; `gpt-6-astra` implementation tasks own coherent tickets in separate worktrees. Define interfaces and dependencies before parallel work. Share the primary ignored `.local` directory through a symlink, never copied credentials.
+The user's [October 11 decision](../DECISIONS.md#autonomous-native-goal--october-11-2026) authorizes bounded delegation and agent communication, superseding the former one-session-per-milestone limit. The main `gpt-6-astra` chat orchestrates; `gpt-6.1-sol` implementation tasks own coherent tickets in separate worktrees. All roles use Medium reasoning effort under the later human correction. Define interfaces and dependencies before parallel work. Share the primary ignored `.local` directory through a symlink, never copied credentials.
 
 Only the orchestrator integrates branches, verifies delivery and merges. Shared migration ordering, deployments, scheduled runtime changes and Spotify mutations are coordinated centrally and executed by the orchestrator, or by one explicitly assigned operator at a time. Implementation agents prepare code and synthetic evidence; they must not race on shared targets. The scheduled reviewer cannot take that operator role. Read scoped authorization flags before external actions and preserve all existing privacy, Free-plan and playlist-only boundaries.
 
 GitHub [parent issue #4](https://github.com/CarterKFalkenberg/spotify-plus/issues/4) and its child tickets record owners, dependencies, spec links, PRs, base/reviewed-head/merge SHAs, verification evidence, blockers and next actions. Close an implementation ticket only after its acceptance criteria pass and its changes merge. Keep human-only acceptance separate.
 
-| Private durable record | Owner and required contents |
-| --- | --- |
+| Private durable record                 | Owner and required contents                                                                                                                                                                              |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `.local/build-coordination/state.json` | Orchestrator: active goal/chat, model roles, automation ID/status, ticket/agent/worktree ownership, dependencies, milestone evidence and external-action ownership; explicitly pending human acceptance. |
-| `.local/build-review/ledger.json` | Scheduled reviewer: branch base/head/merge-base, reviewed commit SHAs, stable working-diff fingerprints, snapshot identity, findings, fix verification and complete/partial review status. |
-| `.local/build/state.json` | Optional shell runner only: its stage results and verified merge/deployment evidence. Do not treat this separate ledger as native-goal completion. |
+| `.local/build-review/ledger.json`      | Scheduled reviewer: branch base/head/merge-base, reviewed commit SHAs, stable working-diff fingerprints, snapshot identity, findings, fix verification and complete/partial review status.               |
+| `.local/build/state.json`              | Optional shell runner only: its stage results and verified merge/deployment evidence. Do not treat this separate ledger as native-goal completion.                                                       |
 
 Use atomic updates for private ledgers and preserve fields owned by other processes. Never store credentials or actual Spotify content in review/coordination evidence. Resume from issues and these records after interruption, then inspect actual Git, CI, deployment and automation state; a saved claim is not fresh verification. The native goal and unattended shell runner must not run together. See [AUTONOMY.md](../AUTONOMY.md) for periodic review locking, snapshots and shutdown.
 
