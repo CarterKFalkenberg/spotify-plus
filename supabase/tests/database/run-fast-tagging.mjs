@@ -271,8 +271,8 @@ try {
       select (fixture->>'trackKey'),1 from jsonb_array_elements(${
     literal(albumRows)
   }) fixture;
-    insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at)
-      select fixture->>'trackKey',lpad(ord::text,22,'0'),'Synthetic album fixture','[]'::jsonb,fixture->>'album',now()
+    insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,added_run_id)
+      select fixture->>'trackKey',lpad(ord::text,22,'0'),'Synthetic album fixture','[]'::jsonb,fixture->>'album',now(),'11111111-1111-4111-8111-111111111111'::uuid
       from jsonb_array_elements(${
     literal(albumRows)
   }) with ordinality as fixtures(fixture,ord);
