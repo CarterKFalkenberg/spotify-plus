@@ -37,6 +37,11 @@ function string(value: unknown): string {
     throw new ApiError("invalid_response");
   return value;
 }
+function choice<T extends string>(value: unknown, choices: readonly T[]): T {
+  if (typeof value !== "string" || !choices.includes(value as T))
+    throw new ApiError("invalid_response");
+  return value as T;
+}
 function count(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new ApiError("invalid_response");
@@ -63,11 +68,10 @@ export function search(value: unknown): Search {
     };
   if (v.groupBy === null)
     return { ...base, groupBy: null, tracks: array(v.tracks, track) };
-  if (!["artist", "album", "decade"].includes(String(v.groupBy)))
-    throw new ApiError("invalid_response");
+  const groupBy = choice(v.groupBy, ["artist", "album", "decade"]);
   return {
     ...base,
-    groupBy: v.groupBy as Facet,
+    groupBy,
     totalGroups: count(v.totalGroups),
     groups: array(v.groups, (x) => {
       const g = object(x),
@@ -114,12 +118,11 @@ export function tagSelection(value: unknown) {
     selectedCount: count(v.selectedCount),
     tags: array(v.tags, (x) => {
       const t = object(x);
-      if (!["all", "some", "none"].includes(String(t.state)))
-        throw new ApiError("invalid_response");
+      const state = choice(t.state, ["all", "some", "none"]);
       return {
         tag: tag(t.tag),
         assignedCount: count(t.assignedCount),
-        state: t.state as "all" | "some" | "none",
+        state,
       };
     }),
   };

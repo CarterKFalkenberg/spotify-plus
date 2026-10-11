@@ -137,3 +137,41 @@ it("a local patch advances only its owned revision and never hides unrelated mem
     ownedPatchRevision(before, { library: "1", annotations: "2" }, false),
   ).toBe(before);
 });
+
+it("rejects JSON arrays masquerading as valid response enums and preserves valid scalar states", () => {
+  const revision = { library: "1", annotations: "1" };
+  for (const groupBy of ["artist", "album", "decade"]) {
+    const response = {
+      revision,
+      totalTracks: 0,
+      nextCursor: null,
+      totalGroups: 0,
+      groups: [],
+      groupBy,
+    };
+    expect(search(response).groupBy).toBe(groupBy);
+    expect(() => search({ ...response, groupBy: [groupBy] })).toThrow(
+      "invalid_response",
+    );
+  }
+  const tag = {
+    id: "00000001-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    name: "Synthetic tag",
+    activeTrackCount: 1,
+    lastUsedAt: null,
+  };
+  for (const state of ["all", "some", "none"]) {
+    const response = {
+      revision,
+      selectedCount: 1,
+      tags: [{ tag, assignedCount: state === "none" ? 0 : 1, state }],
+    };
+    expect(tagSelection(response).tags[0]?.state).toBe(state);
+    expect(() =>
+      tagSelection({
+        ...response,
+        tags: [{ ...response.tags[0], state: [state] }],
+      }),
+    ).toThrow("invalid_response");
+  }
+});
