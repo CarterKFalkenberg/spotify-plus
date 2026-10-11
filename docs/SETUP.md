@@ -17,11 +17,11 @@ Authenticate:
 
 ```sh
 codex login
-gh auth login --hostname github.com --git-protocol https --web
+gh auth login --hostname github.com --git-protocol https --web --scopes repo,workflow
 gh auth setup-git
 ```
 
-If already signed in, `codex login status` is sufficient. The runner uses existing Codex account access and its configured model; no OpenAI API key is needed. GitHub CLI needs branch-push/draft-PR access to `CarterKFalkenberg/spotify-plus`. The GitHub plugin does not automatically authenticate `gh`. [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [GitHub login](https://cli.github.com/manual/gh_auth_login).
+If already signed in, `codex login status` is sufficient. The runner uses existing Codex account access and its configured model; no OpenAI API key is needed. GitHub CLI needs repository, issue, PR-merge and workflow-file access to `CarterKFalkenberg/spotify-plus`; repository administration is needed to configure main protection once. The connected account has repository admin access, but `gh` is currently unauthenticated. Your autonomous-merge authorization is already recorded. The GitHub plugin does not automatically authenticate `gh`. [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [GitHub login](https://cli.github.com/manual/gh_auth_login).
 
 Start Docker Desktop for a disposable local Supabase stack and integration tests. Its executable is present; daemon readiness has not been established. No cloud Docker host or manually created local database is needed.
 
@@ -30,6 +30,8 @@ node scripts/init-local.mjs
 ```
 
 This creates ignored `.local/config.json` and `.local/runtime-keys.json` with private permissions. Accepted decisions and budget `0` are already in the template. Existing files are preserved. If you previously initialized the Railway template, update hosting fields to match `.build/config.example.json` and remove the old `railway...` keys/authorization. Preserve keys and Spotify credentials; never overwrite secret files with a template. The runner rejects obsolete hosting configuration.
+
+Before the build, I will merge the prepared repository/skills/CI setup through a reviewed bootstrap PR and configure required checks with zero required human approvals. See [delivery rules](agents/delivery.md) and the [concise readiness checklist](BEFORE-GOAL.md). The existing GitHub connection does not replace CLI authentication.
 
 ## 2. Create the Supabase Free project
 
@@ -95,13 +97,15 @@ The first milestone imports the Spotify grant once, preserves its original autho
 Set these remaining configuration flags to true when accepting the described actions:
 
 - `installDependencies`: install dependencies/browser binaries, run local Supabase/test containers and checks, and write in this repository's worktrees.
-- `pushFeatureBranchesAndCreateDraftPR`: commit/push `codex/...` branches and open/update a draft PR in this repository. You review the merge.
+- `manageRepositoryAndMergePRs` is already true: you authorized repository setup and branch/PR work, including autonomous review and merge. No repeat approval is needed. Older local configs should replace the obsolete draft-PR flag with this field.
 - `deployToConfiguredFreeHosting`: deploy to only the configured Supabase project and Cloudflare account/Worker; configure secrets, additive migrations, cron and a private backup bucket; verify restore using isolated synthetic data. **No paid plan, add-on or purchased domain**, even if a quota is exceeded. No project deletion or destructive production migration.
 - `createAndRemoveDisposableTestPlaylists`: read your library and create/change/remove tracked playlists named `Tagger API test ...`. Never alter Liked Songs, unrelated playlists or real tag assignments. Production playlist changes follow your explicit UI actions.
 
 These authorize operations without bypassing automatic approval review or provider logins. A denied action or expired credential can still stop a run with preserved progress and a recorded fix. [Codex permissions](https://learn.chatgpt.com/docs/developer-commands?surface=cli).
 
 ## 7. Connect and build
+
+For your requested native goal loop, finish setup and preflight, then tell this chat to start the build goal. The shell runner below is an alternative; do not run both simultaneously. The same skills, PR gates and milestone acceptance apply to either route.
 
 ```sh
 node scripts/connect-spotify.mjs

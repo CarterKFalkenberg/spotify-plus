@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync,
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { mergeVerifiedPR } from './merge-verified-pr.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const local = resolve(root, '.local');
@@ -43,7 +44,7 @@ export function validateConfig(config) {
   for (const [key, values] of Object.entries(enums)) if (!values.includes(product[key])) errors.push(`Choose product.${key}`);
   if (!Number.isInteger(product.removedMetadataRetentionDays) || product.removedMetadataRetentionDays < 1) errors.push('Choose a positive metadata retention');
   for (const key of ['retainTagAssignments', 'regeneratePreservesSpotifyName']) if (typeof product[key] !== 'boolean') errors.push(`Choose product.${key}`);
-  for (const key of ['productDecisionsAccepted', 'installDependencies', 'pushFeatureBranchesAndCreateDraftPR',
+  for (const key of ['productDecisionsAccepted', 'installDependencies', 'manageRepositoryAndMergePRs',
     'deployToConfiguredFreeHosting', 'createAndRemoveDisposableTestPlaylists']) {
     if (config.authorization?.[key] !== true) errors.push(`Authorize ${key} to run the complete unattended build`);
   }
@@ -176,7 +177,11 @@ async function run() {
           `Verify actual plan and quota state before deployment; config declarations are not billing proof. ` +
           `No paid plans, trials requiring later payment, add-ons, custom domains, account changes or unrelated resources. ` +
           `Use explicit Supabase --project-ref and a Wrangler config with the configured account_id/name. ` +
-          `No merge to main. No subagents. Return ready only with a clean committed tree, passing checks and live deployment. ` +
+          `Before new implementation, fetch origin/main and fast-forward this feature branch when possible; preserve unfinished work and resolve conflicts safely. ` +
+          `All changes ship via PRs. Use the installed code-review skill against the recorded base and current milestone; its prescribed review subagents are allowed. Fix actionable findings. ` +
+          `Use pr-writing to open/update one PR for this milestone, mark it ready, and wait for verify CI on the final head. ` +
+          `The launcher merges after its independent checks: do not merge this PR in the implementation subprocess. ` +
+          `Return ready only with the reviewed, clean committed tree, ready PR, passing CI/local checks and live deployment. ` +
           `Use blocked/needs_user for unresolved credentials, review denials, platform behavior or required manual actions; do not claim MVP acceptance before the real phone test.`;
         const logFile = resolve(buildDir, `${runId}.log`);
         const result = spawnSync('codex', ['--search', '--approve-for-me', 'exec', '-C', worktree, '--add-dir', local,
@@ -210,7 +215,8 @@ async function run() {
             throw new Error('Frontend/API/jobs deployments do not all match this commit.');
           }
           if (command('git', ['status', '--porcelain'], worktree)) throw new Error('Checks modified tracked files; commit and redeploy.');
-          state.completed.push({ id: task.id, sha, verifiedAt: new Date().toISOString(), evidence: receipt.evidence });
+          const pullRequest = mergeVerifiedPR(branch, sha, args => command('gh', args, worktree, { env: runtimeEnv() }));
+          state.completed.push({ id: task.id, sha, pullRequest, verifiedAt: new Date().toISOString(), evidence: receipt.evidence });
           saveState(state); finished = true;
           console.log(`Verified ${task.id}.`); break;
         } catch (error) { repair = `Independent verification failed: ${error.message}. Repair the actual failure before returning ready.`; }
@@ -221,7 +227,7 @@ async function run() {
       }
       if (args.includes('--one')) return;
     }
-    console.log('All software stages verified. Review codex/build-mvp and perform the real phone/desktop acceptance checks in docs/SETUP.md.');
+    console.log('All software stages verified and their PRs merged. Review the recorded PRs and perform phone/desktop acceptance checks in docs/SETUP.md.');
   } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 

@@ -23,7 +23,7 @@
   "authorization": {
     "productDecisionsAccepted": true,
     "installDependencies": false,
-    "pushFeatureBranchesAndCreateDraftPR": false,
+    "manageRepositoryAndMergePRs": true,
     "deployToConfiguredFreeHosting": false,
     "createAndRemoveDisposableTestPlaylists": false
   }

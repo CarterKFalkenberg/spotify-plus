@@ -35,6 +35,18 @@ function fixture(mode = 'ready') {
 const fs = require('node:fs'), cp = require('node:child_process'), path = require('node:path');
 const args = process.argv.slice(2), root = process.env.TAGGER_TEST_ROOT;
 if (args[0] === 'projects') { console.log(JSON.stringify([{id:process.env.TAGGER_TEST_MODE === 'wrong-project' ? 'other' : 'test-supabaseProjectRef'}])); process.exit(0); }
+if (args[0] === 'pr') {
+ const sha = cp.execFileSync('git',['rev-parse','HEAD'],{cwd:path.join(root,'.worktrees/build')}).toString().trim();
+ const merges = path.join(root,'.local/merges');
+ const merged = fs.existsSync(merges) && fs.readFileSync(merges,'utf8').includes(sha);
+ const number = fs.readFileSync(path.join(root,'.local/calls'),'utf8').trim().split('\\n').length;
+ const state = merged ? 'MERGED' : 'OPEN';
+ if (args[1] === 'list') console.log(JSON.stringify([{number,headRefOid:sha,state}]));
+ else if (args[1] === 'view') console.log(JSON.stringify({number,url:'https://github.com/CarterKFalkenberg/spotify-plus/pull/'+number,state,headRefOid:sha,headRefName:'codex/build-mvp',baseRefName:'main',isCrossRepository:false,isDraft:false,mergeStateStatus:'CLEAN',reviewDecision:'',statusCheckRollup:[{name:'verify',status:'COMPLETED',conclusion:'SUCCESS'}],mergeCommit:merged?{oid:sha}:null}));
+ else if (args[1] === 'merge') fs.appendFileSync(merges,sha+'\\n');
+ else process.exit(1);
+ process.exit(0);
+}
 if (!args.includes('exec')) { console.log('authenticated test tool'); process.exit(0); }
 const input = fs.readFileSync(0, 'utf8');
 const id = input.match(/\"id\": \"([^\"]+)\"/)[1];
@@ -64,6 +76,8 @@ test('runner completes stages, preserves main, ignores secrets, and resumes with
   const first = f.run([]); assert.equal(first.status, 0, first.stderr);
   const state = JSON.parse(readFileSync(resolve(f.root, '.local/build/state.json')));
   assert.equal(state.completed.length, 4);
+  assert.equal(readFileSync(resolve(f.root, '.local/merges'), 'utf8').trim().split('\n').length, 4);
+  assert.ok(state.completed.every(stage => stage.pullRequest.headSha === stage.sha && stage.pullRequest.mergeSha));
   assert.equal(f.git(['rev-parse', 'main']), f.base);
   assert.equal(f.git(['status', '--porcelain']), '');
   const tracked = execFileSync('git', ['ls-files'], { cwd: resolve(f.root, '.worktrees/build') }).toString();
@@ -94,6 +108,7 @@ test('independent verification failures trigger three repairs and never advance'
   const state = JSON.parse(readFileSync(resolve(f.root, '.local/build/state.json')));
   assert.equal(state.completed.length, 0);
   assert.equal(state.lastResult.status, 'blocked');
+  assert.equal(existsSync(resolve(f.root, '.local/merges')), false);
   assert.equal(readFileSync(resolve(f.root, '.local/calls'), 'utf8').trim().split('\n').length, 3);
   assert.equal(existsSync(resolve(f.root, '.local/build/lock')), false);
 });

@@ -15,3 +15,5 @@ The product is currently in planning/setup. No live account or deployment has be
 After setup, run `./scripts/build`. Use `./scripts/build --check` first, or `--status` to inspect progress. All application work happens on a separate worktree/branch; the primary folder stays on `main`.
 
 Test the setup/runner code with `node --test tests/*.test.mjs`.
+
+Start with the [before-goal checklist](docs/BEFORE-GOAL.md). Repository skills, review and autonomous PR merges are defined in [AGENTS.md](AGENTS.md) and [delivery rules](docs/agents/delivery.md).

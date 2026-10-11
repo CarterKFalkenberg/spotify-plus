@@ -1,6 +1,6 @@
 # How the autonomous build works
 
-After [setup](SETUP.md), run one command from the planning checkout:
+After [setup](SETUP.md) and the bootstrap PR merge, start a native goal in this chat, or use this optional command from the clean main checkout. Do not run both routes concurrently:
 
 ```sh
 ./scripts/build
@@ -14,11 +14,11 @@ The launcher uses ordinary `codex exec` with the configured default model, live 
 
 It creates/reuses `.worktrees/build` on `codex/build-mvp`, starting from the committed source checkout. `.local` is shared through a symlink so secrets are neither copied nor tracked. Main's files are untouched. Run from the same source checkout on subsequent invocations; do not launch a second runner from the build worktree itself.
 
-For each stage, a fresh Codex invocation reads the complete product brief, researched contracts, ratified config and last stage result. It implements, checks, commits and deploys the exact commit. The launcher reruns `scripts/check` and `scripts/verify-stage.mjs`, requires a receipt for all three deployments and free-plan assertions, then independently checks `/healthz` for matching frontend, API and jobs SHAs. A stage advances only after these gates pass. There are three attempts total, with verification feedback after a failure. Merely saying “done” cannot advance the stage.
+For each stage, a fresh Codex invocation reads the complete product brief, researched contracts, ratified config and last stage result. It implements, checks, commits and deploys the exact commit. The launcher reruns `scripts/check` and `scripts/verify-stage.mjs`, requires a receipt for all three deployments and free-plan assertions, then independently checks `/healthz` for matching frontend, API and jobs SHAs. The implementation agent reviews the change using `code-review`, writes its PR using `pr-writing`, and waits for CI. After the independent local/live gates pass, the launcher verifies the PR and merges its exact tested head with a merge commit. A stage advances only after GitHub confirms the merge. There are three attempts total, with verification feedback after a failure. Merely saying “done” cannot advance the stage.
 
 The stage verifier is application code to be implemented in the first stage; it must execute meaningful assertions, not replay stored receipts. The launcher tests exercise its control flow with simulated Codex/CLI processes. They do **not** prove future application tests, live Spotify behavior, or deployment work before credentials/setup exist.
 
-Durable progress lives in ignored `.local/build/state.json`; private result/log files accompany it. A lock prevents concurrent builds. No automatic merge to main occurs. Source commits are reviewable on `codex/build-mvp`, with one draft PR after the final software stage. Once software is ready, the runner stops for actual human phone/desktop acceptance rather than claiming those tests were performed.
+Durable progress lives in ignored `.local/build/state.json`; private result/log files accompany it. A lock prevents concurrent builds. Each milestone has a reviewed PR merged into main autonomously, with the tested head and merge SHA recorded. Required CI and resolved review conversations are enforced by main protection; no human PR approval is required. Before further changes, sync the feature branch from origin/main. A native goal performs the same gates directly and may fast-forward the clean primary main checkout. Once software is ready, the runner stops for actual human phone/desktop acceptance rather than claiming those tests were performed.
 
 Useful work resumes after interruptions: rerun the command and it skips verified stages whose commit SHAs remain in history. It preserves partial implementation on blockers; it does not reset the worktree. A timeout, exhausted account quota, lost external access or automatic review rejection leaves the current stage incomplete. Resolve the stated cause and run again. “Needs user” stops immediately instead of pretending a human authorization occurred.
 
