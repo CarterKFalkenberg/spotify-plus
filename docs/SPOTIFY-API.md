@@ -34,6 +34,44 @@ The current [playlist-items reference](https://developer.spotify.com/documentati
 
 The adapter therefore accepts a zero response limit only for that empty first, terminal playlist-items page. It retains the actual returned limit and requires the requested offset to match. All other pages still require an echoed limit, bounded item counts, and validated same-endpoint next URLs. Saved-track and playlist-collection contracts and every write guard remain unchanged. Synthetic adapter negatives and a runner/real-adapter transport regression cover creation, this empty read, population, and full ordered verification; authenticated recovery and deployed proof remain the orchestrator's responsibility.
 
+### Playlist description response escapes — October 11, 2026
+
+For [issue #35](https://github.com/CarterKFalkenberg/spotify-plus/issues/35),
+the orchestrator's read-only, redacted live observation reported a description
+length of 247, an exact opening app marker, no exact closing marker, HTML
+entities, and an encoded slash (`&#x2F;` or `&#47;`). No actual description or
+playlist metadata entered model context. This supports an escaped closing marker
+as the cause of failed exact confirmation followed by `description_capacity`;
+it does not establish every entity variant or every user's note behavior live.
+
+The current [GET playlist reference](https://developer.spotify.com/documentation/web-api/reference/get-playlist)
+describes a nullable description; [create](https://developer.spotify.com/documentation/web-api/reference/create-playlist)
+and [change details](https://developer.spotify.com/documentation/web-api/reference/change-playlist-details)
+accept the description's displayed value. Read on October 11, these references
+provide no explicit HTML-entity round-trip guarantee. The adapter consequently
+normalizes the observed response representation into text once, on all playlist
+responses (create, metadata GET, and current-user collection). It recognizes the
+five XML/HTML escaping names (`amp`, `lt`, `gt`, `quot`, `apos`) and semicolon-ended
+decimal/hex numeric Unicode scalar references. Unknown names and invalid scalar
+references remain intact. This is escape decoding, not HTML parsing, percent
+unescaping, whitespace normalization, or recursive decoding.
+
+Descriptions sent to Spotify remain plain text. Canonical outside notes retain
+exact characters, whitespace, punctuation and literal entity syntax: for example,
+a literal `&amp;` note returned as `&amp;amp;` is decoded once to `&amp;`, never to
+`&`. The preservation contract applies to this text representation, not Spotify's
+response escape bytes. A provider response that leaves literal entity syntax
+unescaped is inherently ambiguous; we do not guess by repeatedly decoding or
+relaxing confirmation. Synthetic tests cover the assumed single escape layer,
+numeric framing, literal entities, repeated regeneration, name preservation and
+genuine description/snapshot changes. Live recovery and verification of the
+round-trip contract remain the orchestrator's responsibility.
+
+The domain replaces only the exact managed block in canonical text; it never
+decodes again or truncates outside notes. Confirmation still compares exact
+canonical descriptions and unchanged item snapshots. Managed-write ownership
+and the saved-library write prohibition are unchanged.
+
 ## OAuth and scopes
 
 Setup and initial implementation request exactly:
