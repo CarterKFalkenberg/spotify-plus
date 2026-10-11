@@ -1,0 +1,30 @@
+{
+  "spotifyClientId": "REPLACE_WITH_CLIENT_ID",
+  "spotifyExpectedUserId": "REPLACE_WITH_ID_FROM_YOUR_PROFILE_LINK",
+  "supabaseProjectRef": "REPLACE_WITH_PROJECT_REF",
+  "cloudflareAccountId": "REPLACE_WITH_ACCOUNT_ID",
+  "cloudflareWorkerName": "spotify-plus",
+  "appUrl": "https://REPLACE_WITH_WORKERS_DEV_DOMAIN",
+  "budgetMonthlyUsd": 0,
+  "hosting": {
+    "provider": "supabase-cloudflare-free",
+    "supabasePlan": "free",
+    "cloudflarePlan": "free"
+  },
+  "product": {
+    "playlistRetention": "1_month",
+    "removedMetadataRetentionDays": 90,
+    "retainTagAssignments": true,
+    "returningDesktopHome": "queue",
+    "regeneratePreservesSpotifyName": true,
+    "disconnectPlaylists": "keep",
+    "letterShortcuts": "modified"
+  },
+  "authorization": {
+    "productDecisionsAccepted": true,
+    "installDependencies": false,
+    "manageRepositoryAndMergePRs": true,
+    "deployToConfiguredFreeHosting": false,
+    "createAndRemoveDisposableTestPlaylists": false
+  }
+}

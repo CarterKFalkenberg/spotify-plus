@@ -1,0 +1,25 @@
+name: Verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install locked dependencies when present
+        run: if test -f package-lock.json; then npm ci; fi
+      - name: Verify
+        run: |
+          if test -f scripts/check; then
+            sh scripts/check
+          else
+            node --test tests/*.test.mjs
+          fi
