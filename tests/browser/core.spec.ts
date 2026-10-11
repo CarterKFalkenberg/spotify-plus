@@ -866,6 +866,39 @@ test("import revision refresh preserves typing draft, focus and frozen explicit 
       });
       return true;
     }
+    if (path === "/api/tags" || path === "/api/tags/vocabulary") {
+      await route.fulfill({
+        json: {
+          revision: currentRevision,
+          tags: [tag()],
+          hasMore: false,
+          ...(path === "/api/tags/vocabulary" ? { nextCursor: null } : {}),
+        },
+      });
+      return true;
+    }
+    if (path === "/api/tags/selection") {
+      const body = route.request().postDataJSON();
+      if (
+        JSON.stringify(body.expectedRevision) !==
+        JSON.stringify(currentRevision)
+      ) {
+        await route.fulfill({ status: 409, json: { error: "stale_revision" } });
+      } else {
+        await route.fulfill({
+          json: {
+            revision: currentRevision,
+            selectedCount: body.selection.trackKeys.length,
+            tags: body.tagIds.map((value: string) => ({
+              tag: tag(parseInt(value.slice(0, 8), 16)),
+              assignedCount: 0,
+              state: "none",
+            })),
+          },
+        });
+      }
+      return true;
+    }
     return false;
   });
   await page.goto("/");
@@ -880,6 +913,24 @@ test("import revision refresh preserves typing draft, focus and frozen explicit 
   await expect(input).toBeFocused();
   await expect(page.getByLabel("Select Synthetic song 1")).toBeChecked();
   await expect(page.locator(".bulk-bar")).toContainText("1 selected");
+  await expect(
+    page
+      .getByRole("listbox", { name: "Add tag to selection tag suggestions" })
+      .getByRole("option", {
+        name: "Synthetic tag 1 none · 0 of 1 selected",
+        exact: true,
+      }),
+  ).toBeEnabled();
+  const latestInspection = calls
+    .filter((call) => call.path === "/api/tags/selection")
+    .at(-1)!;
+  expect(latestInspection.body.expectedRevision).toEqual(currentRevision);
+  expect(latestInspection.body.selection).toEqual({
+    kind: "tracks",
+    trackKeys: [track().trackKey],
+  });
+  await expect(input).toHaveValue("Draft during import");
+  await expect(input).toBeFocused();
   await input.press("Enter");
   await expect
     .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
