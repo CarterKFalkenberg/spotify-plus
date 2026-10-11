@@ -289,3 +289,34 @@ Deno.test("invalid_grant classification requires an object response", async () =
     );
   }
 });
+
+Deno.test("local decryption failure releases unused refresh lease without losing credentials", async () => {
+  let released = false;
+  let requests = 0;
+  const db = database((name, args) => {
+    if (name === "app_token_claim") {
+      return {
+        action: "refresh",
+        encryptedTokens: "unreadable-synthetic-record",
+        version: 1,
+        lease: "lease",
+      };
+    }
+    equal(name, "app_token_fail");
+    equal(args.p_reconnect, false);
+    equal(args.p_retry_ms, 0);
+    released = true;
+    return true;
+  });
+  await rejects(
+    () =>
+      new OwnerTokens(db, box, 1, "client", () => {
+        requests++;
+        throw new Error("must not request");
+      }).getAccessToken(),
+    (error) =>
+      error instanceof SpotifyError && error.kind === "control_unavailable",
+  );
+  assert(released);
+  equal(requests, 0);
+});

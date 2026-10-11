@@ -126,10 +126,31 @@ export class OwnerTokens {
     if (!claim.encryptedTokens || !claim.version) {
       throw new SpotifyError("control_unavailable");
     }
-    const pair = await this.box.decrypt<TokenPair>(
-      claim.encryptedTokens,
-      `tokens:${this.epoch}`,
-    );
+    let pair: TokenPair;
+    try {
+      pair = await this.box.decrypt<TokenPair>(
+        claim.encryptedTokens,
+        `tokens:${this.epoch}`,
+      );
+      if (
+        !pair || typeof pair.accessToken !== "string" || !pair.accessToken ||
+        typeof pair.refreshToken !== "string" || !pair.refreshToken
+      ) {
+        throw new Error("invalid_token_record");
+      }
+    } catch {
+      // No provider call occurred. Preserve credentials and release a claim so
+      // a key/configuration fault cannot later masquerade as a lost rotation.
+      if (claim.action === "refresh" && claim.lease) {
+        await this.db.rpc("app_token_fail", {
+          p_epoch: this.epoch,
+          p_lease: claim.lease,
+          p_reconnect: false,
+          p_retry_ms: 0,
+        });
+      }
+      throw new SpotifyError("control_unavailable");
+    }
     if (claim.action === "cached") {
       this.observed = { token: pair.accessToken, version: claim.version };
       // A newly constructed provider may be asked to refresh a rejected token. Resolve its version first.
