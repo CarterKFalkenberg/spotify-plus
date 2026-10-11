@@ -4,7 +4,11 @@ import {
   type PlaylistWork,
   runPlaylistJob,
 } from "./playlist-runner.ts";
-import { SpotifyError, type SpotifyPlaylist } from "./spotify.ts";
+import {
+  SpotifyClient,
+  SpotifyError,
+  type SpotifyPlaylist,
+} from "./spotify.ts";
 import type { Job } from "./jobs.ts";
 import { creationMarker, playlistDescription } from "./playlist-domain.ts";
 
@@ -188,8 +192,8 @@ function harness(count = 250) {
   });
   return {
     state,
-    run: (budget = 80000) =>
-      runPlaylistJob(db, spotify, job, time + budget, {
+    run: (budget = 80000, transport: PlaylistSpotify = spotify) =>
+      runPlaylistJob(db, transport, job, time + budget, {
         now: () => time,
         sleep: (ms) => {
           time += ms;
@@ -208,6 +212,121 @@ Deno.test("create writes 100-item chunks and verifies actual ordered contents be
   assert(h.state.complete);
   equal(h.state.expiresOn, "2026-02-28");
 });
+Deno.test("real runner and adapter populate a newly created playlist with a zero-limit empty page", async () => {
+  const h = harness(125);
+  const calls: string[] = [];
+  const pages: { offset: number; count: number; limit: number }[] = [];
+  const json = (value: unknown, status = 200) =>
+    new Response(JSON.stringify(value), { status });
+  const metadata = () => ({
+    id: spotifyId,
+    name: h.state.name,
+    description: h.state.description,
+    public: false,
+    collaborative: false,
+    owner: { id: "synthetic-owner" },
+    snapshot_id: String(h.state.snapshot),
+    items: { total: h.state.items.length },
+  });
+  const client = new SpotifyClient({
+    tokens: {
+      getAccessToken: () => Promise.resolve("synthetic-token"),
+      refreshAccessToken: () => {
+        throw Error("Unexpected synthetic refresh");
+      },
+    },
+    pacing: {
+      acquire: () => Promise.resolve({ granted: true, retryAfterMs: 0 }),
+      defer: () => Promise.resolve(),
+    },
+    isManagedPlaylist: (remoteId) =>
+      Promise.resolve(h.state.work.spotifyId === remoteId),
+    fetch: ((input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url.pathname}`);
+      if (method === "POST" && url.pathname === "/v1/me/playlists") {
+        const body = JSON.parse(String(init?.body));
+        equal(body.public, false);
+        equal(body.collaborative, false);
+        h.state.creates++;
+        h.state.exists = true;
+        h.state.description = body.description;
+        return Promise.resolve(json(metadata(), 201));
+      }
+      assert(h.state.exists);
+      if (method === "GET" && url.pathname === "/v1/me/library/contains") {
+        return Promise.resolve(json([true]));
+      }
+      if (method === "GET" && url.pathname === `/v1/playlists/${spotifyId}`) {
+        return Promise.resolve(json(metadata()));
+      }
+      if (
+        method === "GET" && url.pathname === `/v1/playlists/${spotifyId}/items`
+      ) {
+        const offset = Number(url.searchParams.get("offset"));
+        const limit = Number(url.searchParams.get("limit"));
+        equal(limit, 50);
+        const items = h.state.items.slice(offset, offset + limit).map((
+          uri,
+        ) => ({
+          added_at: null,
+          is_local: false,
+          item: { type: "track", uri },
+        }));
+        const nextOffset = offset + items.length;
+        const responseLimit = h.state.items.length === 0 ? 0 : limit;
+        pages.push({ offset, count: items.length, limit: responseLimit });
+        return Promise.resolve(json({
+          items,
+          offset,
+          total: h.state.items.length,
+          limit: responseLimit,
+          next: nextOffset < h.state.items.length
+            ? `https://api.spotify.com/v1/playlists/${spotifyId}/items?offset=${nextOffset}&limit=${limit}`
+            : null,
+        }));
+      }
+      if (
+        (method === "PUT" || method === "POST") &&
+        url.pathname === `/v1/playlists/${spotifyId}/items`
+      ) {
+        const body = JSON.parse(String(init?.body));
+        if (method === "PUT") {
+          h.state.replacements++;
+          h.state.items = body.uris;
+        } else {
+          h.state.appends.push(body.uris.length);
+          h.state.items.push(...body.uris);
+        }
+        h.state.snapshot++;
+        return Promise.resolve(
+          json(
+            { snapshot_id: String(h.state.snapshot) },
+            method === "POST" ? 201 : 200,
+          ),
+        );
+      }
+      throw Error("Unexpected synthetic transport request");
+    }) as typeof fetch,
+  });
+  equal(await h.run(80000, client), { done: true });
+  equal(h.state.errors, []);
+  assert(h.state.complete);
+  equal(h.state.creates, 1);
+  equal(h.state.work.spotifyId, spotifyId);
+  equal(h.state.replacements, 1);
+  equal(h.state.appends, [25]);
+  equal(h.state.items, h.state.work.target);
+  equal(pages, [
+    { offset: 0, count: 0, limit: 0 },
+    { offset: 0, count: 50, limit: 50 },
+    { offset: 50, count: 50, limit: 50 },
+    { offset: 100, count: 25, limit: 50 },
+  ]);
+  equal(calls.filter((call) => call === "POST /v1/me/playlists").length, 1);
+});
+
 Deno.test("ambiguous create resolves durable marker without repeating POST", async () => {
   const h = harness(2);
   h.state.fault = "create";
