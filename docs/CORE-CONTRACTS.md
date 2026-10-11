@@ -248,7 +248,8 @@ filter/query/grouping, both revisions and a 30-minute expiry. They contain no SQ
 or trusted client offsets. Tag actions freeze explicit keys or a revision-checked
 filter inside one transaction. Assignment tombstones carry edit versions, so undo
 restores only actually changed edges that have not been edited later. Undo is
-bound to the originating authenticated session and retained for 24 hours. Queue
+bound to the originating authenticated session and retained until that session
+expires. Queue
 navigation, album/decade facets, extra sort modes and vocabulary rename/merge/delete
 remain required fast-tagging work; this backend does not declare those delivered.
 

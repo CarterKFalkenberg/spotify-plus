@@ -348,7 +348,8 @@ create function public.app_tag_undo(p_epoch bigint,p_session_hash text,p_action_
  declare action app.tag_actions; restored integer; total integer;
  begin
   perform app.require_owner(p_epoch);
-  select * into action from app.tag_actions where id=p_action_id and epoch=p_epoch and session_hash=p_session_hash and created_at>now()-interval '24 hours' for update;
+  if not exists(select 1 from app.sessions where token_hash=p_session_hash and epoch=p_epoch and expires_at>now()) then raise exception 'inactive_epoch'; end if;
+  select * into action from app.tag_actions where id=p_action_id and epoch=p_epoch and session_hash=p_session_hash for update;
   if not found then raise exception 'unknown_action'; end if;
   if action.undone_at is not null then return jsonb_build_object('actionId',p_action_id,'restoredCount',0,'skippedCount',0,'revision',app.library_revision()); end if;
   select count(*) into total from app.tag_action_edges where action_id=p_action_id;
@@ -542,7 +543,7 @@ create function app.library_maintenance() returns void language plpgsql set sear
   get diagnostics deleted=row_count;
   if deleted>0 then update app.library_state set library_revision=library_revision+1 where singleton and epoch=a.epoch; end if;
   delete from app.page_cursors where expires_at<=now();
-  delete from app.tag_actions where epoch=a.epoch and created_at<=now()-interval '24 hours';
+  delete from app.tag_actions ta where ta.epoch=a.epoch and not exists(select 1 from app.sessions se where se.token_hash=ta.session_hash and se.epoch=a.epoch and se.expires_at>now());
   delete from app.sync_runs where epoch=a.epoch and completed_at<now()-interval '7 days' and id is distinct from (select latest_run_id from app.library_state where singleton);
   if a.state='connected' and exists(select 1 from app.library_state where singleton and (last_completed_at is null or last_completed_at<=now()-interval '24 hours')) then
    perform app.start_library_walk(a.epoch);

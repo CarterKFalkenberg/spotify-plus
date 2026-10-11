@@ -94,9 +94,14 @@ select pg_temp.assert(public.app_tag_undo(2,repeat('b',64),(select (value->>'act
 do $$ begin
  begin perform public.app_tag_action(2,repeat('b',64),jsonb_build_object('tagId',(select value->'tag'->>'id' from library_snapshots where name='tag'),'selection',(select value->'groups'->0->'selection' from library_snapshots where name='groups'),'action','add')); raise exception 'stale selection accepted'; exception when raise_exception then if sqlerrm<>'stale_revision' then raise; end if; end;
  begin perform public.app_tag_action(2,repeat('b',64),jsonb_build_object('tagId',(select value->'tag'->>'id' from library_snapshots where name='tag'),'selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(repeat('f',64))),'action','add')); raise exception 'unknown annotation accepted'; exception when raise_exception then if sqlerrm<>'unknown_track' then raise; end if; end;
- begin perform public.app_tag_undo(2,repeat('c',64),(select (value->>'actionId')::uuid from library_snapshots where name='tag_action')); raise exception 'foreign session undo accepted'; exception when raise_exception then if sqlerrm<>'unknown_action' then raise; end if; end;
+ begin perform public.app_tag_undo(2,repeat('c',64),(select (value->>'actionId')::uuid from library_snapshots where name='tag_action')); raise exception 'foreign session undo accepted'; exception when raise_exception then if sqlerrm<>'inactive_epoch' then raise; end if; end;
  begin perform public.app_query_preview(2,jsonb_build_object('query',(select value from library_snapshots where name='query'),'cursor',(select value->>'nextCursor' from library_snapshots where name='preview'),'limit',1)); raise exception 'stale cursor accepted'; exception when raise_exception then if sqlerrm<>'stale_revision' then raise; end if; end;
 end $$;
+-- A still-authenticated session retains undo beyond an arbitrary day boundary.
+savepoint long_session;
+update app.tag_actions set created_at=now()-interval '2 days' where id=(select (value->>'actionId')::uuid from library_snapshots where name='tag_action');
+select pg_temp.assert(public.app_tag_undo(2,repeat('b',64),(select (value->>'actionId')::uuid from library_snapshots where name='tag_action'))->>'restoredCount'='1','undo follows authenticated session lifetime');
+rollback to long_session;
 -- Null identity/changed totals/interrupted passes cannot certify completeness or remove tags.
 select public.app_library_sync(2,'manual');
 select pg_temp.assert((select count(*)=2 from app.sync_runs),'subsequent sync starts after lost-final-acknowledgement recovery');
