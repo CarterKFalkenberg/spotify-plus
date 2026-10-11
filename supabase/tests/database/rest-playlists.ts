@@ -78,7 +78,7 @@ export async function playlistRestProof(
         })),
         total: items.length,
         offset: 0,
-        limit: 100,
+        limit: 50,
         nextOffset: null,
       }),
     replacePlaylistItems: (_id, uris) => {

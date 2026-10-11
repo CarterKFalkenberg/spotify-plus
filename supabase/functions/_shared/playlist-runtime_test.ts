@@ -1,5 +1,6 @@
 import { playlistJobs } from "./playlist-runtime.ts";
 import { SecretBox } from "./crypto.ts";
+import { playlistDescription } from "./playlist-domain.ts";
 import { assert, database, equal, TEST_KEY } from "./testing.ts";
 import type { Job } from "./jobs.ts";
 import type { PlaylistWork } from "./playlist-runner.ts";
@@ -22,6 +23,7 @@ async function fixture() {
   const state = {
     active: true,
     complete: false,
+    completion: null as Record<string, unknown> | null,
     stored: [] as unknown[],
     failTokenFence: false,
     deferred: 0,
@@ -66,6 +68,7 @@ async function fixture() {
     }
     if (name === "app_playlist_complete") {
       state.complete = true;
+      state.completion = args;
       return state.active;
     }
     throw new Error("Unexpected synthetic RPC");
@@ -181,3 +184,133 @@ Deno.test("runtime quota response extends shared cooldown and keeps operation in
   equal(f.state.stored, ["quota"]);
   assert(!f.state.complete);
 });
+
+for (const action of ["create", "regenerate"] as const) {
+  Deno.test(`runtime ${action} completes through the real adapter with 50-item reads and 100-item writes`, async () => {
+    const f = await fixture();
+    const target = Array.from(
+      { length: 125 },
+      (_, index) => `spotify:track:${String(index + 1).padStart(22, "0")}`,
+    );
+    f.work.action = action;
+    f.work.spotifyId = action === "create" ? null : spotifyId;
+    f.work.target = target;
+    f.work.labels = { [id]: "Synthetic tag" };
+    const name = action === "create" ? f.work.name : "Synthetic owner rename";
+    const outside = action === "create" ? "" : "Preserve owner text.\n";
+    let description = outside +
+      playlistDescription(id, "Old query", "2026-01-01", null);
+    // Regeneration must read beyond the first page to find this unavailable
+    // position and replace the existing sequence rather than trust its prefix.
+    let items: (string | null)[] = action === "create" ? [] : [...target];
+    if (action === "regenerate") items[55] = null;
+    let snapshot = 0, creates = 0;
+    const reads: { offset: number; total: number }[] = [];
+    const writes: { method: string; count: number }[] = [];
+    const details = () => ({
+      id: spotifyId,
+      name,
+      description,
+      public: false,
+      collaborative: false,
+      owner: { id: "synthetic-owner" },
+      snapshot_id: String(snapshot),
+      items: { total: items.length },
+    });
+    const request: typeof fetch = (input, init) => {
+      const url = new URL(String(input));
+      equal(url.origin, "https://api.spotify.com");
+      equal(
+        new Headers(init?.headers).get("Authorization"),
+        "Bearer synthetic-access",
+      );
+      const method = init?.method;
+      if (url.pathname === "/v1/me/playlists" && method === "POST") {
+        equal(action, "create");
+        const body = JSON.parse(String(init?.body));
+        equal(body, {
+          name,
+          description: body.description,
+          public: false,
+          collaborative: false,
+        });
+        assert(body.description.includes(`[Tagger:${id}]`));
+        description = body.description;
+        creates++;
+        return Promise.resolve(Response.json(details(), { status: 201 }));
+      }
+      if (url.pathname === "/v1/me/library/contains" && method === "GET") {
+        equal(url.searchParams.get("uris"), `spotify:playlist:${spotifyId}`);
+        return Promise.resolve(Response.json([true]));
+      }
+      if (url.pathname === `/v1/playlists/${spotifyId}`) {
+        if (method === "GET") return Promise.resolve(Response.json(details()));
+        equal(method, "PUT");
+        const body = JSON.parse(String(init?.body));
+        equal(Object.keys(body), ["description"]);
+        description = body.description;
+        return Promise.resolve(new Response(null, { status: 200 }));
+      }
+      equal(url.pathname, `/v1/playlists/${spotifyId}/items`);
+      if (method === "GET") {
+        const limit = Number(url.searchParams.get("limit"));
+        equal(limit, 50);
+        const offset = Number(url.searchParams.get("offset"));
+        reads.push({ offset, total: items.length });
+        const page = items.slice(offset, offset + limit);
+        const next = offset + page.length < items.length
+          ? `${url.origin}${url.pathname}?offset=${
+            offset + page.length
+          }&limit=${limit}`
+          : null;
+        return Promise.resolve(Response.json({
+          items: page.map((uri) => ({
+            added_at: null,
+            is_local: false,
+            item: uri === null ? null : { type: "track", uri },
+          })),
+          offset,
+          limit,
+          total: items.length,
+          next,
+        }));
+      }
+      assert(method === "PUT" || method === "POST");
+      const body = JSON.parse(String(init?.body));
+      equal(Object.keys(body), ["uris"]);
+      writes.push({ method, count: body.uris.length });
+      items = method === "PUT" ? [...body.uris] : [...items, ...body.uris];
+      return Promise.resolve(
+        Response.json({ snapshot_id: String(++snapshot) }, {
+          status: method === "POST" ? 201 : 200,
+        }),
+      );
+    };
+    equal(
+      await playlistJobs(f.db, f.box, "synthetic-client", request)(
+        job,
+        Date.now() + 80000,
+      ),
+      { done: true },
+    );
+    assert(f.state.complete);
+    equal(f.state.stored.filter((value) => typeof value === "string"), []);
+    equal(items, target);
+    equal(creates, action === "create" ? 1 : 0);
+    equal(writes, [{ method: "PUT", count: 100 }, {
+      method: "POST",
+      count: 25,
+    }]);
+    const fullScan = [0, 50, 100].map((offset) => ({ offset, total: 125 }));
+    equal(
+      reads,
+      action === "create"
+        ? [{ offset: 0, total: 0 }, ...fullScan]
+        : [...fullScan, ...fullScan],
+    );
+    equal(f.state.completion?.p_name, name);
+    assert(description.startsWith(outside));
+    assert(description.includes("Regenerate overwrites manual edits"));
+    assert(typeof f.state.completion?.p_expires_on === "string");
+  });
+}
