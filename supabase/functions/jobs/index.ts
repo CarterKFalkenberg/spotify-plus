@@ -3,12 +3,18 @@ import { createLibraryRunner, librarySpotify } from "../_shared/library.ts";
 import { runtimeConfig } from "../_shared/config.ts";
 import { ServiceDatabase } from "../_shared/database.ts";
 import { PrivateBackups } from "../_shared/backups.ts";
+import { playlistJobs } from "../_shared/playlist-runtime.ts";
 import { createJobs } from "./handler.ts";
 const config = runtimeConfig();
 const db = new ServiceDatabase(config.supabaseUrl, config.serviceKey);
 Deno.serve(
   createJobs({
     db,
+    playlist: playlistJobs(
+      db,
+      new SecretBox(config.tokenEncryptionKey),
+      config.clientId,
+    ),
     library: createLibraryRunner({
       db,
       annotationBox: new SecretBox(config.annotationKey),

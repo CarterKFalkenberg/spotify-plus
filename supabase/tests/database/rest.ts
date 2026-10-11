@@ -23,6 +23,8 @@ import type {
   UndoTagActionResponse,
 } from "../../functions/_shared/contracts.ts";
 
+import { playlistRestProof } from "./rest-playlists.ts";
+
 let phase = "input";
 let assertions = 0;
 function check(value: unknown): asserts value {
@@ -455,6 +457,21 @@ try {
     preview.generationReady && preview.matchedCount === 1 &&
       preview.playableCount === 1 && preview.durationMs === 1000,
   );
+  phase = "playlist_transactions";
+  await playlistRestProof(
+    db,
+    config,
+    cookie,
+    { version: 1, root: { op: "tag", tagId: createdTag.tag.id } },
+    preview,
+    fixture,
+    check,
+  );
+  check(
+    (await raw("app_playlist_list", { p_epoch: epoch }, input.anonKey))
+      .status === 401,
+  );
+  phase = "library_transactions";
   const undone = await db.rpc<UndoTagActionResponse>("app_tag_undo", {
     p_epoch: epoch,
     p_session_hash: sessionHash,
@@ -545,6 +562,7 @@ try {
     tokenRecovery: true,
     jobsDrain: true,
     libraryTransactions: true,
+    playlistTransactions: true,
     disconnectPurge: true,
     spotifyNetworkRequests: 0,
   }));

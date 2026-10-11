@@ -163,3 +163,31 @@ Deno.test("bounded drain stops claiming when time reserve is exhausted", async (
   });
   equal(claims, 1);
 });
+Deno.test("immediate playlist drain shares leases and enforces the 20-job invocation bound", async () => {
+  let claims = 0, handled = 0, finishes = 0;
+  const db = database((name, args) => {
+    if (name === "app_job_claim") {
+      claims++;
+      equal(args.p_lease_seconds, 100);
+      return { ...purgeJob, kind: "playlist" };
+    }
+    if (name === "app_job_finish") {
+      finishes++;
+      equal(args.p_outcome, "done");
+    }
+    return true;
+  });
+  const result = await drainJobs({
+    db,
+    sha,
+    now: () => 0,
+    backups: { purge: () => Promise.resolve(false) },
+    playlist: (job, deadline) => {
+      equal(job.leaseToken, purgeJob.leaseToken);
+      equal(deadline, 80000);
+      handled++;
+      return Promise.resolve({ done: true });
+    },
+  });
+  equal([claims, handled, finishes, result.completed], [20, 20, 20, 20]);
+});

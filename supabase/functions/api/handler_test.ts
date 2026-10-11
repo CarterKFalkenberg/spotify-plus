@@ -494,3 +494,71 @@ Deno.test("invalid or expired helper grants never reach the connection transacti
     equal(connect, undefined);
   }
 });
+Deno.test("playlist admission starts bounded background work only after authenticated valid intent commits", async () => {
+  let starts = 0, writes = 0, fail = false;
+  const handler = createApi({
+    config,
+    box,
+    startJobs: () => {
+      starts++;
+    },
+    db: database((name) => {
+      if (name === "app_session") return authenticated;
+      if (name === "app_playlist_create") {
+        if (fail) throw new DatabaseError("stale_revision");
+        writes++;
+        return { playlist: { status: "pending" } };
+      }
+      if (name === "app_playlist_list") return { playlists: [] };
+      throw new Error("unexpected synthetic RPC");
+    }),
+  });
+  const headers = {
+    Cookie: `${SESSION_COOKIE}=${session}`,
+    Origin: config.origin,
+    "content-type": "application/json",
+  };
+  const body = JSON.stringify({
+    requestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    name: "Synthetic",
+    query: {
+      version: 1,
+      root: { op: "tag", tagId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+    },
+    previewRevision: { library: "1", annotations: "1" },
+    retention: "month",
+  });
+  equal(
+    (await handler(
+      request("/api/playlists", {
+        method: "POST",
+        headers: { ...headers, Origin: "https://wrong.test" },
+        body,
+      }),
+    )).status,
+    403,
+  );
+  equal(
+    (await handler(
+      request("/api/playlists", { method: "POST", headers, body: "{}" }),
+    )).status,
+    400,
+  );
+  equal(starts, 0);
+  equal(writes, 0);
+  equal(
+    (await handler(
+      request("/api/playlists", { method: "POST", headers, body }),
+    )).status,
+    202,
+  );
+  equal(starts, 1);
+  fail = true;
+  const conflict = await handler(
+    request("/api/playlists", { method: "POST", headers, body }),
+  );
+  equal(conflict.status, 409);
+  equal(await conflict.json(), { error: "stale_revision" });
+  equal((await handler(request("/api/playlists", { headers }))).status, 200);
+  equal(starts, 1);
+});
