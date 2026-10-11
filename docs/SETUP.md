@@ -115,7 +115,7 @@ These authorize operations without bypassing automatic approval review or provid
 
 ## 7. Connect and build
 
-For your requested native goal loop, finish setup and preflight, then tell this chat to start the build goal. The shell runner below is an alternative; do not run both simultaneously. The same skills, PR gates and milestone acceptance apply to either route.
+The user started the native goal on October 11, 2026 after setup/preflight had passed, and waived the remaining planning interview. Revalidate current access without recreating accounts, overwriting credentials or repeating Spotify consent unnecessarily. The commands below remain setup/recovery instructions. See [AUTONOMY.md](AUTONOMY.md) for delegation, model assignments, review automation and shared-action ownership.
 
 ```sh
 node scripts/connect-spotify.mjs
@@ -125,10 +125,9 @@ Open the printed URL, verify the Spotify account and consent. Keep port 3000 fre
 
 ```sh
 ./scripts/build --check
-./scripts/build
 ```
 
-Use `caffeinate -i ./scripts/build` to keep the Mac awake. The separate `codex/build-mvp` worktree progresses through verified milestones. Preflight checks configuration/access; the first live milestone proves actual free plans, quotas, API behavior and scheduled execution. See [AUTONOMY.md](AUTONOMY.md).
+`--check` is permitted during the native goal and only checks configuration/access. The first live milestone must still prove actual free plans, quotas, API behavior and scheduled execution. The optional `./scripts/build` (or `caffeinate -i ./scripts/build`) starts a separate unattended build in `codex/build-mvp`; use it only when the native goal is inactive. Its lock does not coordinate the native goal, so do not run both. The same skills, PR and milestone gates apply to either route.
 
 ## Free-tier operation and remaining human checks
 

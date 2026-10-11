@@ -46,7 +46,8 @@
       "Purge removed metadata at the accepted deadline while restoring persistent annotations on re-like; disconnect cancels in-flight jobs, prevents resurrection and deletes application-controlled backups. Document provider-internal retention limits honestly.",
       "Verify expiry date math in America/New_York including month-end and DST; pin/regenerate/cleanup races are serialized.",
       "Run production checks, smoke real private create-regenerate-expire, verify encrypted annotation-backup restore using synthetic data, and record deploy SHAs, evidence and review instructions. Measure database/egress/function usage and recheck both plans remain Free; never upgrade to make tests pass.",
-      "Review using code-review, write the milestone PR using pr-writing, mark it ready and wait for required CI. Attach the PR when the Codex app tool is available. Every milestone ships through this process; the launcher merges after independent verification.",
+      "Review every PR using independent Standards/Spec code-review against its recorded base/current head, use pr-writing for the final description, and require exact-head CI and resolved conversations. Attach the PR when the Codex app tool is available. The native orchestrator merges after independent verification; the optional launcher performs equivalent gates when used alone. Multiple task PRs do not complete a milestone before its integrated live gates pass.",
+      "Complete independent architecture/repository review and reviewed fixes, rerun affected checks and final end-to-end/deployed smoke verification, confirm final deployment matches final merged code, and verify temporary build-review automation shutdown before software-goal completion.",
       "Mark software ready for review but keep MVP acceptance pending until the user performs the actual phone <1-minute flow and desktop 3–5-second tagging trial."
     ]
   }
