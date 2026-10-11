@@ -4,6 +4,14 @@ Updated October 11, 2026. The user's [product choices](DECISIONS.md) are accepte
 
 ## 1. Prepare the local machine
 
+This Mac has completed local setup. For each new build shell, select the installed project tools with:
+
+```sh
+source /Users/carterfalkenberg/.local/share/spotify-plus/tooling/env.sh
+```
+
+This provides Node 24 and Wrangler without changing the existing Node 22 default. See [verified local readiness](LOCAL-READINESS.md). The installation commands below are for a fresh machine; they are not needed again on this Mac.
+
 ```sh
 cd /Users/carterfalkenberg/Documents/ChatGPT/spotify-plus
 brew install node@24 gh deno supabase/tap/supabase
@@ -23,7 +31,7 @@ gh auth setup-git
 
 If already signed in, `codex login status` is sufficient. The runner uses existing Codex account access and its configured model; no OpenAI API key is needed. GitHub CLI needs repository, issue, PR-merge and workflow-file access to `CarterKFalkenberg/spotify-plus`; repository administration is needed to configure main protection once. GitHub CLI authentication was verified on October 11 as CarterKFalkenberg with `repo` and `workflow` scopes, repository admin access, and Git credential integration configured. Your autonomous-merge authorization is already recorded. The GitHub plugin does not automatically authenticate `gh`. [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [GitHub login](https://cli.github.com/manual/gh_auth_login).
 
-Start Docker Desktop for a disposable local Supabase stack and integration tests. Its executable is present; daemon readiness has not been established. No cloud Docker host or manually created local database is needed.
+Start Docker Desktop for a disposable local Supabase stack and integration tests. Its daemon and container execution were verified on this Mac; start it again if it has been closed. No cloud Docker host or manually created local database is needed.
 
 ```sh
 node scripts/init-local.mjs
@@ -31,7 +39,7 @@ node scripts/init-local.mjs
 
 This creates ignored `.local/config.json` and `.local/runtime-keys.json` with private permissions. Accepted decisions and budget `0` are already in the template. Existing files are preserved. If you previously initialized the Railway template, update hosting fields to match `.build/config.example.json` and remove the old `railway...` keys/authorization. Preserve keys and Spotify credentials; never overwrite secret files with a template. The runner rejects obsolete hosting configuration.
 
-Before the build, I will merge the prepared repository/skills/CI setup through a reviewed bootstrap PR and configure required checks with zero required human approvals. See [delivery rules](agents/delivery.md) and the [concise readiness checklist](BEFORE-GOAL.md). The existing GitHub connection does not replace CLI authentication.
+The repository/skills/CI bootstrap was merged through PR #1, and main protections require passing checks with zero human approvals. See [delivery rules](agents/delivery.md) and the [concise readiness checklist](BEFORE-GOAL.md). The existing GitHub connection does not replace CLI authentication.
 
 ## 2. Create the Supabase Free project
 
