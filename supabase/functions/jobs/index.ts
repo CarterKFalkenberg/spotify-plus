@@ -1,3 +1,7 @@
+import {
+  AnnotationBackupCodec,
+  annotationBackupJob,
+} from "../_shared/annotation-backups.ts";
 import { SecretBox } from "../_shared/crypto.ts";
 import { createLibraryRunner, librarySpotify } from "../_shared/library.ts";
 import { runtimeConfig } from "../_shared/config.ts";
@@ -7,6 +11,7 @@ import { playlistJobs } from "../_shared/playlist-runtime.ts";
 import { createJobs } from "./handler.ts";
 const config = runtimeConfig();
 const db = new ServiceDatabase(config.supabaseUrl, config.serviceKey);
+const backups = new PrivateBackups(config.supabaseUrl, config.serviceKey);
 Deno.serve(
   createJobs({
     db,
@@ -24,7 +29,12 @@ Deno.serve(
         clientId: config.clientId,
       }),
     }),
-    backups: new PrivateBackups(config.supabaseUrl, config.serviceKey),
+    backups,
+    annotationBackup: annotationBackupJob(
+      db,
+      backups,
+      new AnnotationBackupCodec(new SecretBox(config.backupEncryptionKey)),
+    ),
     sha: config.sha,
     cronSecret: config.cronSecret,
   }),
