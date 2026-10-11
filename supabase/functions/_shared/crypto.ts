@@ -1,7 +1,13 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 function base64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
+  // Large encrypted annotation snapshots exceed the engine argument limit.
+  // Build bounded chunks rather than spreading the entire ciphertext.
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+  }
+  return btoa(binary);
 }
 function unbase64(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
