@@ -106,6 +106,46 @@ export function Queue({
       });
     return () => c.abort();
   }, [refresh]);
+  // Pins retain identities, while global vocabulary edits update their labels.
+  useEffect(() => {
+    const ids = [...new Set(Object.values(pinned).map((t) => t.id))];
+    if (!ids.length) return;
+    const c = new AbortController();
+    async function resolve() {
+      let live: TagDTO[];
+      try {
+        live = await lookupTags(ids, c.signal);
+      } catch (e) {
+        if (!(e instanceof ApiError && e.code === "unknown_tag")) throw e;
+        const individually = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return (await lookupTags([id], c.signal))[0] ?? null;
+            } catch (e) {
+              if (e instanceof ApiError && e.code === "unknown_tag")
+                return null;
+              throw e;
+            }
+          }),
+        );
+        live = individually.filter((t): t is TagDTO => t !== null);
+      }
+      if (!c.signal.aborted)
+        setPinned((old) =>
+          Object.fromEntries(
+            Object.entries(old).flatMap(([slot, t]) => {
+              if (!ids.includes(t.id)) return [[slot, t]];
+              const fresh = live.find((v) => v.id === t.id);
+              return fresh ? [[slot, fresh]] : [];
+            }),
+          ),
+        );
+    }
+    void resolve().catch((e) => {
+      if (!c.signal.aborted) setError(errorMessage(e));
+    });
+    return () => c.abort();
+  }, [refresh]);
   useEffect(() => {
     const c = new AbortController();
     const ownGeneration = ++generation.current;

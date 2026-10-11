@@ -885,3 +885,85 @@ for (const action of ["tag", "acknowledge"])
       page.getByRole("button", { name: "Remove mood:soft from current song" }),
     ).toBeVisible();
   });
+
+test("repeating an artist jump reapplies that artist after clearing its browser facet", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop artist shortcut");
+  await mock(page);
+  await page.goto("/");
+  await queue(page);
+  await page.getByLabel("Tag current song", { exact: true }).press("Alt+a");
+  await expect(page.getByLabel("Artist", { exact: true })).toHaveValue(
+    "aaaaaaaaaaaaaaaaaaaaaa",
+  );
+  await page.getByLabel("Artist", { exact: true }).selectOption("");
+  await expect(page.getByLabel("Artist", { exact: true })).toHaveValue("");
+  await queue(page);
+  await page.getByLabel("Tag current song", { exact: true }).press("Alt+a");
+  await expect(page.getByLabel("Artist", { exact: true })).toHaveValue(
+    "aaaaaaaaaaaaaaaaaaaaaa",
+  );
+});
+test("global rename updates a pinned quick slot without losing its identity", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop session pins");
+  let renamed = false;
+  const renamedTag = { ...tags[0]!, name: "Evening" };
+  await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/tags/manage") {
+        renamed = true;
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "2" },
+            assignmentCount: 84,
+            activeTrackCount: 84,
+            unionCount: 84,
+            collisionTag: null,
+            actionId: id(51),
+            changedCount: 1,
+            tag: renamedTag,
+          },
+        });
+        return true;
+      }
+      if (renamed && path === "/api/tags/lookup") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "2" },
+            tags: body.tagIds.map((x: string) =>
+              x === id(1) ? renamedTag : tags.find((t) => t.id === x),
+            ),
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await page
+    .getByRole("button", { name: "Set or pin slot 1", exact: true })
+    .click();
+  await page.getByLabel("Choose tag for slot 1").fill("Chill");
+  await page
+    .locator(".suggestions")
+    .getByRole("option", { name: "Chill 84 songs", exact: true })
+    .click();
+  await vocabulary(page);
+  await page.getByRole("button", { name: "Manage Chill", exact: true }).click();
+  await page.getByLabel("New tag name").fill("Evening");
+  await page.getByRole("button", { name: "Preview rename" }).click();
+  await page.getByRole("button", { name: "Confirm change" }).click();
+  await queue(page);
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Evening", exact: true }),
+  ).toBeVisible();
+});

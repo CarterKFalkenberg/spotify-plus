@@ -39,6 +39,7 @@ export function Workspace() {
     setVisited((old) => new Set([...old, tab]));
   }, [tab]);
   const [artistId, setArtistId] = useState<string | null>(null);
+  const [artistJump, setArtistJump] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     // The owner API coalesces app-open probes across reloads/tabs for 15 minutes.
@@ -218,6 +219,7 @@ export function Workspace() {
             onChanged={() => setRefresh((v) => v + 1)}
             onArtist={(id) => {
               setArtistId(id);
+              setArtistJump((v) => v + 1);
               setTab("library");
             }}
           />
@@ -236,6 +238,7 @@ export function Workspace() {
           refresh={refresh}
           newOnly={newOnly}
           artistId={artistId}
+          artistJump={artistJump}
           onQueue={(filter) => {
             setQueueSource(filter);
             setTab("queue");

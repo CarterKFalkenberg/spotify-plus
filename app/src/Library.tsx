@@ -75,12 +75,14 @@ export function Library({
   onChanged,
   onQueue,
   artistId = null,
+  artistJump = 0,
 }: {
   refresh: number;
   newOnly: boolean;
   onChanged: () => void;
   onQueue: (filter: FastFilter | Selection) => void;
   artistId?: string | null;
+  artistJump?: number;
 }) {
   const [filter, setFilter] = useState<FastFilter>({
     ...emptyFilter,
@@ -99,7 +101,7 @@ export function Library({
       setCursor(null);
       setSelection(null);
     }
-  }, [artistId]);
+  }, [artistId, artistJump]);
   const [data, setData] = useState<Search | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState("");
