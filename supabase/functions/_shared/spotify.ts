@@ -599,8 +599,15 @@ function normalize(data: unknown, request: Prepared): Result {
     Array.isArray(data.items) && integer(data.total) && integer(data.offset) &&
       integer(data.limit),
   );
+  // Live newly-created playlists can return limit:0 despite a positive request.
+  // Accept only the observed empty first/terminal items page, never a library
+  // page or a nonempty/out-of-range response. Preserve the returned limit.
+  const emptyPlaylistPage = request.operation === "items" &&
+    data.limit === 0 && data.total === 0 && data.offset === 0 &&
+    data.items.length === 0 && data.next === null;
   requireSchema(
-    data.offset === request.offset && data.limit === request.limit &&
+    data.offset === request.offset &&
+      (data.limit === request.limit || emptyPlaylistPage) &&
       data.items.length <= data.limit,
   );
   requireSchema(data.next === null || text(data.next));
