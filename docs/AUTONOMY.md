@@ -4,7 +4,7 @@ The user started the native build goal on October 11, 2026, waived the remaining
 
 ## Native goal and ownership
 
-The main chat uses `gpt-6.1-sol` to orchestrate the goal. Implementation tasks and independent per-PR Standards/Spec reviewers use `gpt-6-astra`; the scheduled reviewer uses `gpt-6.1-sol`. Each implementation task has a coherent issue, explicit ownership/dependencies and an isolated `codex/...` worktree. Define shared interfaces before parallel work. Symlink the primary ignored `.local` directory into each worktree; never copy secrets.
+Following the later October 11 human correction, the main chat uses `gpt-6-astra` to orchestrate the goal. Implementation tasks use `gpt-6.1-sol`; independent per-PR Standards/Spec reviewers and the scheduled reviewer use `gpt-6-astra`. All roles use Medium reasoning effort. Each implementation task has a coherent issue, explicit ownership/dependencies and an isolated `codex/...` worktree. Define shared interfaces before parallel work. Symlink the primary ignored `.local` directory into each worktree; never copy secrets.
 
 The orchestrator integrates, independently verifies and merges. It centrally owns shared migration ordering, deployments and Spotify mutations, assigning at most one operator for a shared external action. Subagents prepare implementation and synthetic evidence within their scope. Reports must be inspected and never substitute for human approval. [Delivery rules](agents/delivery.md#native-goal-ownership-and-continuity) define durable ownership and evidence in GitHub issues and `.local/build-coordination/state.json`.
 
@@ -14,7 +14,7 @@ After feature verification, complete independent architecture/repository review 
 
 ## Independent build review
 
-The temporary standalone automation is **`spotify-plus-build-review`**, configured **ACTIVE every five minutes** on October 11, 2026 with `gpt-6.1-sol` and local project execution. Its prompt connects it to the orchestrator chat recorded in `.local/build-coordination/state.json`. This records verified schedule configuration, not a claim that a review ran or that every wall-clock interval is guaranteed. Consult actual automation state and the ledger when resuming. Local tasks require the computer and app to remain running with the project available. [Official scheduled-task documentation](https://learn.chatgpt.com/docs/automations).
+The temporary automation **`spotify-plus-build-review`** is now an **ACTIVE five-minute heartbeat** in the existing dedicated review chat `01a12ce4-03c8-7100-b8c3-f6faf1b10368`. It replaces the earlier standalone cron that created a new chat per run. Its model inherits that dedicated chat setting, which the orchestrator set to `gpt-6-astra` with Medium reasoning effort through the supported tool after the later October 11 human correction. Its prompt connects it to the orchestrator chat recorded in `.local/build-coordination/state.json`. This records verified schedule configuration, not a claim that a review ran or that every wall-clock interval is guaranteed. Consult actual automation state and the ledger when resuming. Local tasks require the computer and app to remain running with the project available. [Official scheduled-task documentation](https://learn.chatgpt.com/docs/automations).
 
 The scheduled reviewer must:
 
@@ -38,7 +38,7 @@ The accepted hosting budget is $0/month. The runner rejects positive budgets, pa
 
 It completes all remaining software milestones by default. `--one` runs one milestone, `--check` checks setup, and `--status` shows durable progress without starting Codex. You can also tell this chat “continue the build”; an agent must then read the same brief, decisions and stage ledger, use a worktree, and preserve the same verification boundaries.
 
-The launcher uses ordinary `codex exec` with the configured CLI model, live web search, automatic approval review, a structured result schema and specific writable paths. Before a separately chosen runner session, verify its implementation model honors the accepted `gpt-6-astra` policy; this documentation change does not alter global settings or runner code. It is a local CLI process, distinct from the temporary reviewer. [Official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+The launcher uses ordinary `codex exec` with the configured CLI model, live web search, automatic approval review, a structured result schema and specific writable paths. Before a separately chosen runner session, verify its implementation model honors the corrected `gpt-6.1-sol`/Medium implementation policy; this documentation change does not alter global settings or runner code. It is a local CLI process, distinct from the temporary reviewer. [Official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 It creates/reuses `.worktrees/build` on `codex/build-mvp`, starting from the committed source checkout. `.local` is shared through a symlink so secrets are neither copied nor tracked. Main's files are untouched. Run from the same source checkout on subsequent invocations; do not launch a second runner from the build worktree itself.
 

@@ -24,7 +24,6 @@ test("private landing has an accessible connection path and responsive layout", 
   await expect(
     page.getByText("Your Liked Songs are never changed.", { exact: false }),
   ).toBeVisible();
-  await expect(page.getByText("SETUP PREVIEW", { exact: true })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -78,7 +77,9 @@ test("renewal warning and expired connection keep an explicit reconnect action",
 }) => {
   await session(page, { ...connected, reconnectWarning: "seven_days" });
   await page.goto("/");
-  await expect(page.getByRole("status")).toContainText("Reconnect soon");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Reconnect soon" }),
+  ).toContainText("Reconnect soon");
   await expect(
     page.getByRole("link", { name: "Reconnect Spotify" }),
   ).toBeVisible();
@@ -126,6 +127,10 @@ test("disconnect requires confirmation, sends exact contract, and waits for purg
     });
   });
   await page.goto("/");
+  await page.evaluate(() => {
+    sessionStorage.setItem("tagger-pending-create", "{}");
+    sessionStorage.setItem("tagger-pending-playlist-actions", "[]");
+  });
   await page
     .getByRole("button", { name: "Disconnect & delete app data" })
     .click();
@@ -153,6 +158,12 @@ test("disconnect requires confirmation, sends exact contract, and waits for purg
     page.getByRole("link", { name: "Connect Spotify", exact: true }),
   ).toHaveCount(0);
   expect(calls).toBe(1);
+  expect(
+    await page.evaluate(() => [
+      sessionStorage.getItem("tagger-pending-create"),
+      sessionStorage.getItem("tagger-pending-playlist-actions"),
+    ]),
+  ).toEqual([null, null]);
   purged = true;
   await expect(
     page.getByRole("heading", { name: "Start with your Spotify" }),

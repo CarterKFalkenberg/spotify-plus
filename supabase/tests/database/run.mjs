@@ -1,5 +1,6 @@
 // Disposable, synthetic PostgreSQL integration harness. Never reads .local or cloud credentials.
 import { spawn } from "node:child_process";
+import { fixtureAssertionsSql } from "../../../scripts/live/core-fixtures-sql.ts";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 const container = `spotify-plus-sql-test-${process.pid}`;
@@ -149,8 +150,18 @@ try {
     ),
   );
   await sql(await readFile(new URL("./library.sql", import.meta.url), "utf8"));
+  await sql(
+    await readFile(
+      new URL(
+        "../../migrations/20261011000500_managed_playlists.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await sql(fixtureAssertionsSql());
   console.log(
-    "Synthetic PostgreSQL foundation, role-denial, leases, refresh, pacing, and disconnect checks passed.",
+    "Synthetic PostgreSQL foundation, role-denial, leases, refresh, pacing, disconnect, and isolated live-fixture checks passed.",
   );
 } finally {
   await command(["rm", "--force", "--volumes", container]).catch(() => {});
