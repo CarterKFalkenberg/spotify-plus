@@ -33,23 +33,44 @@ export async function exchangeToken(
   } catch {
     throw new SpotifyError("network", null, null, true);
   }
+  // A 429 is an explicit refusal even when the gateway omitted or mangled JSON.
+  // Classify it before decoding; it never means a refresh rotation was ambiguous.
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("Retry-After");
+    const seconds = retryAfter === null ? NaN : Number(retryAfter);
+    const dateDelay = retryAfter === null
+      ? NaN
+      : Date.parse(retryAfter) - Date.now();
+    const delay = Number.isFinite(seconds) && seconds >= 0
+      ? seconds * 1000
+      : Number.isFinite(dateDelay) && dateDelay > 0
+      ? dateDelay
+      : 30000;
+    await response.body?.cancel();
+    throw new SpotifyError("rate_limit", 429, delay);
+  }
   let data: Record<string, unknown>;
   try {
-    data = await response.json();
+    const decoded: unknown = await response.json();
+    if (
+      decoded === null || typeof decoded !== "object" || Array.isArray(decoded)
+    ) {
+      throw new Error("invalid_token_response");
+    }
+    data = decoded as Record<string, unknown>;
   } catch {
     throw new SpotifyError("response", response.status, null, true);
   }
   if (!response.ok) {
-    if (data.error === "invalid_grant") throw new SpotifyError("authentication", response.status);
-    if (response.status === 429) {
-      const seconds = Number(response.headers.get("Retry-After"));
-      throw new SpotifyError(
-        "rate_limit",
-        429,
-        Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 30000,
-      );
+    if (data.error === "invalid_grant") {
+      throw new SpotifyError("authentication", response.status);
     }
-    throw new SpotifyError("http", response.status, null, response.status >= 500);
+    throw new SpotifyError(
+      "http",
+      response.status,
+      null,
+      response.status >= 500,
+    );
   }
   if (
     typeof data.access_token !== "string" || !data.access_token ||
@@ -62,7 +83,9 @@ export async function exchangeToken(
   }
   return {
     accessToken: data.access_token,
-    refreshToken: typeof data.refresh_token === "string" ? data.refresh_token : "",
+    refreshToken: typeof data.refresh_token === "string"
+      ? data.refresh_token
+      : "",
     expiresIn: data.expires_in,
     scopes: typeof data.scope === "string" ? data.scope.split(" ") : undefined,
   };
@@ -87,7 +110,10 @@ export class OwnerTokens {
       rejectedToken,
     );
   }
-  private async obtain(forceVersion: number | null, rejectedToken?: string): Promise<string> {
+  private async obtain(
+    forceVersion: number | null,
+    rejectedToken?: string,
+  ): Promise<string> {
     const claim = await this.db.rpc<Claim>("app_token_claim", {
       p_epoch: this.epoch,
       p_force_version: forceVersion,
@@ -97,8 +123,13 @@ export class OwnerTokens {
       throw new SpotifyError("cooldown", null, claim.retryAfterMs ?? 30000);
     }
     if (claim.action === "busy") throw new SpotifyError("cooldown", null, 1000);
-    if (!claim.encryptedTokens || !claim.version) throw new SpotifyError("control_unavailable");
-    const pair = await this.box.decrypt<TokenPair>(claim.encryptedTokens, `tokens:${this.epoch}`);
+    if (!claim.encryptedTokens || !claim.version) {
+      throw new SpotifyError("control_unavailable");
+    }
+    const pair = await this.box.decrypt<TokenPair>(
+      claim.encryptedTokens,
+      `tokens:${this.epoch}`,
+    );
     if (claim.action === "cached") {
       this.observed = { token: pair.accessToken, version: claim.version };
       // A newly constructed provider may be asked to refresh a rejected token. Resolve its version first.
@@ -119,7 +150,8 @@ export class OwnerTokens {
         this.request,
       );
     } catch (error) {
-      const reconnect = !(error instanceof SpotifyError) || error.kind === "authentication" ||
+      const reconnect = !(error instanceof SpotifyError) ||
+        error.kind === "authentication" ||
         error.ambiguous;
       await this.db.rpc("app_token_fail", {
         p_epoch: this.epoch,
@@ -139,8 +171,12 @@ export class OwnerTokens {
     const accepted = await this.db.rpc<boolean>("app_token_finish", {
       p_epoch: this.epoch,
       p_lease: claim.lease,
-      p_encrypted_tokens: await this.box.encrypt(nextPair, `tokens:${this.epoch}`),
-      p_access_expires_at: new Date(this.now() + refreshed.expiresIn * 1000).toISOString(),
+      p_encrypted_tokens: await this.box.encrypt(
+        nextPair,
+        `tokens:${this.epoch}`,
+      ),
+      p_access_expires_at: new Date(this.now() + refreshed.expiresIn * 1000)
+        .toISOString(),
     });
     if (!accepted) throw new SpotifyError("authentication");
     this.observed = { token: nextPair.accessToken, version: claim.version + 1 };
@@ -154,7 +190,9 @@ export function databasePacing(db: Database, epoch: number) {
         p_epoch: epoch,
         p_interval_ms: interval,
       }),
-    defer: async (input: { retryAfterMs: number; kind: "rate_limit" | "quota" }) => {
+    defer: async (
+      input: { retryAfterMs: number; kind: "rate_limit" | "quota" },
+    ) => {
       await db.rpc("app_pacing_defer", {
         p_epoch: epoch,
         p_retry_ms: input.retryAfterMs,

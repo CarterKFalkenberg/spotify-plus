@@ -17,8 +17,12 @@ Deno.test("opaque sessions have 256 bits and PKCE S256 uses RFC7636 vector", asy
 });
 Deno.test("AES-GCM randomizes ciphertext and authenticates purpose and epoch", async () => {
   const box = new SecretBox(TEST_KEY),
-    pair = { accessToken: "synthetic-access", refreshToken: "synthetic-refresh" };
-  const a = await box.encrypt(pair, "tokens:1"), b = await box.encrypt(pair, "tokens:1");
+    pair = {
+      accessToken: "synthetic-access",
+      refreshToken: "synthetic-refresh",
+    };
+  const a = await box.encrypt(pair, "tokens:1"),
+    b = await box.encrypt(pair, "tokens:1");
   assert(a !== b);
   assert(!a.includes("synthetic"));
   equal(await box.decrypt(a, "tokens:1"), pair);
@@ -30,7 +34,9 @@ Deno.test("owner binding is stable, keyed, and distinct from raw identity", asyn
   const a = await ownerFingerprint("synthetic-account", TEST_KEY);
   equal(a, await ownerFingerprint("synthetic-account", TEST_KEY));
   assert(a !== await ownerFingerprint("other-account", TEST_KEY));
-  assert(a !== await ownerFingerprint("synthetic-account", btoa("q".repeat(32))));
+  assert(
+    a !== await ownerFingerprint("synthetic-account", btoa("q".repeat(32))),
+  );
   assert(!a.includes("synthetic"));
 });
 Deno.test("service authentication denies missing or different secrets", async () => {

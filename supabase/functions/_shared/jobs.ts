@@ -26,7 +26,9 @@ export async function drainJobs(
   let retried = 0;
   await db.rpc("app_jobs_started", { p_sha: sha });
   for (let count = 0; count < 20 && now() < deadline - 50000; count++) {
-    const job = await db.rpc<Job | null>("app_job_claim", { p_lease_seconds: 100 });
+    const job = await db.rpc<Job | null>("app_job_claim", {
+      p_lease_seconds: 100,
+    });
     if (!job) break;
     try {
       if (job.kind === "scheduler_ping") {
@@ -38,9 +40,15 @@ export async function drainJobs(
           })
         ) continue;
       } else if (job.kind === "purge_backups") {
-        if (typeof job.payload.epoch !== "number") throw new Error("invalid_job");
-        const status = await db.rpc<{ epoch: number; state: string }>("app_account_status");
-        if (status.epoch !== job.payload.epoch || status.state !== "disconnecting") {
+        if (typeof job.payload.epoch !== "number") {
+          throw new Error("invalid_job");
+        }
+        const status = await db.rpc<{ epoch: number; state: string }>(
+          "app_account_status",
+        );
+        if (
+          status.epoch !== job.payload.epoch || status.state !== "disconnecting"
+        ) {
           // A committed purge may outlive its worker's acknowledgement. Never purge a new connection.
           await db.rpc("app_job_finish", {
             p_id: job.id,
@@ -50,10 +58,19 @@ export async function drainJobs(
           continue;
         }
         if (!await backups.purge()) throw new Error("backup_purge_pending");
-        if (!await db.rpc<boolean>("app_job_renew", { p_id: job.id, p_lease: job.leaseToken })) {
+        if (
+          !await db.rpc<boolean>("app_job_renew", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+          })
+        ) {
           continue;
         }
-        if (!await db.rpc<boolean>("app_disconnect_finish", { p_epoch: job.payload.epoch })) {
+        if (
+          !await db.rpc<boolean>("app_disconnect_finish", {
+            p_epoch: job.payload.epoch,
+          })
+        ) {
           continue;
         }
       } else {
@@ -85,7 +102,9 @@ export async function drainJobs(
         p_lease: job.leaseToken,
         p_outcome: reconnect ? "parked" : "queued",
         p_retry_ms: delay,
-        p_error: reconnect ? "reconnect" : classified?.kind ?? "worker_unavailable",
+        p_error: reconnect
+          ? "reconnect"
+          : classified?.kind ?? "worker_unavailable",
       });
       retried++;
     }

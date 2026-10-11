@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 const container = `spotify-plus-sql-test-${process.pid}`;
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 async function command(args, input = "") {
-  const child = spawn("docker", args, { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn("docker", args, {
+    cwd: root,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   let output = "", errors = "";
   child.stdout.on("data", (chunk) => {
     output += chunk;
@@ -51,21 +54,36 @@ try {
   ]);
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      await command(["exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]);
+      await command([
+        "exec",
+        container,
+        "pg_isready",
+        "-h",
+        "127.0.0.1",
+        "-U",
+        "postgres",
+      ]);
       break;
     } catch {
       if (attempt === 59) throw new Error("Disposable database did not start");
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
-  await sql("create role anon; create role authenticated; create role service_role;");
+  await sql(
+    "create role anon; create role authenticated; create role service_role;",
+  );
   await sql(
     await readFile(
-      new URL("../../migrations/20261011000100_backend_foundation.sql", import.meta.url),
+      new URL(
+        "../../migrations/20261011000100_backend_foundation.sql",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );
-  await sql(await readFile(new URL("./foundation.sql", import.meta.url), "utf8"));
+  await sql(
+    await readFile(new URL("./foundation.sql", import.meta.url), "utf8"),
+  );
   await sql(
     "select public.app_connect(1,'synthetic-account',repeat('a',64),true,'synthetic-ciphertext',now()+interval '1 hour',now(),repeat('b',64),true); select public.app_job_enqueue('synthetic',1) from generate_series(1,4);",
   );
@@ -78,7 +96,10 @@ try {
     "Concurrent workers must claim each job once",
   );
   const pacing = await Promise.all(
-    Array.from({ length: 8 }, () => sql("select public.app_pacing_acquire(1,5000);")),
+    Array.from(
+      { length: 8 },
+      () => sql("select public.app_pacing_acquire(1,5000);"),
+    ),
   );
   assert(
     pacing.map(JSON.parse).filter((result) => result.granted).length === 1,
@@ -88,18 +109,27 @@ try {
     Array.from({ length: 8 }, () => sql("select public.app_token_claim(1,1);")),
   );
   assert(
-    refresh.map(JSON.parse).filter((result) => result.action === "refresh").length === 1,
+    refresh.map(JSON.parse).filter((result) => result.action === "refresh")
+      .length === 1,
     "Concurrent refresh must grant one lease",
   );
   assert(
-    refresh.map(JSON.parse).filter((result) => result.action === "busy").length === 7,
+    refresh.map(JSON.parse).filter((result) => result.action === "busy")
+      .length === 7,
     "Concurrent refresh waiters must yield",
   );
   await sql("select public.app_disconnect(1);");
   const finish = await Promise.all(
-    jobs.map((job) => sql(`select public.app_job_finish('${job.id}','${job.leaseToken}','done');`)),
+    jobs.map((job) =>
+      sql(
+        `select public.app_job_finish('${job.id}','${job.leaseToken}','done');`,
+      )
+    ),
   );
-  assert(finish.every((result) => result === "f"), "Concurrent old workers must stay cancelled");
+  assert(
+    finish.every((result) => result === "f"),
+    "Concurrent old workers must stay cancelled",
+  );
   console.log(
     "Synthetic PostgreSQL foundation, role-denial, leases, refresh, pacing, and disconnect checks passed.",
   );

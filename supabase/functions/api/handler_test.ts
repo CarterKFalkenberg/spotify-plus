@@ -61,7 +61,8 @@ Deno.test("health includes deployment SHA and DB scheduler evidence", async () =
       lastJobAt: null,
     })),
   });
-  const body = await (await handler(request("/functions/v1/api/healthz"))).json();
+  const body = await (await handler(request("/functions/v1/api/healthz")))
+    .json();
   equal(body.apiSha, config.sha);
   equal(body.jobsSha, "b".repeat(40));
   equal(body.lastSchedulerAt, "synthetic-time");
@@ -72,7 +73,9 @@ Deno.test("only opaque owner session authorizes protected mutation and same-orig
     config,
     box,
     db: database((name, args) => {
-      if (name === "app_session") return args.p_token_hash ? authenticated : null;
+      if (name === "app_session") {
+        return args.p_token_hash ? authenticated : null;
+      }
       if (name === "app_disconnect") {
         disconnects++;
         return { epoch: 2, jobId: "synthetic" };
@@ -80,7 +83,10 @@ Deno.test("only opaque owner session authorizes protected mutation and same-orig
       return { state: "disconnected" };
     }),
   });
-  equal((await handler(request("/api/disconnect", { method: "POST" }))).status, 401);
+  equal(
+    (await handler(request("/api/disconnect", { method: "POST" }))).status,
+    401,
+  );
   const cookie = `${SESSION_COOKIE}=${session}`;
   equal(
     (await handler(
@@ -92,7 +98,12 @@ Deno.test("only opaque owner session authorizes protected mutation and same-orig
     403,
   );
   equal(
-    (await handler(request("/api/disconnect", { method: "POST", headers: { Cookie: cookie } })))
+    (await handler(
+      request("/api/disconnect", {
+        method: "POST",
+        headers: { Cookie: cookie },
+      }),
+    ))
       .status,
     403,
   );
@@ -100,7 +111,11 @@ Deno.test("only opaque owner session authorizes protected mutation and same-orig
     (await handler(
       request("/api/disconnect", {
         method: "POST",
-        headers: { Cookie: cookie, Origin: config.origin, "Content-Type": "application/json" },
+        headers: {
+          Cookie: cookie,
+          Origin: config.origin,
+          "Content-Type": "application/json",
+        },
         body: "{}",
       }),
     )).status,
@@ -109,7 +124,11 @@ Deno.test("only opaque owner session authorizes protected mutation and same-orig
   const result = await handler(
     request("/api/disconnect", {
       method: "POST",
-      headers: { Cookie: cookie, Origin: config.origin, "Content-Type": "application/json" },
+      headers: {
+        Cookie: cookie,
+        Origin: config.origin,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ confirmation: "DELETE ALL APP DATA" }),
     }),
   );
@@ -124,7 +143,9 @@ Deno.test("unknown, expired, or duplicate cookies do not authenticate", async ()
   const handler = createApi({
     config,
     box,
-    db: database((name) => name === "app_session" ? null : { state: "disconnecting" }),
+    db: database((name) =>
+      name === "app_session" ? null : { state: "disconnecting" }
+    ),
   });
   for (
     const cookie of [
@@ -132,7 +153,9 @@ Deno.test("unknown, expired, or duplicate cookies do not authenticate", async ()
       `${SESSION_COOKIE}=${session}; ${SESSION_COOKIE}=${session}`,
     ]
   ) {
-    const body = await (await handler(request("/api/session", { headers: { Cookie: cookie } })))
+    const body = await (await handler(
+      request("/api/session", { headers: { Cookie: cookie } }),
+    ))
       .json();
     equal(body.authenticated, false);
     equal(body.connection, "disconnecting");
@@ -165,7 +188,15 @@ Deno.test("OAuth start keeps PKCE verifier server-side with expiring secure brow
   assert(!scopes.includes("user-read"));
   equal(scopes, SPOTIFY_SCOPES.join(" "));
   const cookie = response.headers.get("Set-Cookie")!;
-  for (const part of ["HttpOnly", "Secure", "SameSite=Lax", "Max-Age=600", "Path=/"]) {
+  for (
+    const part of [
+      "HttpOnly",
+      "Secure",
+      "SameSite=Lax",
+      "Max-Age=600",
+      "Path=/",
+    ]
+  ) {
     assert(cookie.includes(part));
   }
 });
@@ -180,8 +211,12 @@ Deno.test("OAuth invalid state or missing browser cookie cannot contact token en
       throw new Error("unexpected");
     },
   });
-  const response = await handler(request(`/auth/spotify/callback?state=${state}&code=synthetic`));
-  assert(response.headers.get("Location")?.endsWith("auth_error=invalid_state"));
+  const response = await handler(
+    request(`/auth/spotify/callback?state=${state}&code=synthetic`),
+  );
+  assert(
+    response.headers.get("Location")?.endsWith("auth_error=invalid_state"),
+  );
   equal(contacts, 0);
 });
 Deno.test("consent denial consumes browser-bound state and shows explicit denial", async () => {
@@ -200,10 +235,14 @@ Deno.test("consent denial consumes browser-bound state and shows explicit denial
       headers: { Cookie: `${OAUTH_COOKIE}=${oauth}` },
     }),
   );
-  assert(response.headers.get("Location")?.endsWith("auth_error=consent_denied"));
+  assert(
+    response.headers.get("Location")?.endsWith("auth_error=consent_denied"),
+  );
   assert(consumed);
 });
-async function oauthHandler(outcome: "ok" | "wrong" | "cancelled" | "forbidden") {
+async function oauthHandler(
+  outcome: "ok" | "wrong" | "cancelled" | "forbidden",
+) {
   let requests = 0;
   let connectArgs: Record<string, unknown> | undefined;
   const handler = createApi({
@@ -219,7 +258,9 @@ async function oauthHandler(outcome: "ok" | "wrong" | "cancelled" | "forbidden")
           ),
         };
       }
-      if (name === "app_pacing_acquire") return { granted: true, retryAfterMs: 0 };
+      if (name === "app_pacing_acquire") {
+        return { granted: true, retryAfterMs: 0 };
+      }
       if (name === "app_connect") {
         connectArgs = args;
         if (outcome === "wrong") throw new DatabaseError("wrong_account");
@@ -241,12 +282,18 @@ async function oauthHandler(outcome: "ok" | "wrong" | "cancelled" | "forbidden")
         );
       }
       if (outcome === "forbidden") {
-        return mockResponse(JSON.stringify({ error: { message: "upstream sensitive" } }), {
-          status: 403,
-        });
+        return mockResponse(
+          JSON.stringify({ error: { message: "upstream sensitive" } }),
+          {
+            status: 403,
+          },
+        );
       }
       return mockResponse(
-        JSON.stringify({ id: "synthetic-owner", account_id: "synthetic-immutable-account" }),
+        JSON.stringify({
+          id: "synthetic-owner",
+          account_id: "synthetic-immutable-account",
+        }),
       );
     },
   });
@@ -263,11 +310,16 @@ Deno.test("OAuth success persists encrypted grant and hashed session before issu
   equal(result.headers.get("Location"), config.origin);
   assert(connectArgs);
   equal((connectArgs.p_session_hash as string).length, 64);
-  assert(!(connectArgs.p_encrypted_tokens as string).includes("synthetic-token"));
+  assert(
+    !(connectArgs.p_encrypted_tokens as string).includes("synthetic-token"),
+  );
   assert(result.headers.get("Set-Cookie")?.includes(SESSION_COOKIE));
 });
 for (
-  const [outcome, code] of [["wrong", "wrong_account"], ["cancelled", "authorization_cancelled"], [
+  const [outcome, code] of [["wrong", "wrong_account"], [
+    "cancelled",
+    "authorization_cancelled",
+  ], [
     "forbidden",
     "forbidden",
   ]] as const
@@ -280,10 +332,16 @@ for (
   });
 }
 Deno.test("bootstrap requires independent operator secret and does not return grant data", async () => {
-  const handler = createApi({ config, box, db: database(() => ({ bootstrapConsumed: true })) });
+  const handler = createApi({
+    config,
+    box,
+    db: database(() => ({ bootstrapConsumed: true })),
+  });
   equal((await handler(request("/internal/bootstrap"))).status, 401);
   const result = await handler(
-    request("/internal/bootstrap", { headers: { "x-bootstrap-secret": config.bootstrapSecret } }),
+    request("/internal/bootstrap", {
+      headers: { "x-bootstrap-secret": config.bootstrapSecret },
+    }),
   );
   equal(await result.json(), { consumed: true });
 });
@@ -294,7 +352,12 @@ Deno.test("bootstrap retains original authorization and only reports consumption
     box,
     db: database((name, args) => {
       if (name === "app_account_status") {
-        return { epoch: 1, state: "disconnected", bootstrapConsumed: false, ownerBound: false };
+        return {
+          epoch: 1,
+          state: "disconnected",
+          bootstrapConsumed: false,
+          ownerBound: false,
+        };
       }
       if (name === "app_pacing_acquire") {
         return { granted: true, retryAfterMs: 0 };
@@ -306,13 +369,21 @@ Deno.test("bootstrap retains original authorization and only reports consumption
       throw new Error("unexpected");
     }),
     fetch: () =>
-      mockResponse(JSON.stringify({ id: "synthetic-owner", account_id: "synthetic-account" })),
+      mockResponse(
+        JSON.stringify({
+          id: "synthetic-owner",
+          account_id: "synthetic-account",
+        }),
+      ),
   });
   const authorizedAt = "2026-10-01T00:00:00.000Z";
   const response = await handler(
     request("/internal/bootstrap", {
       method: "POST",
-      headers: { "x-bootstrap-secret": config.bootstrapSecret, "Content-Type": "application/json" },
+      headers: {
+        "x-bootstrap-secret": config.bootstrapSecret,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         clientId: config.clientId,
         userId: config.expectedUserId,

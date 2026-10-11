@@ -104,12 +104,12 @@ create function public.app_connect(p_epoch bigint,p_account_id text,p_owner_fing
  declare a app.account;
  begin
   select * into a from app.account for update;
-  if a.epoch<>p_epoch or a.state='disconnecting' then return false; end if;
-  if (a.owner_fingerprint is null and not p_initial_owner_verified)
+  if a.epoch is distinct from p_epoch or a.state='disconnecting' then return false; end if;
+  if (a.owner_fingerprint is null and p_initial_owner_verified is distinct from true)
     or (a.owner_fingerprint is not null and a.owner_fingerprint<>p_owner_fingerprint)
     or p_owner_fingerprint is null or length(p_owner_fingerprint)<>64 then raise exception 'wrong_account'; end if;
   if p_bootstrap and (a.bootstrap_consumed or a.state<>'disconnected' or a.owner_fingerprint is not null) then return false; end if;
-  if p_account_id is null or p_account_id='' or p_authorized_at>now()+interval '1 minute'
+  if p_account_id is null or p_account_id='' or p_authorized_at is null or p_authorized_at>now()+interval '1 minute'
     or p_authorized_at + interval '6 months' <= now() then raise exception 'invalid_authorization'; end if;
   update app.account set account_id=p_account_id,owner_fingerprint=p_owner_fingerprint,state='connected',authorized_at=p_authorized_at,
     authorization_deadline=p_authorized_at+interval '6 months',bootstrap_consumed=bootstrap_consumed or p_bootstrap;
@@ -142,7 +142,7 @@ create function public.app_token_claim(p_epoch bigint,p_force_version bigint def
  declare a app.account; c app.credentials; lease uuid;
  begin
   select * into a from app.account for update;
-  if a.epoch<>p_epoch or a.state<>'connected' then return jsonb_build_object('action','reconnect'); end if;
+  if a.epoch is distinct from p_epoch or a.state<>'connected' then return jsonb_build_object('action','reconnect'); end if;
   select * into c from app.credentials where epoch=p_epoch for update;
   if not found or a.authorization_deadline<=now() or (c.refresh_lease is not null and c.refresh_until<=now()) then
     update app.account set state='reconnect'; delete from app.credentials;
@@ -299,7 +299,7 @@ create function public.app_disconnect(p_epoch bigint) returns jsonb
  declare a app.account; job_id uuid;
  begin
   select * into a from app.account for update;
-  if a.epoch<>p_epoch or a.state not in ('connected','reconnect') then return null; end if;
+  if a.epoch is distinct from p_epoch or a.state not in ('connected','reconnect') then return null; end if;
   update app.account set epoch=epoch+1,state='disconnecting',account_id=null,authorized_at=null,authorization_deadline=null;
   update app.jobs set state='cancelled',lease_token=null,lease_until=null,payload='{}',last_error=null
     where epoch is not null;

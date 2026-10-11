@@ -1,5 +1,8 @@
 import type { Database } from "./database.ts";
-export function assert(value: unknown, message = "assertion failed"): asserts value {
+export function assert(
+  value: unknown,
+  message = "assertion failed",
+): asserts value {
   if (!value) throw new Error(message);
 }
 export function equal(actual: unknown, expected: unknown): void {
@@ -18,7 +21,10 @@ export async function rejects(
   throw new Error("expected rejection");
 }
 export function database(
-  handler: (name: string, args: Record<string, unknown>) => unknown | Promise<unknown>,
+  handler: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>,
 ): Database {
   return {
     rpc: async <T>(name: string, args: Record<string, unknown> = {}) =>
@@ -27,6 +33,9 @@ export function database(
 }
 export const TEST_KEY = btoa("k".repeat(32));
 
-export function mockResponse(body?: BodyInit | null, init?: ResponseInit): Promise<Response> {
+export function mockResponse(
+  body?: BodyInit | null,
+  init?: ResponseInit,
+): Promise<Response> {
   return Promise.resolve(new Response(body, init));
 }

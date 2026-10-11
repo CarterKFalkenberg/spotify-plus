@@ -10,7 +10,11 @@ export class PrivateBackups implements BackupStorage {
     private readonly key: string,
     private readonly request: typeof fetch = fetch,
   ) {}
-  private async call(path: string, method: string, body: unknown): Promise<unknown> {
+  private async call(
+    path: string,
+    method: string,
+    body: unknown,
+  ): Promise<unknown> {
     try {
       const response = await this.request(`${this.origin}/storage/v1/${path}`, {
         method,
@@ -37,7 +41,9 @@ export class PrivateBackups implements BackupStorage {
       limit: 1,
       offset: 0,
     });
-    if (!Array.isArray(remaining)) throw new Error("backup_storage_unavailable");
+    if (!Array.isArray(remaining)) {
+      throw new Error("backup_storage_unavailable");
+    }
     return remaining.length === 0;
   }
 }

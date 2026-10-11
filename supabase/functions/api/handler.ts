@@ -17,8 +17,16 @@ import {
   redirect,
   SESSION_COOKIE,
 } from "../_shared/http.ts";
-import { SPOTIFY_SCOPES, SpotifyClient, SpotifyError } from "../_shared/spotify.ts";
-import { databasePacing, exchangeToken, type TokenPair } from "../_shared/tokens.ts";
+import {
+  SPOTIFY_SCOPES,
+  SpotifyClient,
+  SpotifyError,
+} from "../_shared/spotify.ts";
+import {
+  databasePacing,
+  exchangeToken,
+  type TokenPair,
+} from "../_shared/tokens.ts";
 
 export interface ApiConfig {
   origin: string;
@@ -51,9 +59,15 @@ export interface ApiDependencies {
 const CLEAR_OAUTH = cookie(OAUTH_COOKIE, "", 0);
 export const DISCONNECT_REMAINS =
   "Minimal login security configuration remains: a keyed owner fingerprint, the account epoch, and a one-time bootstrap marker. Existing Spotify playlists remain, and their automatic cleanup stops. App-controlled backups must finish deleting before reconnect. Spotify grant revocation is available in your Spotify account Apps page; provider-internal retention is outside this app’s control.";
-function stringField(body: Record<string, unknown>, key: string, max = 4096): string {
+function stringField(
+  body: Record<string, unknown>,
+  key: string,
+  max = 4096,
+): string {
   const value = body[key];
-  if (typeof value !== "string" || !value || value.length > max) throw new Error("invalid_input");
+  if (typeof value !== "string" || !value || value.length > max) {
+    throw new Error("invalid_input");
+  }
   return value;
 }
 function validDate(value: string): string {
@@ -70,7 +84,8 @@ export function createApi(
     const client = new SpotifyClient({
       tokens: {
         getAccessToken: () => Promise.resolve(accessToken),
-        refreshAccessToken: () => Promise.reject(new SpotifyError("authentication")),
+        refreshAccessToken: () =>
+          Promise.reject(new SpotifyError("authentication")),
       },
       pacing: databasePacing(db, epoch),
       isManagedPlaylist: () => Promise.resolve(false),
@@ -92,9 +107,15 @@ export function createApi(
     return await db.rpc<boolean>("app_connect", {
       p_epoch: input.epoch,
       p_account_id: profile.accountId,
-      p_owner_fingerprint: await ownerFingerprint(profile.accountId, config.ownerBindingKey),
+      p_owner_fingerprint: await ownerFingerprint(
+        profile.accountId,
+        config.ownerBindingKey,
+      ),
       p_initial_owner_verified: profile.id === config.expectedUserId,
-      p_encrypted_tokens: await box.encrypt(input.pair, `tokens:${input.epoch}`),
+      p_encrypted_tokens: await box.encrypt(
+        input.pair,
+        `tokens:${input.epoch}`,
+      ),
       p_access_expires_at: input.expiresAt,
       p_authorized_at: input.authorizedAt,
       p_session_hash: input.sessionHash,
@@ -102,25 +123,45 @@ export function createApi(
     });
   }
   return async (req: Request): Promise<Response> => {
-    if (!await secretMatches(req.headers.get("x-proxy-secret"), config.proxySecret)) {
+    if (
+      !await secretMatches(
+        req.headers.get("x-proxy-secret"),
+        config.proxySecret,
+      )
+    ) {
       return json({ error: "unauthorized" }, 401);
     }
     const path = pathFor(req, "api");
     const url = new URL(req.url);
     try {
       if (path === "/healthz" && req.method === "GET") {
-        return json({ apiSha: config.sha, ...await db.rpc<Record<string, unknown>>("app_health") });
+        return json({
+          apiSha: config.sha,
+          ...await db.rpc<Record<string, unknown>>("app_health"),
+        });
       }
       if (path === "/internal/bootstrap") {
-        if (!await secretMatches(req.headers.get("x-bootstrap-secret"), config.bootstrapSecret)) {
+        if (
+          !await secretMatches(
+            req.headers.get("x-bootstrap-secret"),
+            config.bootstrapSecret,
+          )
+        ) {
           return json({ error: "unauthorized" }, 401);
         }
-        if (req.headers.has("Origin") && req.headers.get("Origin") !== config.origin) {
+        if (
+          req.headers.has("Origin") &&
+          req.headers.get("Origin") !== config.origin
+        ) {
           return json({ error: "invalid_origin" }, 403);
         }
         const status = await db.rpc<AccountStatus>("app_account_status");
-        if (req.method === "GET") return json({ consumed: status.bootstrapConsumed });
-        if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+        if (req.method === "GET") {
+          return json({ consumed: status.bootstrapConsumed });
+        }
+        if (req.method !== "POST") {
+          return json({ error: "method_not_allowed" }, 405);
+        }
         if (status.bootstrapConsumed) return json({ consumed: true });
         if (status.state !== "disconnected" || status.ownerBound) {
           return json({ error: "bootstrap_unavailable" }, 409);
@@ -131,12 +172,17 @@ export function createApi(
           stringField(body, "userId") !== config.expectedUserId
         ) return json({ error: "wrong_account" }, 403);
         const scopes = body.scopes;
-        if (!Array.isArray(scopes) || SPOTIFY_SCOPES.some((scope) => !scopes.includes(scope))) {
+        if (
+          !Array.isArray(scopes) ||
+          SPOTIFY_SCOPES.some((scope) => !scopes.includes(scope))
+        ) {
           return json({ error: "missing_scopes" }, 400);
         }
         const authorizedAt = validDate(stringField(body, "authorizedAt"));
         const expiresAt = validDate(stringField(body, "accessExpiresAt"));
-        if (Date.parse(expiresAt) <= now()) return json({ error: "bootstrap_access_expired" }, 409);
+        if (Date.parse(expiresAt) <= now()) {
+          return json({ error: "bootstrap_access_expired" }, 409);
+        }
         const consumed = await persistGrant({
           epoch: status.epoch,
           pair: {
@@ -152,12 +198,17 @@ export function createApi(
         return json({ consumed: true });
       }
       if (path === "/auth/spotify/start" && req.method === "GET") {
-        const state = opaqueToken(), browser = opaqueToken(), verifier = opaqueToken();
+        const state = opaqueToken(),
+          browser = opaqueToken(),
+          verifier = opaqueToken();
         const stateHash = await sha256(state);
         await db.rpc("app_oauth_start", {
           p_state_hash: stateHash,
           p_browser_hash: await sha256(browser),
-          p_encrypted_verifier: await box.encrypt(verifier, `oauth:${stateHash}`),
+          p_encrypted_verifier: await box.encrypt(
+            verifier,
+            `oauth:${stateHash}`,
+          ),
         });
         const auth = new URL("https://accounts.spotify.com/authorize");
         auth.search = new URLSearchParams({
@@ -173,12 +224,15 @@ export function createApi(
         return redirect(auth.toString(), [cookie(OAUTH_COOKIE, browser, 600)]);
       }
       if (path === "/auth/spotify/callback" && req.method === "GET") {
-        const state = url.searchParams.get("state"), browser = readCookie(req, OAUTH_COOKIE);
+        const state = url.searchParams.get("state"),
+          browser = readCookie(req, OAUTH_COOKIE);
         if (!state || !browser || !/^[A-Za-z0-9_-]{43}$/.test(state)) {
           return authFailure("invalid_state");
         }
         const stateHash = await sha256(state);
-        const grant = await db.rpc<{ epoch: number; encryptedVerifier: string } | null>(
+        const grant = await db.rpc<
+          { epoch: number; encryptedVerifier: string } | null
+        >(
           "app_oauth_consume",
           { p_state_hash: stateHash, p_browser_hash: await sha256(browser) },
         );
@@ -192,7 +246,10 @@ export function createApi(
         }
         const code = url.searchParams.get("code");
         if (!code || code.length > 4096) return authFailure("invalid_callback");
-        const verifier = await box.decrypt<string>(grant.encryptedVerifier, `oauth:${stateHash}`);
+        const verifier = await box.decrypt<string>(
+          grant.encryptedVerifier,
+          `oauth:${stateHash}`,
+        );
         const tokens = await exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
@@ -204,12 +261,16 @@ export function createApi(
           request,
         );
         if (
-          !tokens.refreshToken || SPOTIFY_SCOPES.some((scope) => !tokens.scopes?.includes(scope))
+          !tokens.refreshToken ||
+          SPOTIFY_SCOPES.some((scope) => !tokens.scopes?.includes(scope))
         ) return authFailure("missing_scopes");
         const session = opaqueToken();
         const accepted = await persistGrant({
           epoch: grant.epoch,
-          pair: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken },
+          pair: {
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          },
           expiresAt: new Date(now() + tokens.expiresIn * 1000).toISOString(),
           authorizedAt: new Date(now()).toISOString(),
           bootstrap: false,
@@ -224,14 +285,18 @@ export function createApi(
       // No protected handler may run based on proxy trust alone. Even reconnect sessions need this lookup.
       const token = readCookie(req, SESSION_COOKIE);
       const session = token
-        ? await db.rpc<Session | null>("app_session", { p_token_hash: await sha256(token) })
+        ? await db.rpc<Session | null>("app_session", {
+          p_token_hash: await sha256(token),
+        })
         : null;
       if (path === "/api/session" && req.method === "GET") {
         if (!session) {
           const status = await db.rpc<AccountStatus>("app_account_status");
           return json({
             authenticated: false,
-            connection: status.state === "disconnecting" ? "disconnecting" : "disconnected",
+            connection: status.state === "disconnecting"
+              ? "disconnecting"
+              : "disconnected",
           });
         }
         const daysRemaining = Math.ceil(
@@ -260,9 +325,12 @@ export function createApi(
         if (body.confirmation !== "DELETE ALL APP DATA") {
           return json({ error: "confirmation_required" }, 400);
         }
-        const result = await db.rpc<{ epoch: number; jobId: string } | null>("app_disconnect", {
-          p_epoch: session.epoch,
-        });
+        const result = await db.rpc<{ epoch: number; jobId: string } | null>(
+          "app_disconnect",
+          {
+            p_epoch: session.epoch,
+          },
+        );
         if (!result) return json({ error: "session_changed" }, 409);
         return json(
           {

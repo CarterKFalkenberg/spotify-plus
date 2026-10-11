@@ -9,7 +9,9 @@ export function runtimeConfig() {
     throw new Error("invalid_origin_configuration");
   }
   const sha = requiredEnv("DEPLOY_SHA");
-  if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error("invalid_revision_configuration");
+  if (!/^[a-f0-9]{40}$/.test(sha)) {
+    throw new Error("invalid_revision_configuration");
+  }
   const proxySecret = requiredEnv("PROXY_SECRET"),
     cronSecret = requiredEnv("CRON_SECRET"),
     bootstrapSecret = requiredEnv("BOOTSTRAP_SECRET");

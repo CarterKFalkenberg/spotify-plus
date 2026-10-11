@@ -3,7 +3,9 @@ import { json, pathFor } from "../_shared/http.ts";
 import { drainJobs, type JobContext } from "../_shared/jobs.ts";
 export function createJobs(context: JobContext & { cronSecret: string }) {
   return async (req: Request): Promise<Response> => {
-    if (!await secretMatches(req.headers.get("x-cron-secret"), context.cronSecret)) {
+    if (
+      !await secretMatches(req.headers.get("x-cron-secret"), context.cronSecret)
+    ) {
       return json({ error: "unauthorized" }, 401);
     }
     try {

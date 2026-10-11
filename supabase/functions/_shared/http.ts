@@ -1,4 +1,8 @@
-export function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
+export function json(
+  value: unknown,
+  status = 200,
+  headers: HeadersInit = {},
+): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: {
@@ -25,9 +29,9 @@ export function cookie(name: string, value: string, seconds: number): string {
   return `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${seconds}`;
 }
 export function readCookie(request: Request, name: string): string | null {
-  const values = (request.headers.get("Cookie") ?? "").split(";").map((c) => c.trim()).filter((c) =>
-    c.startsWith(`${name}=`)
-  );
+  const values = (request.headers.get("Cookie") ?? "").split(";").map((c) =>
+    c.trim()
+  ).filter((c) => c.startsWith(`${name}=`));
   if (values.length !== 1) return null;
   const value = values[0].slice(name.length + 1);
   return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
@@ -61,15 +65,24 @@ export async function readJson(
       offset += chunk.length;
     }
     const data: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error();
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error();
+    }
     return data as Record<string, unknown>;
   } catch {
     throw new Error("invalid_input");
   }
 }
-export function pathFor(request: Request, functionName: "api" | "jobs"): string {
+export function pathFor(
+  request: Request,
+  functionName: "api" | "jobs",
+): string {
   const path = new URL(request.url).pathname;
   // Hosted requests include the gateway prefix; direct synthetic requests use product paths.
   const prefix = `/functions/v1/${functionName}`;
-  return path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path === prefix ? "/" : path;
+  return path.startsWith(`${prefix}/`)
+    ? path.slice(prefix.length)
+    : path === prefix
+    ? "/"
+    : path;
 }

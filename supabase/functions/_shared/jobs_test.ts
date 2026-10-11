@@ -20,7 +20,9 @@ Deno.test("disconnect remains pending when storage deletion fails or absence can
         claimed = true;
         return purgeJob;
       }
-      if (name === "app_account_status") return { epoch: 2, state: "disconnecting" };
+      if (name === "app_account_status") {
+        return { epoch: 2, state: "disconnecting" };
+      }
       if (name === "app_disconnect_finish") finished = true;
       if (name === "app_job_finish") {
         equal(args.p_outcome, "queued");
@@ -52,7 +54,9 @@ Deno.test("successful disconnect checks backup absence and lease before committi
       claimed = true;
       return purgeJob;
     }
-    if (name === "app_account_status") return { epoch: 2, state: "disconnecting" };
+    if (name === "app_account_status") {
+      return { epoch: 2, state: "disconnecting" };
+    }
     events.push(name);
     return true;
   });
@@ -67,8 +71,12 @@ Deno.test("successful disconnect checks backup absence and lease before committi
     },
   });
   equal(result.completed, 1);
-  assert(events.indexOf("storage_verified_absent") < events.indexOf("app_job_renew"));
-  assert(events.indexOf("app_job_renew") < events.indexOf("app_disconnect_finish"));
+  assert(
+    events.indexOf("storage_verified_absent") < events.indexOf("app_job_renew"),
+  );
+  assert(
+    events.indexOf("app_job_renew") < events.indexOf("app_disconnect_finish"),
+  );
 });
 Deno.test("lost lease after purge cannot claim disconnect completion", async () => {
   let claimed = false;
@@ -79,7 +87,9 @@ Deno.test("lost lease after purge cannot claim disconnect completion", async () 
       claimed = true;
       return purgeJob;
     }
-    if (name === "app_account_status") return { epoch: 2, state: "disconnecting" };
+    if (name === "app_account_status") {
+      return { epoch: 2, state: "disconnecting" };
+    }
     if (name === "app_job_renew") return false;
     if (name === "app_disconnect_finish") completed = true;
     return true;
@@ -127,7 +137,11 @@ Deno.test("unknown feature jobs park visibly rather than being marked successful
     }
     return true;
   });
-  const result = await drainJobs({ db, sha, backups: { purge: () => Promise.resolve(true) } });
+  const result = await drainJobs({
+    db,
+    sha,
+    backups: { purge: () => Promise.resolve(true) },
+  });
   equal(result.completed, 0);
   assert(parked);
 });
@@ -141,6 +155,11 @@ Deno.test("bounded drain stops claiming when time reserve is exhausted", async (
     }
     return true;
   });
-  await drainJobs({ db, sha, now: () => now, backups: { purge: () => Promise.resolve(true) } });
+  await drainJobs({
+    db,
+    sha,
+    now: () => now,
+    backups: { purge: () => Promise.resolve(true) },
+  });
   equal(claims, 1);
 });

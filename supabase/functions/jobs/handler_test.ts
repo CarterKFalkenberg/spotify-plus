@@ -17,7 +17,10 @@ Deno.test("jobs reject missing cron secret, proxy secret, and bearer token befor
   ) {
     equal(
       (await handler(
-        new Request("https://synthetic.example/functions/v1/jobs", { method: "POST", headers }),
+        new Request("https://synthetic.example/functions/v1/jobs", {
+          method: "POST",
+          headers,
+        }),
       )).status,
       401,
     );
@@ -27,7 +30,11 @@ Deno.test("jobs authenticate health independently from API revision", async () =
   const handler = createJobs({
     cronSecret,
     sha,
-    db: database(() => ({ jobsSha: "a".repeat(40), lastSchedulerAt: null, lastJobAt: null })),
+    db: database(() => ({
+      jobsSha: "a".repeat(40),
+      lastSchedulerAt: null,
+      lastJobAt: null,
+    })),
     backups: { purge: () => Promise.resolve(true) },
   });
   const response = await handler(
