@@ -1,13 +1,25 @@
 // Isolated synthetic vendor-extension proof. Never links to or reads a hosted project.
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const source = process.argv[2] ? resolve(process.argv[2]) : root;
+const args = process.argv.slice(2);
+const workingTree = args.includes("--working-tree");
+const paths = args.filter((argument) => argument !== "--working-tree");
+if (paths.length > 1 || paths.some((path) => path.startsWith("--")))
+  throw new Error("usage_check_supabase_optional_source_and_working_tree");
+const source = paths[0] ? resolve(paths[0]) : root;
+const snapshot = createHash("sha256");
 const head = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: source,
   encoding: "utf8",
@@ -40,11 +52,19 @@ function command(executable, args, input = undefined) {
     child.on("error", () => fail(new Error("local_tool_unavailable")));
     child.on("close", (code) => {
       if (code !== 0) {
-        // Isolated synthetic stack only; private log allows debugging without printing generated keys.
-        writeFileSync(resolve(fixture, "failure.log"), output + errors, {
-          mode: 0o600,
-        });
-        fail(new Error(`local_${executable}_failed`));
+        // Never persist raw vendor output: even disposable status output contains generated keys.
+        // The dedicated REST child emits only a fixed phase blocker on failure.
+        let blocker = `local_${executable}_failed`;
+        if (executable === "deno") {
+          try {
+            const result = JSON.parse(errors.trim());
+            if (/^local_rest_[a-z_]+_failed$/.test(result.blocker))
+              blocker = result.blocker;
+          } catch {
+            /* Preserve a fixed blocker for unexpected tool output. */
+          }
+        }
+        fail(new Error(blocker));
       } else done(output);
     });
     child.stdin.end(input);
@@ -83,21 +103,43 @@ const server = createServer((req, res) => {
 });
 let started = false;
 try {
-  mkdirSync(resolve(fixture, "supabase/migrations"), { recursive: true });
-  const files = execFileSync(
-    "git",
-    ["ls-tree", "-r", "--name-only", head, "supabase/migrations"],
-    { cwd: source, encoding: "utf8" },
-  )
-    .trim()
-    .split("\n");
+  // Snapshot only reviewed source roots. Never copy .local or read hosted configuration.
+  const roots = [
+    "supabase/migrations",
+    "supabase/functions",
+    "supabase/tests/database",
+  ];
+  const files = [
+    ...new Set(
+      execFileSync(
+        "git",
+        workingTree
+          ? [
+              "ls-files",
+              "--cached",
+              "--others",
+              "--exclude-standard",
+              "--",
+              ...roots,
+            ]
+          : ["ls-tree", "-r", "--name-only", head, ...roots],
+        { cwd: source, encoding: "utf8" },
+      )
+        .trim()
+        .split("\n"),
+    ),
+  ].sort();
   if (!files.some((path) => path.endsWith("_scheduler_storage.sql")))
     throw new Error("foundation_migrations_required");
-  for (const path of files)
-    writeFileSync(
-      resolve(fixture, path),
-      execFileSync("git", ["show", `${head}:${path}`], { cwd: source }),
-    );
+  for (const path of files) {
+    if (!/\.(sql|ts|mjs)$/.test(path)) continue;
+    const data = workingTree
+      ? readFileSync(resolve(source, path))
+      : execFileSync("git", ["show", `${head}:${path}`], { cwd: source });
+    snapshot.update(path).update("\0").update(data).update("\0");
+    mkdirSync(dirname(resolve(fixture, path)), { recursive: true });
+    writeFileSync(resolve(fixture, path), data);
+  }
   writeFileSync(
     resolve(fixture, "supabase/config.toml"),
     `project_id = "${project}"
@@ -155,12 +197,59 @@ enabled = false
     fixture,
     "--yes",
   ]);
-  const vendorSql = execFileSync(
-    "git",
-    ["show", `${head}:supabase/tests/database/vendor.sql`],
-    { cwd: source, encoding: "utf8" },
+  // Vendor SQL starts from the reset state; no HTTP probe pre-seeds its expected SHA.
+  await sql(
+    readFileSync(
+      resolve(fixture, "supabase/tests/database/vendor.sql"),
+      "utf8",
+    ),
   );
-  await sql(vendorSql);
+  await sql(
+    readFileSync(
+      resolve(fixture, "supabase/tests/database/rest-fixture.sql"),
+      "utf8",
+    ),
+  );
+  const localStatus = JSON.parse(
+    await command("supabase", [
+      "status",
+      "--workdir",
+      fixture,
+      "--output",
+      "json",
+    ]),
+  );
+  if (
+    localStatus.API_URL !== "http://127.0.0.1:61021" ||
+    typeof localStatus.SERVICE_ROLE_KEY !== "string" ||
+    typeof localStatus.ANON_KEY !== "string"
+  )
+    throw new Error("local_status_contract_invalid");
+  // Only the local PostgREST socket is permitted. Spotify is a synthetic injected fetch.
+  // Generated local keys remain in memory and private stdin, never command arguments/output.
+  const restProof = JSON.parse(
+    await command(
+      "deno",
+      [
+        "run",
+        "--no-prompt",
+        "--no-remote",
+        "--allow-net=127.0.0.1:61021",
+        resolve(fixture, "supabase/tests/database/rest.ts"),
+      ],
+      JSON.stringify({
+        origin: localStatus.API_URL,
+        serviceKey: localStatus.SERVICE_ROLE_KEY,
+        anonKey: localStatus.ANON_KEY,
+      }),
+    ),
+  );
+  if (
+    restProof.passed !== true ||
+    !Number.isInteger(restProof.assertions) ||
+    restProof.assertions < 1
+  )
+    throw new Error("local_rest_proof_missing");
   const result = await sql(`select json_build_object(
     'cron',exists(select 1 from pg_extension where extname='pg_cron'),
     'net',exists(select 1 from pg_extension where extname='pg_net'),
@@ -188,7 +277,7 @@ enabled = false
         ).trim();
   await sql(`select vault.create_secret('http://${host}:61030','spotify_plus_project_url');
     select vault.create_secret('${secret}','spotify_plus_cron_secret');
-    update app.runtime_health set last_scheduler_at=null;`);
+    update app.runtime_health set last_scheduler_at=null,last_maintenance_at=null where singleton;`);
   const deadline = Date.now() + 80_000;
   while (!received && Date.now() < deadline)
     await new Promise((done) => setTimeout(done, 1000));
@@ -201,17 +290,27 @@ enabled = false
     JSON.stringify({
       passed: true,
       sourceSha: head,
+      sourceMode: workingTree ? "working-tree" : "committed",
+      snapshotSha: snapshot.digest("hex"),
       ...assertions,
+      rest: restProof,
       scheduledAuthenticatedHttp: true,
       browserRequired: false,
     }),
   );
 } catch (error) {
+  // JSON parse/tool exceptions can quote provider output. Emit only our fixed blockers.
+  const blocker =
+    /^(local_[a-z_]+|foundation_migrations_required|vendor_schema_assertion_failed|scheduled_authenticated_http_not_observed|scheduled_heartbeat_not_recorded)$/.test(
+      error?.message ?? "",
+    )
+      ? error.message
+      : "local_vendor_proof_failed";
   console.error(
     JSON.stringify({
       passed: false,
       sourceSha: head,
-      blocker: error.message,
+      blocker,
       diagnosticDirectory: fixture,
     }),
   );

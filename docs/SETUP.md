@@ -129,6 +129,8 @@ Open the printed URL, verify the Spotify account and consent. Keep port 3000 fre
 
 `--check` is permitted during the native goal and only checks configuration/access. The first live milestone must still prove actual free plans, quotas, API behavior and scheduled execution. The optional `./scripts/build` (or `caffeinate -i ./scripts/build`) starts a separate unattended build in `codex/build-mvp`; use it only when the native goal is inactive. Its lock does not coordinate the native goal, so do not run both. The same skills, PR and milestone gates apply to either route.
 
+The disposable local proof is `node scripts/check-supabase.mjs` (coordinate ports 61021–61030). It uses synthetic data and actual PostgREST with safe-update protection active, so direct administrative SQL success cannot hide an RPC failure. The [operator instructions](../scripts/LIVE-VERIFICATION.md#local-checks) describe source snapshots, empty void responses, transaction/recovery assertions and teardown. Apply the additive safe-update correction before retrying bootstrap or relying on jobs; do not disable database protections to make a request pass.
+
 ## Free-tier operation and remaining human checks
 
 Supabase can pause a Free project after low activity. Daily sync and cleanup are useful activity, but cron does not guarantee exemption. Keep pause emails enabled. If paused, dashboard → project → Resume; reconnect if Spotify authorization has expired. Cleanup catches up after recovery. See [HOSTING.md](HOSTING.md) for quotas and backup limitations.
