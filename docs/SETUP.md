@@ -138,3 +138,10 @@ Supabase can pause a Free project after low activity. Daily sync and cleanup are
 You must create accounts, accept terms, supply credentials, and complete browser logins/2FA and Spotify consent. Hosting needs no paid account; your existing Spotify Premium and Codex access are assumed.
 
 After the build, use your phone to time query → preview → private playlist → Open in Spotify: under one minute. At a desk, tag 20–30 familiar songs and judge the 3–5-second pace. Confirm a disposable playlist expires with the browser closed, and a Spotify rename survives Regenerate. Emulation cannot replace these checks. Actual six-month expiry cannot be observed this session; reconnect behavior can be fault-tested. Fully revoke the grant through Spotify's account Apps page after disconnect.
+
+The library worker also requires `ANNOTATION_KEY` in Supabase function secrets.
+`prepare-deployment.mjs` transfers the existing private `annotationKey` value as
+that wrapping key, preserving existing runtime keys. It wraps a separately random
+per-account HMAC key stored encrypted in the database and deleted on disconnect.
+It is never a browser/Worker variable or a management credential. Keep it stable
+across deployments; do not regenerate it when reconnecting an account.

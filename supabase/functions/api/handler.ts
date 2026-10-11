@@ -1,3 +1,5 @@
+import { ContractError } from "../_shared/contracts.ts";
+import { libraryApi } from "./library.ts";
 import {
   opaqueToken,
   ownerFingerprint,
@@ -344,8 +346,28 @@ export function createApi(
           { "Set-Cookie": cookie(SESSION_COOKIE, "", 0) },
         );
       }
+      const library = await libraryApi(
+        req,
+        path,
+        await sha256(token!),
+        session.epoch,
+        db,
+      );
+      if (library) return library;
       return json({ error: "not_found" }, 404);
     } catch (error) {
+      if (error instanceof ContractError) {
+        return json({ error: "invalid_input" }, 400);
+      }
+      if (
+        error instanceof DatabaseError &&
+        !["wrong_account", "unavailable"].includes(error.kind)
+      ) {
+        return json(
+          { error: error.kind },
+          error.kind === "invalid_input" ? 400 : 409,
+        );
+      }
       const kind = error instanceof SpotifyError
         ? error.kind === "forbidden"
           ? "forbidden"

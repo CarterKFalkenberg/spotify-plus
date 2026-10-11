@@ -43,6 +43,7 @@ library. SQL evaluation must use these semantics and separately limit membership
 | Track keys | Exactly 64 lowercase hex characters; opaque to the browser, with server-only derivation and ownership lookup |
 | Revisions | Canonical decimal strings from `0` through PostgreSQL's signed bigint maximum; JSON numbers would lose precision |
 | Explicit selection / acknowledgement | 1–200 distinct keys; use a filter selection for larger bulk actions, and batches for acknowledgement |
+| Tag ID lookup | 1–200 distinct UUIDs; resolves assigned or stored-query tag names beyond the autocomplete page |
 | Pages | 1–100 rows or groups; first cursor is `null`, later opaque base64url cursor is 16–512 characters |
 | Search | At most 200 Unicode code points after NFC and whitespace normalization |
 | Tag / playlist name | Nonempty; at most 80 / 100 normalized Unicode code points, preserving display casing, punctuation, accents, digits and emoji |
@@ -91,6 +92,19 @@ assignment is a no-op. Undo identifies a server-recorded action and restores onl
 its changed edges that have not been superseded by later edits; counts distinguish
 restored and skipped edges. It never accepts a client-provided previous snapshot.
 
+An Add action accepts exactly one of `tagId` or `tagName`; Remove requires
+`tagId`. Name-based Add freezes and validates the supplied selection before
+creating vocabulary in the same owner/session transaction. It then creates or
+resolves the normalized tag identity and applies the normal changed-only action.
+Stale or missing selections roll back without orphan tags; a filter selecting zero
+tracks fails with `unknown_track` for name-based Add. Existing ID-based actions
+retain their semantics. Every `TagActionResponse` includes the resolved `tag:
+TagDTO` for immediate display, alongside `actionId`, `selectedCount`,
+`changedCount` and `revision`. UI must use this single operation when creating and
+applying a tag to a frozen group, instead of separately creating vocabulary and
+replacing the selection's expected revision. Undo changes assignments only; the
+created vocabulary identity remains available for reuse.
+
 The core filter is explicit active/removed membership, normalized free text,
 untagged, new-only, and an optional exact Spotify artist ID. Search matches cached
 track title, artist names and album locally, case-insensitively; persistence owns
@@ -123,12 +137,23 @@ remaining GET defaults are applied by their handlers as noted below.
 | `POST /library/acknowledge` | `parseAcknowledge` | `AcknowledgeResponse` |
 | `GET /tags?search=&limit=20` | `parseTagSearch`; defaults empty search and 20 | `TagSearchResponse` with `hasMore` |
 | `POST /tags` | `parseCreateTag` | `CreateTagResponse`, returning an existing identity on normalized-name collision |
-| `POST /tag-actions` | `parseTagAction`, explicit `add` or `remove` | `TagActionResponse` with server action ID and changed count |
+| `POST /tags/lookup` | `parseTagLookup`, `{tagIds: string[]}` | `TagLookupResponse` with ordered `tags` and current `revision` |
+| `POST /tag-actions` | `parseTagAction`, `add` with `tagId` or `tagName`; `remove` with `tagId` | `TagActionResponse` with resolved tag, server action ID and changed count |
 | `POST /tag-actions/:id/undo` | `parseUndoTagAction`, empty JSON object | `UndoTagActionResponse` |
 | `POST /query/preview` | `parseQueryPreview` | `QueryPreviewResponse` |
 | `GET /playlists?limit=50` (optional cursor) | `parsePageRequest`; handler defaults absent cursor to null and limit to 50 | `PlaylistListResponse` |
 | `POST /playlists` | `parseCreatePlaylist` | `PlaylistMutationResponse` |
 | `POST /playlists/:id/actions` | `parsePlaylistAction` | `PlaylistMutationResponse` |
+
+Tag lookup returns explicit `TagDTO` projections in request order. Duplicate IDs
+(including case-normalized duplicates) fail validation. Any missing, deleted or
+other-owner ID rejects the entire request with `unknown_tag` (409), without partial
+names. UI refreshes the affected library or playlist state after this conflict and
+shows removed-tag feedback if a stored query still references the ID; it must not
+invent placeholder names. Lookup follows the same authenticated epoch, origin and
+16 KiB body boundaries as other POST routes. Existing `GET /tags` search and
+`hasMore` semantics remain unchanged; callers can batch known IDs without needing
+to know their names or enumerate the vocabulary.
 
 No DTO contains tokens, session IDs, account IDs, owner epochs, leases, management
 keys or raw provider payloads. Timestamps are UTC ISO instants. `expiresOn` is a
@@ -195,3 +220,65 @@ were checked October 11, 2026; the latter still defaults `public` to true, so pr
 must be explicit server behavior. No live Spotify assertion is part of this ticket.
 Full integrated checks await the API/tooling ticket; milestone acceptance still
 requires deployment, redacted live evidence and the user's later phone/speed trial.
+
+## Library implementation (issue #19)
+
+Migration `20261011000400_library_annotations.sql` and the library API/worker now
+implement the library routes above. Product URLs include the existing `/api`
+prefix (for example `/api/library/status`). The worker uses the guarded adapter's
+`GET /me/tracks` at 50 items per page; the official saved-track and immutable
+`account_id` references were checked again on October 11, 2026. This is a source
+contract check, not live account evidence.
+
+The shared SQL seam is `app.require_owner(epoch, connected := false)`, which
+locks the account then library state. Transactions for playlist creation must
+pass `true`, check `initial_sync_complete`, compare `app.library_revision()` and
+call `app.query_targets(query)` within that lock. Targets return `track_key`,
+nullable `playable_uri`, `liked_at` and `duration_ms`, ordered by liked date
+(descending) then key. Preview includes unavailable matches; playlist writes must
+freeze only non-null playable URIs in that same deterministic order. The evaluator
+validates all referenced tag IDs, including branches whose truth could otherwise
+short-circuit. `app.tags.name` is the preserved display spelling. Identity and
+lookup both use PostgreSQL NFC normalization and lowercase, independent of display.
+
+Each connected epoch stores its own random HMAC key, encrypted with the runtime
+`ANNOTATION_KEY` wrapping key and authenticated context `annotation-key:<epoch>`.
+Only leased library workers can initialize/read its ciphertext. Track identifiers
+are HMACs under that random key. Disconnect deletes that ciphertext together with
+annotations; retaining a deployment wrapping key does not retain the deleted
+account's annotation identity. The next epoch gets a new random key. Backups must
+include the per-account annotation key under their existing encryption if they
+restore annotation identities; the later backup/restore ticket owns that extension.
+
+A page transaction saves its metadata and exact resume position together. A
+completed pass is eligible for comparison only when totals stayed consistent,
+received and distinct identifiable counts match the total, and no duplicate or
+unidentifiable entries occurred. Two adjacent eligible passes must have identical
+key/liked-at sets. Null/identity-less source entries stay unresolved and prevent
+completeness claims; identified unavailable/local tracks remain browsable and
+excluded from playable results. Continuous mutation can postpone verification.
+Annotations remain editable while the worker retries. A worker processes at most
+ten pages with a deadline reserve; durable SQL jobs resume later through cron.
+No browser or permanent process is required.
+
+App-open hints debounce for 15 minutes and compare the first page plus total.
+Manual sync and the 24-hour maintenance backstop always walk the whole library.
+Stable runs soft-remove missing metadata without deleting annotations. Maintenance
+purges removed metadata after 90 days; re-import reconnects it to the retained
+HMAC identity. Acknowledgement is explicit, and `added_run_id` preserves the later
+fast-tagging queue's latest-sync additions separately from the unread badge.
+
+Pagination tokens are random server records bound to epoch, route, normalized
+filter/query/grouping, both revisions and a 30-minute expiry. They contain no SQL
+or trusted client offsets. Tag actions freeze explicit keys or a revision-checked
+filter inside one transaction. Assignment tombstones carry edit versions, so undo
+restores only actually changed edges that have not been edited later. Undo is
+bound to the originating authenticated session and retained until that session
+expires. Queue
+navigation, album/decade facets, extra sort modes and vocabulary rename/merge/delete
+remain required fast-tagging work; this backend does not declare those delivered.
+
+Synthetic evidence lives in `supabase/tests/database/library.sql`, the library
+worker/API tests, and the existing guarded transport tests. Integrated deployment,
+real-response assertions, backup extension and complete stage acceptance remain
+with the orchestrator; this bounded backend ticket alone cannot satisfy them.

@@ -34,8 +34,11 @@ export class ServiceDatabase implements Database {
       if (!response.ok) {
         // Only classify our fixed SQL errors. Never propagate query text, details or values.
         const error = await response.json().catch(() => null);
-        if (error?.message === "wrong_account") {
-          throw new DatabaseError("wrong_account");
+        if (
+          typeof error?.message === "string" &&
+          DATABASE_ERRORS.includes(error.message)
+        ) {
+          throw new DatabaseError(error.message as DatabaseErrorKind);
         }
         throw new DatabaseError("unavailable");
       }
@@ -47,8 +50,25 @@ export class ServiceDatabase implements Database {
     }
   }
 }
+const DATABASE_ERRORS = [
+  "wrong_account",
+  "inactive_epoch",
+  "stale_revision",
+  "unknown_tag",
+  "unknown_track",
+  "unknown_action",
+  "invalid_input",
+  "request_conflict",
+  "unknown_playlist",
+  "playlist_busy",
+  "invalid_action",
+  "remote_changed",
+  "initial_sync_incomplete",
+  "no_playable_matches",
+] as const;
+export type DatabaseErrorKind = typeof DATABASE_ERRORS[number] | "unavailable";
 export class DatabaseError extends Error {
-  constructor(readonly kind: "wrong_account" | "unavailable") {
+  constructor(readonly kind: DatabaseErrorKind) {
     super(`database_${kind}`);
   }
 }

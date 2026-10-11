@@ -21,6 +21,7 @@ import {
   parseRevision,
   parseSelection,
   parseTagAction,
+  parseTagLookup,
   parseTagSearch,
   parseTrackKey,
   parseUndoTagAction,
@@ -283,8 +284,10 @@ Deno.test("all body parsers reject nonobjects, class instances, inherited fields
     parseLibrarySync,
     parseAcknowledge,
     parseTagSearch,
+    parseTagLookup,
     parseCreateTag,
     parseTagAction,
+    parseTagLookup,
     parseUndoTagAction,
     parseQueryPreview,
     parseCreatePlaylist,
@@ -633,4 +636,52 @@ Deno.test("contract errors contain only static field names, never supplied conte
   assert(!error.message.includes(supplied));
   const extra = invalid(parseUndoTagAction, { [supplied]: supplied });
   equal(extra.message, "invalid_input:undoTagAction");
+});
+
+Deno.test("tag lookup accepts a detached ordered set beyond autocomplete size and rejects invalid or duplicate IDs", () => {
+  const ids = Array.from(
+    { length: 200 },
+    (_, i) => `${i.toString(16).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+  );
+  equal(parseTagLookup({ tagIds: ids }), { tagIds: ids });
+  const input = { tagIds: [A.toUpperCase(), B] };
+  const parsed = parseTagLookup(input);
+  input.tagIds[0] = C;
+  equal(parsed, { tagIds: [A, B] });
+  for (
+    const value of [
+      { tagIds: [] },
+      { tagIds: [...ids, C] },
+      { tagIds: [A, A] },
+      { tagIds: [A, A.toUpperCase()] },
+      { tagIds: ["unknown-name"] },
+      { tagIds: [null] },
+      { tagIds: [A], epoch: 2 },
+      { tagIds: "bad" },
+      { tagIds: new Array(2) },
+    ]
+  ) invalid(parseTagLookup, value);
+});
+Deno.test("atomic tag-name Add normalizes names and never permits ambiguous identifiers or name-based Remove", () => {
+  equal(
+    parseTagAction({ selection, action: "add", tagName: "  Chill   Café " }),
+    { selection, tagName: "Chill Café", action: "add" },
+  );
+  for (
+    const value of [
+      { selection, action: "add", tagName: "" },
+      { selection, action: "add", tagName: "x".repeat(81) },
+      { selection, action: "add", tagName: 42 },
+      { selection, action: "add", tagName: "Chill", tagId: A },
+      { selection, action: "remove", tagName: "Chill" },
+      { selection, action: "remove", tagName: "Chill", tagId: A },
+      { selection, action: "add" },
+      {
+        selection,
+        action: "add",
+        tagName: "Chill",
+        expectedRevision: revision,
+      },
+    ]
+  ) invalid(parseTagAction, value);
 });

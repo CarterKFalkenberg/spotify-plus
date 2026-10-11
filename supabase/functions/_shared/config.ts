@@ -29,6 +29,7 @@ export function runtimeConfig() {
     expectedUserId: requiredEnv("SPOTIFY_EXPECTED_USER_ID"),
     ownerBindingKey: requiredEnv("OWNER_BINDING_KEY"),
     tokenEncryptionKey: requiredEnv("TOKEN_ENCRYPTION_KEY"),
+    annotationKey: requiredEnv("ANNOTATION_KEY"),
     supabaseUrl: requiredEnv("SUPABASE_URL"),
     serviceKey: requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
   };
