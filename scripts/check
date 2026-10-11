@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+node -e 'if (process.versions.node.split(".")[0] !== "24") { console.error("Node 24 is required"); process.exit(1); }'
+node --test tests/*.test.mjs
+npm run typecheck
+npm run format:check
+npm test
+npm run build
+npm run test:browser
+# Foundation is integrated by a separate reviewed PR. Once present none of its checks
+# are optional; a missing Deno/Docker/Supabase installation fails the command.
+if test -f deno.json; then
+  deno task check
+  deno task test
+  deno lint supabase/functions
+  deno fmt --check deno.json supabase/functions
+elif test -f supabase/functions/_shared/spotify.ts; then
+  deno fmt --check supabase/functions
+  deno lint supabase/functions
+  deno check --no-remote supabase/functions/_shared/spotify.ts supabase/functions/_shared/spotify_test.ts
+  deno test --no-prompt --deny-net --no-remote supabase/functions
+fi
+if test -f supabase/tests/database/run.mjs; then
+  node supabase/tests/database/run.mjs
+fi
