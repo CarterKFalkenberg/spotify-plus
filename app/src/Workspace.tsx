@@ -1,18 +1,44 @@
 import { useEffect, useState } from "react";
-import type { LibraryStatusDTO } from "../../supabase/functions/_shared/contracts";
+import type {
+  LibraryStatusDTO,
+  Selection,
+} from "../../supabase/functions/_shared/contracts";
 import { api, libraryStatus, blockMessage, errorMessage } from "./api";
-import { Library } from "./Library";
+import { Library, emptyFilter } from "./Library";
 import { Builder } from "./Builder";
 import { Playlists } from "./Playlists";
+import { Queue } from "./Queue";
+import { Vocabulary } from "./Vocabulary";
+import type { FastFilter } from "./fast-api";
 export function Workspace() {
-  const [tab, setTab] = useState<"library" | "builder" | "playlists">(() =>
-    matchMedia("(max-width: 640px)").matches ? "builder" : "library",
+  const [tab, setTab] = useState<
+    "queue" | "library" | "builder" | "playlists" | "vocabulary"
+  >(() =>
+    matchMedia("(max-width: 640px)").matches
+      ? "builder"
+      : (() => {
+          try {
+            return localStorage.getItem("tagger-guidance-dismissed") === "yes"
+              ? "queue"
+              : "library";
+          } catch {
+            return "library";
+          }
+        })(),
   );
   const [status, setStatus] = useState<LibraryStatusDTO | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [newOnly, setNewOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [queueSource, setQueueSource] = useState<FastFilter | Selection | null>(
+    null,
+  );
+  const [visited, setVisited] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setVisited((old) => new Set([...old, tab]));
+  }, [tab]);
+  const [artistId, setArtistId] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     // The owner API coalesces app-open probes across reloads/tabs for 15 minutes.
@@ -78,7 +104,8 @@ export function Workspace() {
               className="new-badge"
               onClick={() => {
                 setNewOnly(true);
-                setTab("library");
+                setQueueSource({ ...emptyFilter, newOnly: true });
+                setTab("queue");
               }}
             >
               {status.newCount} new
@@ -134,7 +161,25 @@ export function Workspace() {
           )}
         </div>
       )}
+      {status && status.untaggedCount > 100 && tab === "queue" && (
+        <p className="guidance desktop-bulk">
+          {status.untaggedCount} untagged songs · A few big artists make a good
+          start.{" "}
+          <button onClick={() => setTab("library")}>
+            Bulk-tag your backlog
+          </button>
+        </p>
+      )}
       <nav className="workspace-tabs" aria-label="Workspace">
+        <button
+          aria-pressed={tab === "queue"}
+          onClick={() => {
+            setQueueSource(null);
+            setTab("queue");
+          }}
+        >
+          Tag queue
+        </button>
         <button
           aria-pressed={tab === "library"}
           onClick={() => {
@@ -156,11 +201,45 @@ export function Workspace() {
         >
           Your playlists
         </button>
+        <button
+          aria-pressed={tab === "vocabulary"}
+          onClick={() => setTab("vocabulary")}
+        >
+          Tags
+        </button>
       </nav>
+      <div hidden={tab !== "queue"}>
+        {(visited.has("queue") || tab === "queue") && (
+          <Queue
+            active={tab === "queue"}
+            refresh={refresh}
+            status={status}
+            source={queueSource}
+            onChanged={() => setRefresh((v) => v + 1)}
+            onArtist={(id) => {
+              setArtistId(id);
+              setTab("library");
+            }}
+          />
+        )}
+      </div>
+      <div hidden={tab !== "vocabulary"}>
+        {(visited.has("vocabulary") || tab === "vocabulary") && (
+          <Vocabulary
+            refresh={refresh}
+            onChanged={() => setRefresh((v) => v + 1)}
+          />
+        )}
+      </div>
       <div hidden={tab !== "library"}>
         <Library
           refresh={refresh}
           newOnly={newOnly}
+          artistId={artistId}
+          onQueue={(filter) => {
+            setQueueSource(filter);
+            setTab("queue");
+          }}
           onChanged={() => setRefresh((v) => v + 1)}
         />
       </div>

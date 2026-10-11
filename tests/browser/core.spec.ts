@@ -110,7 +110,19 @@ async function mock(page: Page, override?: Override) {
             revision,
             nextCursor: null,
           };
-    } else if (path === "/api/tags")
+    } else if (path === "/api/library/facets")
+      json = {
+        facet: route.request().postDataJSON().facet,
+        revision,
+        options: [],
+        totalOptions: 0,
+        nextCursor: null,
+      };
+    else if (path === "/api/tags/selection")
+      json = { revision, selectedCount: 3, tags: [] };
+    else if (path === "/api/tags/vocabulary")
+      json = { revision, tags: [tag()], hasMore: false, nextCursor: null };
+    else if (path === "/api/tags")
       json = { tags: [tag()], hasMore: false, revision };
     else if (path === "/api/tags/lookup")
       json = {

@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   LibraryFilter,
-  LibrarySearchResponse,
   Selection,
   TagDTO,
   TrackDTO,
 } from "../../supabase/functions/_shared/contracts";
 import {
   api,
-  librarySearch,
   tagAction,
   undoAction,
   errorMessage,
@@ -16,6 +14,16 @@ import {
   ApiError,
 } from "./api";
 import { TagPicker } from "./TagPicker";
+import {
+  search,
+  type Search,
+  type FastFilter,
+  type Facet,
+  type Sort,
+} from "./fast-api";
+import { Facets } from "./Facets";
+import { BulkTags } from "./BulkTags";
+import { rangeSelection } from "./tagging";
 export const emptyFilter: LibraryFilter = {
   membership: "active",
   search: "",
@@ -23,7 +31,13 @@ export const emptyFilter: LibraryFilter = {
   newOnly: false,
   artistId: null,
 };
-export function TrackSummary({ track }: { track: TrackDTO }) {
+export function TrackSummary({
+  track,
+  link = true,
+}: {
+  track: TrackDTO;
+  link?: boolean;
+}) {
   const m = track.metadata;
   return (
     <div className="track-summary">
@@ -42,7 +56,7 @@ export function TrackSummary({ track }: { track: TrackDTO }) {
         </span>
         {m && !m.playableUri && <small>Unavailable for playlists</small>}
       </div>
-      {m?.spotifyUrl && (
+      {link && m?.spotifyUrl && (
         <a
           href={m.spotifyUrl}
           target="_blank"
@@ -59,17 +73,34 @@ export function Library({
   refresh,
   newOnly,
   onChanged,
+  onQueue,
+  artistId = null,
 }: {
   refresh: number;
   newOnly: boolean;
   onChanged: () => void;
+  onQueue: (filter: FastFilter | Selection) => void;
+  artistId?: string | null;
 }) {
-  const [filter, setFilter] = useState<LibraryFilter>({
+  const [filter, setFilter] = useState<FastFilter>({
     ...emptyFilter,
     newOnly,
   });
-  const [grouped, setGrouped] = useState(!newOnly);
-  const [data, setData] = useState<LibrarySearchResponse | null>(null);
+  const [grouped, setGrouped] = useState(
+    !newOnly && !matchMedia("(max-width:640px)").matches,
+  );
+  const [groupBy, setGroupBy] = useState<Facet>("artist");
+  const [sort, setSort] = useState<Sort>("newest");
+  const anchor = useRef<string | null>(null);
+  useEffect(() => {
+    if (artistId) {
+      setFilter((v) => ({ ...v, artistId }));
+      setGrouped(false);
+      setCursor(null);
+      setSelection(null);
+    }
+  }, [artistId]);
+  const [data, setData] = useState<Search | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -90,7 +121,7 @@ export function Library({
   });
   useEffect(() => {
     setFilter((v) => ({ ...v, membership: "active", newOnly }));
-    setGrouped(!newOnly);
+    setGrouped(!newOnly && !matchMedia("(max-width:640px)").matches);
     setData(null);
     setCursor(null);
     setSelection(null);
@@ -103,8 +134,8 @@ export function Library({
     const timer = setTimeout(() => {
       void api(
         "/library/search",
-        librarySearch,
-        { filter, groupBy: grouped ? "artist" : null, cursor, limit: 50 },
+        search,
+        { filter, groupBy: grouped ? groupBy : null, sort, cursor, limit: 50 },
         controller.signal,
       )
         .then((value) => {
@@ -118,7 +149,7 @@ export function Library({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [filter, grouped, cursor, refresh]);
+  }, [filter, grouped, groupBy, sort, cursor, refresh]);
   useEffect(() => {
     const controller = new AbortController();
     setKnownTags([]);
@@ -147,7 +178,7 @@ export function Library({
     }
     return () => controller.abort();
   }, [data]);
-  function changeFilter(next: LibraryFilter) {
+  function changeFilter(next: FastFilter) {
     setTagError("");
     setData(null);
     setFilter(next);
@@ -270,6 +301,49 @@ export function Library({
           Group by artist
         </label>
       </div>
+      <Facets filter={filter} onChange={changeFilter} />
+      <div className="library-filters desktop-bulk">
+        <label>
+          Sort songs
+          <select
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value as Sort);
+              setCursor(null);
+              setSelection(null);
+            }}
+          >
+            {(
+              ["newest", "oldest", "title", "artist", "album", "year"] as const
+            ).map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Group rows
+          <select
+            value={grouped ? groupBy : "none"}
+            onChange={(e) => {
+              setGrouped(e.target.value !== "none");
+              if (e.target.value !== "none")
+                setGroupBy(e.target.value as Facet);
+              setCursor(null);
+              setSelection(null);
+            }}
+          >
+            <option value="none">No grouping</option>
+            <option value="artist">Artist</option>
+            <option value="album">Album</option>
+            <option value="decade">Decade</option>
+          </select>
+        </label>
+        <button onClick={() => onQueue(filter)}>
+          Send this filter to queue
+        </button>
+      </div>
       {filter.newOnly && (
         <p className="muted">
           Showing new additions.{" "}
@@ -312,9 +386,7 @@ export function Library({
           <div className="result-toolbar">
             <span>
               {data.totalTracks} songs
-              {data.groupBy === "artist"
-                ? ` · ${data.totalGroups} artists`
-                : ""}
+              {data.groupBy !== null ? ` · ${data.totalGroups} artists` : ""}
             </span>
             {data.totalTracks > 0 && (
               <button
@@ -348,10 +420,10 @@ export function Library({
               </p>
             </div>
           )}
-          {data.groupBy === "artist" ? (
+          {data.groupBy !== null ? (
             <div className="artist-grid">
               {data.groups.map((group) => (
-                <article className="artist-card" key={group.artistId}>
+                <article className="artist-card" key={group.value}>
                   <div className="artist-monogram" aria-hidden="true">
                     {group.name.slice(0, 1)}
                   </div>
@@ -376,7 +448,7 @@ export function Library({
                   <button
                     className="compact"
                     onClick={() => {
-                      changeFilter({ ...filter, artistId: group.artistId });
+                      changeFilter({ ...group.selection.filter });
                       setGrouped(false);
                     }}
                   >
@@ -394,20 +466,32 @@ export function Library({
                       type="checkbox"
                       aria-label={`Select ${track.metadata?.title ?? "track"}`}
                       checked={selectedKeys.includes(track.trackKey)}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setSelection({
                           kind: "tracks",
-                          trackKeys: e.target.checked
-                            ? [...selectedKeys, track.trackKey]
-                            : selectedKeys.filter(
-                                (key) => key !== track.trackKey,
-                              ),
-                        })
-                      }
+                          trackKeys: rangeSelection(
+                            data.tracks.map((t) => t.trackKey),
+                            selectedKeys,
+                            anchor.current,
+                            track.trackKey,
+                            (e.nativeEvent as MouseEvent).shiftKey,
+                            e.target.checked,
+                          ),
+                        });
+                        anchor.current = track.trackKey;
+                      }}
                     />
                   </label>
                   <div className="track-content">
                     <TrackSummary track={track} />
+                    <p className="track-dates">
+                      {track.metadata?.releaseDate?.slice(0, 4) ??
+                        "Year unavailable"}{" "}
+                      · Added{" "}
+                      {track.metadata
+                        ? new Date(track.metadata.likedAt).toLocaleDateString()
+                        : "date unavailable"}
+                    </p>
                     <div className="chips">
                       {track.tagIds.map((id) => {
                         const tag = knownTags.find((item) => item.id === id);
@@ -496,6 +580,18 @@ export function Library({
                 ? "Matching selection"
                 : `${selection.trackKeys.length} selected`}
             </strong>
+            {data && (
+              <BulkTags
+                selection={selection}
+                revision={data.revision}
+                refresh={refresh}
+                busy={busy}
+                onMutate={(tag, kind) => mutate(tag, selection, kind)}
+              />
+            )}
+            <button className="compact" onClick={() => onQueue(selection)}>
+              Send selection to queue
+            </button>
             <TagPicker
               label="Add tag to selection"
               onCreate={(name) => mutate(name, selection, "add")}

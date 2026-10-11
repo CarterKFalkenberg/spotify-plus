@@ -7,12 +7,16 @@ export function TagPicker({
   onCreate,
   disabled = false,
   actionLabel = "Add",
+  autoFocus = false,
+  refresh = 0,
 }: {
   label: string;
   onChoose: (tag: TagDTO) => Promise<void> | void;
   onCreate?: (name: string) => Promise<void> | void;
   disabled?: boolean;
   actionLabel?: "Add" | "Remove";
+  autoFocus?: boolean;
+  refresh?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -23,6 +27,10 @@ export function TagPicker({
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
+  const composing = useRef(false);
+  useEffect(() => {
+    if (autoFocus) input.current?.focus();
+  }, [autoFocus]);
   useEffect(() => {
     setOptions([]);
     if (!focused || disabled) {
@@ -55,7 +63,7 @@ export function TagPicker({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [text, focused, disabled]);
+  }, [text, focused, disabled, refresh]);
   async function choose(item?: TagDTO) {
     if (busy || searching || disabled || (!item && !text.trim())) return;
     setBusy(true);
@@ -88,6 +96,7 @@ export function TagPicker({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          if (composing.current) return;
           if (options[0]) void choose(options[0]);
           else if (allowCreate) void choose();
         }}
@@ -96,6 +105,20 @@ export function TagPicker({
           {label}
           <input
             ref={input}
+            autoComplete="off"
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                (event.nativeEvent.isComposing || composing.current)
+              )
+                event.preventDefault();
+            }}
             value={text}
             maxLength={640}
             placeholder={allowCreate ? "Find or create a tag…" : "Find a tag…"}
@@ -153,8 +176,12 @@ export function TagPicker({
             text.trim() &&
             !options.some(
               (item) =>
-                item.name.toLocaleLowerCase() ===
-                text.trim().replace(/\s+/g, " ").toLocaleLowerCase(),
+                item.name.normalize("NFC").toLocaleLowerCase() ===
+                text
+                  .normalize("NFC")
+                  .trim()
+                  .replace(/\s+/g, " ")
+                  .toLocaleLowerCase(),
             ) && (
               <button
                 type="button"
