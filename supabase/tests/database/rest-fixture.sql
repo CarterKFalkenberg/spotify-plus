@@ -15,6 +15,10 @@ language plpgsql security definer set search_path='' as $$
 begin
  if p_action='reset_pacing' then
   update app.spotify_pacing set next_at='-infinity',cooldown_until='-infinity',cooldown_kind=null where singleton;
+ elsif p_action='retry_playlists' then
+  update app.jobs j set retry_at=now() where j.kind='playlist' and j.state='queued';
+ elsif p_action='expire_playlists' then
+  update app.playlists p set expires_on=(now() at time zone 'America/New_York')::date-1 where p.status<>'removed';
  elsif p_action='expire_refresh' then
   update app.credentials set refresh_until=now()-interval '1 second' where singleton and refresh_lease is not null;
  elsif p_action='expire_authorization' then

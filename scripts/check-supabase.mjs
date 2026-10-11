@@ -286,6 +286,22 @@ enabled = false
     await sql("select last_scheduler_at is not null from app.runtime_health;")
   ).trim();
   if (heartbeat !== "t") throw new Error("scheduled_heartbeat_not_recorded");
+  // The genuine cron request ID must identify the observed pg_net response.
+  // This local response comes from the authenticated synthetic receiver above;
+  // deployed verification separately proves the real jobs handler and removal.
+  let correlated = false;
+  const responseDeadline = Date.now() + 10000;
+  while (!correlated && Date.now() < responseDeadline) {
+    correlated =
+      (
+        await sql(`select exists(select 1 from app.cron_dispatches d
+      join net._http_response r on r.id=d.request_id
+      where d.dispatched_at>now()-interval '2 minutes'
+      and r.status_code=200 and not coalesce(r.timed_out,false) and r.error_msg is null);`)
+      ).trim() === "t";
+    if (!correlated) await new Promise((done) => setTimeout(done, 250));
+  }
+  if (!correlated) throw new Error("scheduled_response_not_correlated");
   console.log(
     JSON.stringify({
       passed: true,
@@ -295,13 +311,14 @@ enabled = false
       ...assertions,
       rest: restProof,
       scheduledAuthenticatedHttp: true,
+      scheduledResponseCorrelated: true,
       browserRequired: false,
     }),
   );
 } catch (error) {
   // JSON parse/tool exceptions can quote provider output. Emit only our fixed blockers.
   const blocker =
-    /^(local_[a-z_]+|foundation_migrations_required|vendor_schema_assertion_failed|scheduled_authenticated_http_not_observed|scheduled_heartbeat_not_recorded)$/.test(
+    /^(local_[a-z_]+|foundation_migrations_required|vendor_schema_assertion_failed|scheduled_authenticated_http_not_observed|scheduled_heartbeat_not_recorded|scheduled_response_not_correlated)$/.test(
       error?.message ?? "",
     )
       ? error.message

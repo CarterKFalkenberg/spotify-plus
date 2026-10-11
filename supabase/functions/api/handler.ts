@@ -1,5 +1,6 @@
 import { ContractError } from "../_shared/contracts.ts";
 import { libraryApi } from "./library.ts";
+import { playlistApi } from "../_shared/playlist-api.ts";
 import {
   opaqueToken,
   ownerFingerprint,
@@ -57,6 +58,7 @@ export interface ApiDependencies {
   config: ApiConfig;
   fetch?: typeof fetch;
   now?: () => number;
+  startJobs?: () => void;
 }
 const CLEAR_OAUTH = cookie(OAUTH_COOKIE, "", 0);
 export const DISCONNECT_REMAINS =
@@ -78,7 +80,8 @@ function validDate(value: string): string {
   return new Date(timestamp).toISOString();
 }
 export function createApi(
-  { db, box, config, fetch: request = fetch, now = Date.now }: ApiDependencies,
+  { db, box, config, fetch: request = fetch, now = Date.now, startJobs }:
+    ApiDependencies,
 ) {
   const authFailure = (kind: string) =>
     redirect(`${config.origin}/?auth_error=${kind}`, [CLEAR_OAUTH]);
@@ -354,6 +357,19 @@ export function createApi(
         db,
       );
       if (library) return library;
+      const playlist = await playlistApi(
+        req,
+        path,
+        await sha256(token!),
+        session.epoch,
+        db,
+      );
+      if (playlist) {
+        // The intent is already durable. Wake the same bounded, leased worker
+        // without holding the HTTP response; cron recovers interrupted work.
+        if (playlist.status === 202) startJobs?.();
+        return playlist;
+      }
       return json({ error: "not_found" }, 404);
     } catch (error) {
       if (error instanceof ContractError) {
