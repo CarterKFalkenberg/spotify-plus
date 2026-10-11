@@ -115,7 +115,7 @@ export function fastProofSql(r: CoreRegistry): string {
   }
       perform public.app_tag_action(${r.epoch},'${x}',jsonb_build_object('action','add','tagId','${b}','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array('${x}','${y}','${z}'))));
       q:=jsonb_build_object('version',1,'root',jsonb_build_object('op','not','child',jsonb_build_object('op','tag','tagId','${b}')));
-      insert into app.playlists(id,epoch,name,query,retention,track_count,status) values('${r.requestId}',${r.epoch},'Synthetic query reference',q,'pinned',0,'ready');
+      insert into app.playlists(id,epoch,name,query,retention,track_count,status) values('${r.requestId}',${r.epoch},'Synthetic query reference',q,'pinned',1,'ready');
       result:=public.app_tags_manage_preview(${r.epoch},jsonb_build_object('action','merge','sourceIds',jsonb_build_array('${b}'),'targetId','${a}','expectedRevision',app.library_revision()));
       ${
     assert(
@@ -126,7 +126,7 @@ export function fastProofSql(r: CoreRegistry): string {
       result:=public.app_tags_manage(${r.epoch},'${x}',jsonb_build_object('action','merge','sourceIds',jsonb_build_array('${b}'),'targetId','${a}','expectedRevision',app.library_revision()));
       ${
     assert(
-      `(select query->'root'->'child'->>'tagId'='${a}' and track_count=0 from app.playlists where id='${r.requestId}')`,
+      `(select query->'root'->'child'->>'tagId'='${a}' and track_count=1 from app.playlists where id='${r.requestId}')`,
       "nested_query_identity",
     )
   }
