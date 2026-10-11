@@ -114,3 +114,39 @@ Deno.test("service RPC errors expose only the fixed classification", async () =>
     );
   }
 });
+
+Deno.test("library and playlist fixed conflicts stay distinct without provider diagnostics", async () => {
+  for (
+    const kind of [
+      "stale_revision",
+      "unknown_tag",
+      "unknown_track",
+      "unknown_action",
+      "inactive_epoch",
+      "invalid_input",
+      "request_conflict",
+      "unknown_playlist",
+      "playlist_busy",
+      "invalid_action",
+      "remote_changed",
+      "initial_sync_incomplete",
+      "no_playable_matches",
+    ] as const
+  ) {
+    const db = new ServiceDatabase(
+      "https://synthetic.example",
+      "key",
+      () =>
+        mockResponse(
+          JSON.stringify({ message: kind, details: "private diagnostic" }),
+          { status: 400 },
+        ),
+    );
+    await rejects(
+      () => db.rpc("app_query_preview"),
+      (error) =>
+        error instanceof DatabaseError && error.kind === kind &&
+        error.message === `database_${kind}`,
+    );
+  }
+});
