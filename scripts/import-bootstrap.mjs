@@ -33,7 +33,7 @@ export async function importBootstrap(root) {
       verifiedAt: new Date().toISOString(),
     });
     if (existsSync(path)) unlinkSync(path);
-    return { consumed: true, previouslyCommitted: true };
+    return { consumed: true, previouslyCommitted: true, sessionIssued: false };
   }
   let grant = readJson(path);
   requireCheck(
@@ -88,6 +88,24 @@ export async function importBootstrap(root) {
     response.ok && (await response.json()).consumed === true,
     "bootstrap_import_unconfirmed",
   );
+  const sessionCookies = response.headers
+    .getSetCookie()
+    .filter((value) => value.startsWith("__Host-sp_session="));
+  requireCheck(
+    sessionCookies.length === 1 &&
+      /^__Host-sp_session=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/.test(
+        sessionCookies[0],
+      ),
+    "bootstrap_session_cookie_unconfirmed",
+  );
+  // This cookie exists only after the live identity check and accepted app_connect transaction.
+  // Persist it before the subsequent confirmation request, which might fail independently.
+  privateJson(resolve(local, "owner-session.json"), {
+    origin: config.appUrl,
+    cookie: sessionCookies[0].split(";")[0],
+    source: "verified-bootstrap-oauth",
+    issuedAt: new Date().toISOString(),
+  });
   const committed = await privateFetch(url, { headers });
   requireCheck(
     committed.ok && (await committed.json()).consumed === true,
@@ -100,7 +118,7 @@ export async function importBootstrap(root) {
     authorizedAt: grant.authorizedAt,
   });
   unlinkSync(path);
-  return { consumed: true, previouslyCommitted: false };
+  return { consumed: true, previouslyCommitted: false, sessionIssued: true };
 }
 if (
   process.argv[1] &&

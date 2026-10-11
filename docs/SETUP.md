@@ -19,7 +19,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm install -g wrangler
 ```
 
-Use Homebrew's printed Node path if different. `node --version` should show 24; setup helpers also support 22+. Node builds the frontend, Deno checks backend functions, Supabase CLI handles the database/functions, and Wrangler deploys the frontend/proxy. Project dependencies will be pinned during the build. [Supabase CLI](https://supabase.com/docs/reference/cli/introduction), [Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/general/).
+Use Homebrew's printed Node path if different. `node --version` should show 24; setup helpers also support 22+. Node builds the frontend, Deno checks backend functions, Supabase CLI handles the database/functions, and Wrangler deploys the frontend/proxy. Application tooling is pinned in `.node-version` and `package-lock.json`; install with `npm ci`. Use the local package Wrangler through `npx wrangler` for application deployment. [Supabase CLI](https://supabase.com/docs/reference/cli/introduction), [Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/general/).
 
 Authenticate:
 
@@ -100,7 +100,7 @@ Check `.local/config.json`: Spotify identifiers, Supabase reference, Cloudflare 
 
 The build transfers secrets using a private ignored env file with `supabase secrets set --env-file ... --project-ref ...` and Wrangler stdin. No values in command arguments, Git, model output or browser bundles. [Supabase secrets](https://supabase.com/docs/guides/functions/secrets).
 
-The first milestone imports the Spotify grant once, preserves its original authorization date, removes the local raw grant, and leaves a non-secret `.local/spotify-bootstrap-consumed.json` receipt. Back up runtime encryption/annotation keys in your password manager; losing them prevents recovery. Never paste secret files into chat.
+The first milestone imports the Spotify grant once and preserves its original authorization date. After a fresh Spotify identity check, the API commits its encrypted credentials and opaque session hash in the same owner-binding transaction, then issues a secure HttpOnly cookie. This completes the setup OAuth login the user already authorized; it does not claim fresh hosted consent. The helper saves the cookie privately in `.local/owner-session.json` with source `verified-bootstrap-oauth`, removes the raw local grant only after confirmed consumption, and leaves a non-secret `.local/spotify-bootstrap-consumed.json` receipt. A lost committed import response cannot be replayed to obtain another cookie; normal hosted PKCE remains the recovery login. See [operator and live verification instructions](../scripts/LIVE-VERIFICATION.md) for exact checks, Free-plan evidence and redaction rules. Back up runtime encryption/annotation keys in your password manager; losing them prevents recovery. Never paste secret files into chat.
 
 ## 6. Authorize the concrete build scope once
 

@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "build": "vite build",
-    "format:check": "prettier --check app proxy tests/proxy tests/browser tests/tooling vite.config.ts vitest.config.ts playwright.config.ts tsconfig.json package.json",
+    "format:check": "prettier --check app proxy tests/proxy tests/browser tests/tooling vite.config.ts vitest.config.ts playwright.config.ts tsconfig.json package.json scripts/check-supabase.mjs scripts/import-bootstrap.mjs scripts/prepare-deployment.mjs scripts/verify-stage.mjs scripts/live/config.mjs",
     "check": "sh scripts/check"
   },
   "dependencies": {

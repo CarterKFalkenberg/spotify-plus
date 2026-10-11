@@ -212,6 +212,9 @@ export async function verifyStage(stage, root) {
   const owner = readJson(resolve(local, "owner-session.json"));
   requireCheck(
     owner.origin === config.appUrl &&
+      ["verified-bootstrap-oauth", "interactive-hosted-oauth"].includes(
+        owner.source,
+      ) &&
       typeof owner.cookie === "string" &&
       owner.cookie.length > 20 &&
       !/[\r\n]/.test(owner.cookie),
@@ -408,7 +411,7 @@ export async function verifyStage(stage, root) {
     evidence: [
       "Fresh signed-in provider dashboard plan/quota observations matched this head and targets.",
       "Fresh production HTML and frontend/API/jobs health match the exact head.",
-      "Owner session, direct/proxy/jobs/bootstrap authentication and safe negative mutation checks passed.",
+      `Owner session (${owner.source}), direct/proxy/jobs/bootstrap authentication and safe negative mutation checks passed.`,
       "Production PKCE, secure OAuth cookies and consent-denied callback passed.",
       "Bootstrap committed once; immutable owner and encrypted persisted credential path passed.",
       "Live saved-track schema/paging, private ordered add/replace and playlist-only removal passed.",
@@ -424,6 +427,7 @@ export async function verifyStage(stage, root) {
       cpuSamples: operator.cpu.sampleCount,
     },
     observationSources: {
+      ownerSession: owner.source,
       plans: dashboard.source,
       cpu: operator.cpu.source,
       browsers: operator.closedBrowsers.source,

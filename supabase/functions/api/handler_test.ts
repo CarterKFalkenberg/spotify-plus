@@ -1,6 +1,6 @@
 import { mockResponse } from "../_shared/testing.ts";
 import { type ApiConfig, createApi } from "./handler.ts";
-import { SecretBox, sha256 } from "../_shared/crypto.ts";
+import { ownerFingerprint, SecretBox, sha256 } from "../_shared/crypto.ts";
 import { OAUTH_COOKIE, SESSION_COOKIE } from "../_shared/http.ts";
 import { DatabaseError } from "../_shared/database.ts";
 import { assert, database, equal, TEST_KEY } from "../_shared/testing.ts";
@@ -331,21 +331,74 @@ for (
     assert(!result.headers.get("Location")?.includes("allowlist"));
   });
 }
-Deno.test("bootstrap requires independent operator secret and does not return grant data", async () => {
+const bootstrapGrant = {
+  clientId: config.clientId,
+  userId: config.expectedUserId,
+  accountId: "untrusted-helper-account",
+  authorizedAt: "2026-10-01T00:00:00.000Z",
+  accessExpiresAt: "2099-01-01T00:00:00Z",
+  accessToken: "synthetic-access",
+  refreshToken: "synthetic-refresh",
+  scopes: [...SPOTIFY_SCOPES] as string[],
+};
+function bootstrapRequest(
+  body = bootstrapGrant,
+  headers: Record<string, string> = {},
+) {
+  return request("/internal/bootstrap", {
+    method: "POST",
+    headers: {
+      "x-bootstrap-secret": config.bootstrapSecret,
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+Deno.test("bootstrap secret, origin and already consumed gates never issue an owner session", async () => {
   const handler = createApi({
     config,
     box,
-    db: database(() => ({ bootstrapConsumed: true })),
-  });
-  equal((await handler(request("/internal/bootstrap"))).status, 401);
-  const result = await handler(
-    request("/internal/bootstrap", {
-      headers: { "x-bootstrap-secret": config.bootstrapSecret },
+    db: database((name) => {
+      equal(name, "app_account_status");
+      return { bootstrapConsumed: true };
     }),
-  );
-  equal(await result.json(), { consumed: true });
+    fetch: () => {
+      throw new Error("consumed imports must not contact Spotify");
+    },
+  });
+  for (
+    const [req, status] of [
+      [request("/internal/bootstrap"), 401],
+      [
+        bootstrapRequest(bootstrapGrant, { "x-bootstrap-secret": "incorrect" }),
+        401,
+      ],
+      [
+        bootstrapRequest(bootstrapGrant, {
+          Origin: "https://attacker.example",
+        }),
+        403,
+      ],
+      [
+        request("/internal/bootstrap", {
+          headers: { "x-bootstrap-secret": config.bootstrapSecret },
+        }),
+        200,
+      ],
+      [bootstrapRequest(), 200],
+    ] as const
+  ) {
+    const result = await handler(req);
+    equal(result.status, status);
+    equal(result.headers.get("Set-Cookie"), null);
+    if (status === 200) equal(await result.json(), { consumed: true });
+  }
 });
-Deno.test("bootstrap retains original authorization and only reports consumption after accepted commit", async () => {
+async function bootstrapHandler(
+  outcome: "ok" | "cancelled" | "wrong" | "forbidden" | "unavailable",
+  body = bootstrapGrant,
+) {
   let connect: Record<string, unknown> | undefined;
   const handler = createApi({
     config,
@@ -364,39 +417,79 @@ Deno.test("bootstrap retains original authorization and only reports consumption
       }
       if (name === "app_connect") {
         connect = args;
-        return true;
+        if (outcome === "wrong") throw new DatabaseError("wrong_account");
+        if (outcome === "unavailable") throw new DatabaseError("unavailable");
+        return outcome !== "cancelled";
       }
-      throw new Error("unexpected");
+      throw new Error("unexpected database call");
     }),
     fetch: () =>
-      mockResponse(
-        JSON.stringify({
-          id: "synthetic-owner",
+      outcome === "forbidden"
+        ? mockResponse("{}", { status: 403 })
+        : mockResponse(JSON.stringify({
+          id: outcome === "wrong" ? "another-owner" : "synthetic-owner",
           account_id: "synthetic-account",
-        }),
-      ),
+        })),
   });
-  const authorizedAt = "2026-10-01T00:00:00.000Z";
-  const response = await handler(
-    request("/internal/bootstrap", {
-      method: "POST",
-      headers: {
-        "x-bootstrap-secret": config.bootstrapSecret,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        clientId: config.clientId,
-        userId: config.expectedUserId,
-        authorizedAt,
-        accessExpiresAt: "2099-01-01T00:00:00Z",
-        accessToken: "synthetic-access",
-        refreshToken: "synthetic-refresh",
-        scopes: SPOTIFY_SCOPES,
-      }),
-    }),
-  );
+  const response = await handler(bootstrapRequest(body));
+  return { response, connect };
+}
+Deno.test("bootstrap verifies live owner identity and commits encrypted grant and hashed session before issuing secure cookie", async () => {
+  const { response, connect } = await bootstrapHandler("ok");
+  equal(response.status, 200);
   equal(await response.json(), { consumed: true });
+  equal(response.headers.get("Cache-Control"), "no-store");
+  const cookie = response.headers.get("Set-Cookie");
+  assert(cookie);
+  const match = cookie.match(
+    /^__Host-sp_session=([A-Za-z0-9_-]{43}); Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/,
+  );
+  assert(match);
   assert(connect);
-  equal(connect.p_authorized_at, authorizedAt);
-  equal(connect.p_session_hash, null);
+  equal(connect.p_authorized_at, bootstrapGrant.authorizedAt);
+  equal(connect.p_account_id, "synthetic-account");
+  equal(
+    connect.p_owner_fingerprint,
+    await ownerFingerprint("synthetic-account", TEST_KEY),
+  );
+  equal(connect.p_initial_owner_verified, true);
+  equal(connect.p_session_hash, await sha256(match[1]));
+  equal(connect.p_bootstrap, true);
+  equal(await box.decrypt(connect.p_encrypted_tokens as string, "tokens:1"), {
+    accessToken: bootstrapGrant.accessToken,
+    refreshToken: bootstrapGrant.refreshToken,
+  });
+});
+for (
+  const [outcome, status] of [["cancelled", 409], ["wrong", 403], [
+    "forbidden",
+    403,
+  ], ["unavailable", 503]] as const
+) {
+  Deno.test(`bootstrap ${outcome} never issues a session`, async () => {
+    const { response, connect } = await bootstrapHandler(outcome);
+    equal(response.status, status);
+    equal(response.headers.get("Set-Cookie"), null);
+    if (outcome === "wrong") equal(connect?.p_initial_owner_verified, false);
+    if (outcome === "forbidden") equal(connect, undefined);
+  });
+}
+Deno.test("invalid or expired helper grants never reach the connection transaction or issue a session", async () => {
+  for (
+    const patch of [
+      { userId: "another-owner" },
+      { clientId: "another-client" },
+      { scopes: [] },
+      { accessExpiresAt: "2020-01-01T00:00:00Z" },
+      { authorizedAt: "invalid" },
+    ]
+  ) {
+    const { response, connect } = await bootstrapHandler("ok", {
+      ...bootstrapGrant,
+      ...patch,
+    });
+    assert(response.status >= 400);
+    equal(response.headers.get("Set-Cookie"), null);
+    equal(connect, undefined);
+  }
 });

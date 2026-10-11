@@ -111,6 +111,20 @@ function Home() {
       setConfirming(false);
       setAttempt((value) => value + 1);
     } catch {
+      // A lost response can follow a committed disconnect. Resolve server state
+      // before offering another destructive request; never infer deletion locally.
+      try {
+        const next = await readSession(AbortSignal.timeout(10000));
+        if (!next.authenticated) {
+          setSession(next);
+          setFailed(false);
+          setConfirming(false);
+          setAttempt((value) => value + 1);
+          return;
+        }
+      } catch {
+        // Keep the explicit unconfirmed error when authoritative state is unavailable.
+      }
       setDeleteFailed(true);
     } finally {
       setDeleting(false);

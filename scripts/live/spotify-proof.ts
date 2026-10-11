@@ -17,6 +17,7 @@ import {
   databasePacing,
   OwnerTokens,
 } from "../../supabase/functions/_shared/tokens.ts";
+import { pacedRequests } from "./paced-request.ts";
 interface Input {
   origin: string;
   serviceKey: string;
@@ -65,7 +66,12 @@ async function run(input: Input) {
     input.epoch,
     input.clientId,
   );
+  let dispatched = 0;
   const client = new SpotifyClient({
+    fetch: (...args) => {
+      dispatched++;
+      return fetch(...args);
+    },
     tokens,
     pacing: databasePacing(db, input.epoch),
     isManagedPlaylist: async (id) => {
@@ -78,7 +84,8 @@ async function run(input: Input) {
         await db.rpc<boolean>("app_epoch_active", { p_epoch: input.epoch });
     },
   });
-  const identity = await client.request({ method: "GET", path: "/me" }) as {
+  const request = pacedRequests(client, () => dispatched);
+  const identity = await request({ method: "GET", path: "/me" }) as {
     accountId: string;
     id: string;
   };
@@ -91,7 +98,7 @@ async function run(input: Input) {
     const all: SpotifyPlaylist[] = [];
     let offset = 0;
     do {
-      const page = await client.request({
+      const page = await request({
         method: "GET",
         path: "/me/playlists",
         query: { limit: 50, offset },
@@ -108,13 +115,13 @@ async function run(input: Input) {
   async function removeTracked() {
     check(registry?.playlistId, "tracked_playlist_required");
     const uri = `spotify:playlist:${registry.playlistId}`;
-    await client.request({
+    await request({
       method: "DELETE",
       path: "/me/library",
       query: { uris: uri },
     });
     for (let attempt = 0; attempt < 3; attempt++) {
-      const contains = await client.request({
+      const contains = await request({
         method: "GET",
         path: "/me/library/contains",
         query: { uris: uri },
@@ -156,7 +163,7 @@ async function run(input: Input) {
   const uris: string[] = [];
   let offset = 0, total = 0, pages = 0, observed = 0;
   do {
-    const page = await client.request({
+    const page = await request({
       method: "GET",
       path: "/me/tracks",
       query: { limit: 50, offset },
@@ -189,7 +196,7 @@ async function run(input: Input) {
   await writeRegistry(input.registryPath, registry);
   let cleanupAttempted = false;
   try {
-    const created = await client.request({
+    const created = await request({
       method: "POST",
       path: "/me/playlists",
       body: {
@@ -209,7 +216,7 @@ async function run(input: Input) {
     await writeRegistry(input.registryPath, registry);
     const path = `/playlists/${created.id}/items`;
     for (let start = 0; start < target.length; start += 100) {
-      await client.request({
+      await request({
         method: "POST",
         path,
         body: { uris: target.slice(start, start + 100) },
@@ -219,7 +226,7 @@ async function run(input: Input) {
       const actual: (string | null)[] = [];
       let position = 0;
       do {
-        const page = await client.request({
+        const page = await request({
           method: "GET",
           path,
           query: { limit: 50, offset: position },
@@ -240,13 +247,13 @@ async function run(input: Input) {
     };
     await ordered(target);
     const reversed = [...target].reverse();
-    await client.request({
+    await request({
       method: "PUT",
       path,
       body: { uris: reversed.slice(0, 100) },
     });
     for (let start = 100; start < reversed.length; start += 100) {
-      await client.request({
+      await request({
         method: "POST",
         path,
         body: { uris: reversed.slice(start, start + 100) },

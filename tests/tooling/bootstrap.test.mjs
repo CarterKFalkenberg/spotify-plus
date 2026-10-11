@@ -6,6 +6,7 @@ import {
   readFileSync,
   existsSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -86,7 +87,14 @@ it("persists refresh rotation and original authorization date before importing, 
           authorizedAt: grant.authorizedAt,
         });
         committed = true;
-        return Response.json({ consumed: true });
+        return Response.json(
+          { consumed: true },
+          {
+            headers: {
+              "set-cookie": `__Host-sp_session=${"a".repeat(43)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
+            },
+          },
+        );
       }
       expect(existsSync(path)).toBe(true);
       return Response.json({ consumed: committed });
@@ -95,8 +103,19 @@ it("persists refresh rotation and original authorization date before importing, 
   expect(await importBootstrap(root)).toEqual({
     consumed: true,
     previouslyCommitted: false,
+    sessionIssued: true,
   });
   expect(existsSync(path)).toBe(false);
+  const savedSession = JSON.parse(
+    readFileSync(resolve(local, "owner-session.json"), "utf8"),
+  );
+  expect(savedSession).toMatchObject({
+    cookie: `__Host-sp_session=${"a".repeat(43)}`,
+    source: "verified-bootstrap-oauth",
+  });
+  expect(statSync(resolve(local, "owner-session.json")).mode & 0o777).toBe(
+    0o600,
+  );
   expect(
     JSON.parse(
       readFileSync(resolve(local, "spotify-bootstrap-consumed.json"), "utf8"),
@@ -133,7 +152,28 @@ it("already committed bootstrap reconciles a lost response without token refresh
   expect(await importBootstrap(root)).toEqual({
     consumed: true,
     previouslyCommitted: true,
+    sessionIssued: false,
   });
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(existsSync(path)).toBe(false);
+});
+
+it("a success body without a secure session cookie cannot create a local owner session", async () => {
+  const { root, local, path } = fixture();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init) =>
+      String(url).includes("accounts.spotify.com")
+        ? Response.json({
+            access_token: "fresh-synthetic-access",
+            expires_in: 3600,
+          })
+        : Response.json({ consumed: init.method === "POST" }),
+    ),
+  );
+  await expect(importBootstrap(root)).rejects.toThrow(
+    "bootstrap_session_cookie_unconfirmed",
+  );
+  expect(existsSync(resolve(local, "owner-session.json"))).toBe(false);
+  expect(existsSync(path)).toBe(true);
 });

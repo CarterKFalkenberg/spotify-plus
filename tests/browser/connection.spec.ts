@@ -177,3 +177,78 @@ test("failed disconnect does not claim deletion", async ({ page }) => {
     page.getByRole("heading", { name: "Spotify is connected" }),
   ).toBeVisible();
 });
+for (const completed of [false, true]) {
+  test(`lost disconnect response reconciles authoritative ${completed ? "disconnected" : "disconnecting"} state`, async ({
+    page,
+  }) => {
+    let committed = false,
+      purged = completed,
+      calls = 0,
+      rechecks = 0;
+    await page.route("**/api/session", (route) => {
+      if (committed) rechecks++;
+      return route.fulfill({
+        json: committed
+          ? {
+              authenticated: false,
+              connection: purged ? "disconnected" : "disconnecting",
+            }
+          : connected,
+      });
+    });
+    await page.route("**/api/disconnect", async (route) => {
+      calls++;
+      committed = true;
+      await route.abort("failed");
+    });
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: "Disconnect & delete app data" })
+      .click();
+    await page
+      .getByRole("button", { name: "Delete all app data", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(rechecks).toBeGreaterThan(0);
+    expect(calls).toBe(1);
+    if (!completed) {
+      await expect(
+        page.getByRole("heading", { name: "Finishing data deletion" }),
+      ).toBeVisible();
+      purged = true;
+    }
+    await expect(
+      page.getByRole("heading", { name: "Start with your Spotify" }),
+    ).toBeVisible({ timeout: 8000 });
+    expect(calls).toBe(1);
+  });
+}
+test("lost disconnect and unavailable session preserve unconfirmed error", async ({
+  page,
+}) => {
+  let failed = false;
+  await page.route("**/api/session", (route) =>
+    route.fulfill(
+      failed
+        ? { status: 503, json: { error: "temporarily_unavailable" } }
+        : { json: connected },
+    ),
+  );
+  await page.route("**/api/disconnect", async (route) => {
+    failed = true;
+    await route.abort("failed");
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Disconnect & delete app data" })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete all app data", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "Deletion could not be confirmed",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Finishing data deletion" }),
+  ).toHaveCount(0);
+});

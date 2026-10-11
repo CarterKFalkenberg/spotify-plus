@@ -8,19 +8,10 @@ npm run format:check
 npm test
 npm run build
 npm run test:browser
-# Foundation is integrated by a separate reviewed PR. Once present none of its checks
-# are optional; a missing Deno/Docker/Supabase installation fails the command.
-if test -f deno.json; then
-  deno task check
-  deno task test
-  deno lint supabase/functions
-  deno fmt --check deno.json supabase/functions
-elif test -f supabase/functions/_shared/spotify.ts; then
-  deno fmt --check supabase/functions
-  deno lint supabase/functions
-  deno check --no-remote supabase/functions/_shared/spotify.ts supabase/functions/_shared/spotify_test.ts
-  deno test --no-prompt --deny-net --no-remote supabase/functions
-fi
-if test -f supabase/tests/database/run.mjs; then
-  node supabase/tests/database/run.mjs
-fi
+deno task check
+deno check --no-remote scripts/live/spotify-proof.ts
+deno test --no-prompt --deny-net --no-remote scripts/live/paced-request_test.ts
+deno task test
+deno lint supabase/functions scripts/live/*.ts
+deno fmt --check deno.json supabase/functions supabase/tests/database/run.mjs scripts/live/*.ts
+node supabase/tests/database/run.mjs
