@@ -5,7 +5,7 @@ import {
   mkdirSync,
   chmodSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 export function requireCheck(condition, code) {
@@ -16,7 +16,18 @@ export function requireCheck(condition, code) {
   }
 }
 export function readJson(path) {
-  return JSON.parse(readFileSync(path, "utf8"));
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    const name = basename(path)
+      .replace(/\.[^.]+$/, "")
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase();
+    requireCheck(
+      false,
+      `${error.code === "ENOENT" ? "missing" : "invalid"}_${name}`,
+    );
+  }
 }
 export function privateJson(path, value) {
   mkdirSync(resolve(path, ".."), { recursive: true, mode: 0o700 });
