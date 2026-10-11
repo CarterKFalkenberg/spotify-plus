@@ -20,6 +20,8 @@ import type {
   LibraryStatusDTO,
   QueryPreviewResponse,
   TagActionResponse,
+  TagLookupResponse,
+  TagSearchResponse,
   UndoTagActionResponse,
 } from "../../functions/_shared/contracts.ts";
 
@@ -461,6 +463,81 @@ try {
     p_action_id: tagAction.actionId,
   });
   check(undone.restoredCount === 1 && undone.skippedCount === 0);
+  phase = "atomic_tag_name_and_lookup";
+  const nameSelection = {
+    kind: "filter",
+    filter: { ...filter, untagged: true },
+    expectedRevision: undone.revision,
+  };
+  const mutate = (path: string, body: unknown) =>
+    api(apiRequest(path, {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: config.origin },
+      body: JSON.stringify(body),
+    }));
+  const namedResponse = await mutate("/api/tag-actions", {
+    action: "add",
+    tagName: "  Synthetic   Atomic Tag  ",
+    selection: nameSelection,
+  });
+  check(namedResponse.status === 200);
+  const named = await namedResponse.json() as TagActionResponse;
+  check(
+    named.tag.name === "Synthetic Atomic Tag" &&
+      named.tag.activeTrackCount === 1 && named.changedCount === 1 &&
+      named.selectedCount === 1,
+  );
+  const lookupResponse = await mutate("/api/tags/lookup", {
+    tagIds: [named.tag.id.toUpperCase(), createdTag.tag.id],
+  });
+  check(lookupResponse.status === 200);
+  const lookup = await lookupResponse.json() as TagLookupResponse;
+  check(
+    lookup.tags.length === 2 && lookup.tags[0].id === named.tag.id &&
+      lookup.tags[0].name === named.tag.name &&
+      lookup.tags[1].id === createdTag.tag.id &&
+      lookup.revision.annotations === named.revision.annotations,
+  );
+  const unknownLookup = await mutate("/api/tags/lookup", {
+    tagIds: [named.tag.id, "ffffffff-ffff-4fff-8fff-ffffffffffff"],
+  });
+  check(
+    unknownLookup.status === 409 &&
+      JSON.stringify(await unknownLookup.json()) === '{"error":"unknown_tag"}',
+  );
+  check(
+    (await mutate("/api/tags/lookup", {
+      tagIds: [named.tag.id, named.tag.id.toUpperCase()],
+    })).status === 400,
+  );
+  check(
+    (await raw("app_tags_lookup", {
+      p_epoch: epoch,
+      p_tag_ids: [named.tag.id],
+    }, input.anonKey)).status === 401,
+  );
+  const staleNamed = await mutate("/api/tag-actions", {
+    action: "add",
+    tagName: "Synthetic Orphan Must Not Exist",
+    selection: nameSelection,
+  });
+  check(
+    staleNamed.status === 409 &&
+      (await staleNamed.json()).error === "stale_revision",
+  );
+  const orphan = await db.rpc<TagSearchResponse>("app_tags_search", {
+    p_epoch: epoch,
+    p_search: "Synthetic Orphan",
+    p_limit: 20,
+  });
+  check(orphan.tags.length === 0);
+  const namedUndoResponse = await mutate(
+    `/api/tag-actions/${named.actionId}/undo`,
+    {},
+  );
+  check(namedUndoResponse.status === 200);
+  const namedUndo = await namedUndoResponse.json() as UndoTagActionResponse;
+  check(namedUndo.restoredCount === 1 && namedUndo.skippedCount === 0);
   const acknowledgement = await db.rpc<{ changedCount: number }>(
     "app_library_acknowledge",
     { p_epoch: epoch, p_track_keys: [foundTracks.tracks[0].trackKey] },
@@ -545,6 +622,7 @@ try {
     tokenRecovery: true,
     jobsDrain: true,
     libraryTransactions: true,
+    atomicTagNameAndLookup: true,
     disconnectPurge: true,
     spotifyNetworkRequests: 0,
   }));

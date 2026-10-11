@@ -46,9 +46,63 @@ select pg_temp.assert((public.app_library_status(2)->>'initialSyncComplete')::bo
 rollback to changing_progress;
 select pg_temp.sync_page(array[1,2],3,2);
 select pg_temp.assert((public.app_library_status(2)->>'importedCount')::integer=2,'browsing progress counts unique imported keys');
+-- First-run artist-group action creates vocabulary and applies >200 edges atomically.
+savepoint atomic_group_tagging;
+select pg_temp.assert(not exists(select 1 from app.tags),'first group starts with an empty vocabulary');
+insert into app.annotations(track_key,epoch) select lpad(i::text,64,'0'),2 from generate_series(301,550) i;
+insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,added_run_id,playable_uri,duration_ms)
+ select lpad(i::text,64,'0'),lpad(i::text,22,'0'),'Synthetic group song',jsonb_build_array(jsonb_build_object('id',lpad('9',22,'a'),'name','Synthetic group artist')),'Synthetic group album',now(),gen_random_uuid(),'spotify:track:'||lpad(i::text,22,'0'),1000 from generate_series(301,550) i;
+update app.library_state set library_revision=library_revision+1 where singleton;
+insert into library_snapshots values('atomic_filter',jsonb_build_object('membership','active','search','','untagged',true,'newOnly',false,'artistId',lpad('9',22,'a')));
+insert into library_snapshots values('atomic_selection',jsonb_build_object('kind','filter','filter',(select value from library_snapshots where name='atomic_filter'),'expectedRevision',app.library_revision()));
+insert into library_snapshots values('atomic_action',public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','add','tagName','  New   Group Tag  ','selection',(select value from library_snapshots where name='atomic_selection'))));
+select pg_temp.assert((select value->>'selectedCount'='250' and value->>'changedCount'='250' and value->'tag'->>'name'='New Group Tag' and value->'tag'->>'activeTrackCount'='250' from library_snapshots where name='atomic_action'),'one intent freezes and tags the full group while creating its tag');
+select pg_temp.assert((select count(*)=1 from app.tags) and (select count(*)=1 from app.tag_actions),'group create/apply records one identity and one undo action');
+insert into library_snapshots values('atomic_collision',public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','add','tagName','new group TAG','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('301',64,'0'))))));
+select pg_temp.assert((select a.value->'tag'->>'id'=b.value->'tag'->>'id' and b.value->>'changedCount'='0' and a.value->'revision'=b.value->'revision' from library_snapshots a,library_snapshots b where a.name='atomic_action' and b.name='atomic_collision'),'normalized atomic collision reuses identity without a revision bump for no-op');
+select public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','remove','tagId',(select value->'tag'->>'id' from library_snapshots where name='atomic_action'),'selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('301',64,'0')))));
+select pg_temp.assert(public.app_tag_undo(2,repeat('b',64),(select (value->>'actionId')::uuid from library_snapshots where name='atomic_action'))->>'restoredCount'='249','atomic name action undo skips an edge edited afterward');
+select pg_temp.assert(not exists(select 1 from app.track_tags where present),'undo does not restore the later explicit removal');
+do $$ begin
+ begin perform public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','add','tagName','No orphan from stale selection','selection',(select value from library_snapshots where name='atomic_selection'))); raise exception 'stale name action accepted'; exception when raise_exception then if sqlerrm<>'stale_revision' then raise; end if; end;
+ begin perform public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','add','tagName','No orphan from missing track','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(repeat('f',64))))); raise exception 'unknown-track name action accepted'; exception when raise_exception then if sqlerrm<>'unknown_track' then raise; end if; end;
+end $$;
+select pg_temp.assert((select count(*)=1 from app.tags),'stale/missing selections cannot create orphan vocabulary');
+-- Another committed edit broadens an untagged filter after its response was read.
+select public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','add','tagId',(select value->'tag'->>'id' from library_snapshots where name='atomic_action'),'selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('301',64,'0')))));
+update library_snapshots set value=jsonb_build_object('kind','filter','filter',(select value from library_snapshots where name='atomic_filter'),'expectedRevision',app.library_revision()) where name='atomic_selection';
+select pg_temp.assert((select count(*)=249 from app.filter_keys((select value from library_snapshots where name='atomic_filter'))),'browser freezes the 249-track untagged group');
+select public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','remove','tagId',(select value->'tag'->>'id' from library_snapshots where name='atomic_action'),'selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('301',64,'0')))));
+do $$ begin
+ begin perform public.app_tag_action(2,repeat('b',64),jsonb_build_object('action','add','tagName','No widening after concurrent edit','selection',(select value from library_snapshots where name='atomic_selection'))); raise exception 'widened name action accepted'; exception when raise_exception then if sqlerrm<>'stale_revision' then raise; end if; end;
+end $$;
+select pg_temp.assert((select count(*)=1 from app.tags) and not exists(select 1 from app.track_tags where present),'stale untagged group cannot widen or create vocabulary');
+rollback to atomic_group_tagging;
 insert into library_snapshots values('tag',public.app_tag_create(2,'  Chill   Café  '));
 select pg_temp.assert(not (public.app_tag_create(2,'chill café')->>'created')::boolean,'normalized casing/accent/whitespace tag identity');
 select pg_temp.assert(public.app_tag_create(2,'chill café')->'tag'->>'name'='Chill Café','first typed display casing preserved');
+-- Resolve IDs beyond the first autocomplete page without knowing their names.
+savepoint vocabulary_lookup;
+do $$ begin for i in 0..204 loop perform public.app_tag_create(2,'Lookup '||lpad(i::text,3,'0')); end loop; end $$;
+select pg_temp.assert(jsonb_array_length(public.app_tags_search(2,'Lookup',100)->'tags')=100 and (public.app_tags_search(2,'Lookup',100)->>'hasMore')::boolean,'autocomplete remains bounded with a larger vocabulary');
+insert into library_snapshots values('lookup',public.app_tags_lookup(2,jsonb_build_array((select id from app.tags where name='Lookup 204'),(select id from app.tags where name='Lookup 000'))));
+select pg_temp.assert((select value->'tags'->0->>'name'='Lookup 204' and value->'tags'->1->>'name'='Lookup 000' and value->'revision'=app.library_revision() from library_snapshots where name='lookup'),'ID lookup resolves off-page names in requested order');
+select pg_temp.assert(jsonb_array_length(public.app_tags_lookup(2,(select jsonb_agg(id order by name) from app.tags where name between 'Lookup 005' and 'Lookup 204'))->'tags')=200,'lookup accepts its full distinct-ID bound');
+insert into app.tags(id,epoch,name,normalized_name) values('ffffffff-ffff-4fff-8fff-ffffffffffff',999,'Other epoch private tag','other epoch private tag');
+do $$ declare ids jsonb; begin
+ for ids in select value from jsonb_array_elements(jsonb_build_array('[]'::jsonb,jsonb_build_array((select id from app.tags where name='Lookup 204'),(select id from app.tags where name='Lookup 204')),jsonb_build_array('malformed'),jsonb_build_array(null),(select jsonb_agg(id) from app.tags where name between 'Lookup 000' and 'Lookup 200'))) loop
+  begin perform public.app_tags_lookup(2,ids); raise exception 'invalid lookup accepted'; exception when raise_exception then if sqlerrm<>'invalid_input' then raise; end if; end;
+ end loop;
+ for ids in select value from jsonb_array_elements(jsonb_build_array(jsonb_build_array('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),jsonb_build_array((select id from app.tags where name='Lookup 204'),'ffffffff-ffff-4fff-8fff-ffffffffffff'))) loop
+  begin perform public.app_tags_lookup(2,ids); raise exception 'unknown/cross-owner lookup accepted'; exception when raise_exception then if sqlerrm<>'unknown_tag' then raise; end if; end;
+ end loop;
+ begin perform public.app_tags_lookup(999,jsonb_build_array('ffffffff-ffff-4fff-8fff-ffffffffffff')); raise exception 'inactive owner lookup accepted'; exception when raise_exception then if sqlerrm<>'inactive_epoch' then raise; end if; end;
+end $$;
+delete from app.tags where name='Lookup 204';
+do $$ begin
+ begin perform public.app_tags_lookup(2,jsonb_build_array((select value->'tags'->0->>'id' from library_snapshots where name='lookup'))); raise exception 'deleted tag lookup accepted'; exception when raise_exception then if sqlerrm<>'unknown_tag' then raise; end if; end;
+end $$;
+rollback to vocabulary_lookup;
 insert into library_snapshots values('tag_action',public.app_tag_action(2,repeat('b',64),jsonb_build_object('tagId',(select value->'tag'->>'id' from library_snapshots where name='tag'),
  'selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))),'action','add')));
 select pg_temp.assert((select value->>'changedCount'='1' from library_snapshots where name='tag_action'),'tagging during initial import is durable');
@@ -180,6 +234,7 @@ set local role anon;
 do $$ begin
  begin perform public.app_library_status(3); raise exception 'anonymous library access'; exception when insufficient_privilege then null; end;
  begin perform public.app_tag_create(3,'attack'); raise exception 'anonymous tagging'; exception when insufficient_privilege then null; end;
+ begin perform public.app_tags_lookup(3,'["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]'); raise exception 'anonymous tag lookup'; exception when insufficient_privilege then null; end;
 end $$;
 reset role;
 rollback;

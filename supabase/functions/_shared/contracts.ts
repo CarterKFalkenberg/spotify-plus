@@ -5,6 +5,7 @@ export const CONTRACT_LIMITS = {
   queryNodes: 128,
   builderTags: 64,
   selectedTracks: 200,
+  lookupTags: 200,
   pageSize: 100,
   cursorLength: 512,
   searchLength: 200,
@@ -77,14 +78,18 @@ export interface TagSearchRequest {
   readonly search: string;
   readonly limit: number;
 }
+export interface TagLookupRequest {
+  readonly tagIds: readonly TagId[];
+}
 export interface CreateTagRequest {
   readonly name: string;
 }
-export interface TagActionRequest {
-  readonly selection: Selection;
-  readonly tagId: TagId;
-  readonly action: "add" | "remove";
-}
+export type TagActionRequest =
+  & { readonly selection: Selection }
+  & (
+    | { readonly action: "add" | "remove"; readonly tagId: TagId }
+    | { readonly action: "add"; readonly tagName: string }
+  );
 export interface QueryPreviewRequest extends PageRequest {
   readonly query: StoredQuery;
 }
@@ -182,12 +187,17 @@ export interface TagSearchResponse {
   readonly hasMore: boolean;
   readonly revision: LibraryRevision;
 }
+export interface TagLookupResponse {
+  readonly tags: readonly TagDTO[];
+  readonly revision: LibraryRevision;
+}
 export interface CreateTagResponse {
   readonly tag: TagDTO;
   readonly created: boolean;
   readonly revision: LibraryRevision;
 }
 export interface TagActionResponse {
+  readonly tag: TagDTO;
   readonly actionId: string;
   readonly selectedCount: number;
   readonly changedCount: number;
@@ -533,12 +543,30 @@ export function parseCreateTag(value: unknown): CreateTagRequest {
   const request = shape(value, ["name"], "createTag");
   return { name: name(request.name, CONTRACT_LIMITS.tagNameLength, "name") };
 }
+export function parseTagLookup(value: unknown): TagLookupRequest {
+  const request = shape(value, ["tagIds"], "tagLookup");
+  const ids = list(request.tagIds, CONTRACT_LIMITS.lookupTags, "tagIds").map(
+    parseId,
+  );
+  if (!ids.length || new Set(ids).size !== ids.length) invalid("tagIds");
+  return { tagIds: ids };
+}
 export function parseTagAction(value: unknown): TagActionRequest {
-  const request = shape(value, ["selection", "tagId", "action"], "tagAction");
+  const request = record(value, "tagAction");
+  const action = choice(request.action, ["add", "remove"], "action");
+  if (action === "add" && Object.hasOwn(request, "tagName")) {
+    fields(request, ["selection", "tagName", "action"], [], "tagAction");
+    return {
+      selection: parseSelection(request.selection),
+      tagName: name(request.tagName, CONTRACT_LIMITS.tagNameLength, "tagName"),
+      action,
+    };
+  }
+  fields(request, ["selection", "tagId", "action"], [], "tagAction");
   return {
     selection: parseSelection(request.selection),
     tagId: parseId(request.tagId),
-    action: choice(request.action, ["add", "remove"], "action"),
+    action,
   };
 }
 export function parseUndoTagAction(value: unknown): Record<string, never> {

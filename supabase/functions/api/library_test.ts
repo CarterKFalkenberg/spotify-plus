@@ -37,6 +37,17 @@ const routes: [string, string, unknown, string][] = [
   ],
   ["/api/tags?search=chill&limit=20", "GET", null, "app_tags_search"],
   ["/api/tags", "POST", { name: "  Chill  " }, "app_tag_create"],
+  [
+    "/api/tags/lookup",
+    "POST",
+    { tagIds: [tag.toUpperCase()] },
+    "app_tags_lookup",
+  ],
+  ["/api/tag-actions", "POST", {
+    action: "add",
+    tagName: "  New   tag  ",
+    selection: { kind: "tracks", trackKeys: ["a".repeat(64)] },
+  }, "app_tag_action"],
   ["/api/tag-actions", "POST", {
     tagId: tag,
     action: "add",
@@ -78,6 +89,17 @@ Deno.test("all library/tag/query routes use authenticated epoch and normalized c
         equal(args.p_epoch, 7);
         calls++;
         if (name === "app_tag_create") equal(args.p_name, "Chill");
+        if (name === "app_tags_lookup") equal(args.p_tag_ids, [tag]);
+        if (
+          name === "app_tag_action" && body && typeof body === "object" &&
+          "tagName" in body
+        ) {
+          assert(
+            args.p_request && typeof args.p_request === "object" &&
+              "tagName" in args.p_request,
+          );
+          equal(args.p_request.tagName, "New tag");
+        }
         if (name === "app_tag_action" || name === "app_tag_undo") {
           assert(/^[0-9a-f]{64}$/.test(String(args.p_session_hash)));
         }
@@ -161,4 +183,42 @@ Deno.test("fixed database stale/deleted-selection conflicts map explicitly witho
     equal(response.status, 409);
     equal(await response.json(), { error: kind });
   }
+});
+
+Deno.test("tag lookup rejects invalid batches before SQL and reports deleted IDs without partial names", async () => {
+  let lookups = 0;
+  const handler = createApi({
+    config,
+    box: new SecretBox(TEST_KEY),
+    db: database((name) => {
+      if (name === "app_session") return { epoch: 1, state: "connected" };
+      equal(name, "app_tags_lookup");
+      lookups++;
+      throw new DatabaseError("unknown_tag");
+    }),
+  });
+  for (
+    const tagIds of [[], [tag, tag], Array(201).fill(tag), ["private-name"]]
+  ) {
+    const response = await handler(
+      request("/api/tags/lookup", "POST", { tagIds }),
+    );
+    equal(response.status, 400);
+    equal(await response.json(), { error: "invalid_input" });
+  }
+  equal(lookups, 0);
+  const missing = await handler(
+    request("/api/tags/lookup", "POST", { tagIds: [tag] }),
+  );
+  equal(missing.status, 409);
+  equal(await missing.json(), { error: "unknown_tag" });
+  equal(lookups, 1);
+  const tooLarge = await handler(
+    request("/api/tags/lookup", "POST", {
+      tagIds: [tag],
+      padding: "x".repeat(17000),
+    }),
+  );
+  equal(tooLarge.status, 400);
+  equal(lookups, 1);
 });
