@@ -185,3 +185,78 @@ operator process is dead, preserve the private files for inspection/reconciliati
 and remove only the confirmed stale lock/temp before recovery. Owner/epoch changes,
 foreign edges or metadata edits require explicit operator reconciliation; they are
 never permission to delete unrelated data. Do not print private registry contents.
+
+## Fast tagging and resilience stage evidence
+
+`node scripts/verify-stage.mjs fast-tagging` runs the common fresh deployment,
+Free-plan/usage, CPU, owner/authentication and natural authenticated cron gates.
+It does not create a Spotify playlist. Its private `fast-proof-registry.json`
+tracks random synthetic identifiers before invoking installed database RPCs.
+A nested SQL subtransaction exercises filter sorting/paging, facets, exact group
+selection, tri-state bulk changes, changed-only undo, stale selection rejection,
+normalized vocabulary, Unicode rename, collision merge, exact union impact,
+nested query rewrite, merge undo and confirmed delete/undo. The successful path
+raises a reserved rollback sentinel; errors also roll back. Registered rows must
+be absent before success. Nothing commits to real owner annotations, and the
+synthetic playlist row is never visible to another transaction. Separate
+non-mutating authenticated HTTP requests check empty isolated facets/vocabulary
+and private response caching. SQL RPC proof is distinct from HTTP route coverage.
+
+A killed proof preserves its registry. If `.lock` or `.tmp` remains, the operator
+must establish no verifier process is active, inspect the saved registry privately
+and reconcile file state before rerunning. Do not blindly remove an active lock
+or overwrite a temporary registry. Reruns use the same registered identifiers;
+any unexpected persistent collision fails rather than deleting uncertain rows.
+
+Both final stages require `.local/verification/software-checks.json`, written by
+the orchestrator only after successful **full `scripts/check`** on the exact
+committed deployment source, including synthetic Playwright keyboard and mobile
+flows. Format: `source: "orchestrator-scripts-check"`, `buildSha`, `verifiedAt`,
+`passed: true`, `fullCheck: true`, `syntheticBrowser: true`. It expires after one
+hour and rejects future timestamps. This is recorded operator test execution,
+not a substitute for the verifier's new deployed requests or actual human timing.
+
+`resilience-and-handoff` additionally requires
+`.local/verification/isolated-backup.json`: `source: "scripts/check-supabase.mjs"`,
+`buildSha`, `verifiedAt`, `passed: true`, and `checker` containing the complete
+redacted success JSON from `node scripts/check-supabase.mjs` on that committed
+head. The root owns the disposable Docker lease and captures this output; the
+stage verifier does not start a competing stack. It independently recomputes the
+checker's sorted committed SQL/TS/MJS source snapshot hash. Working-tree proofs,
+another head, missing actual Storage HTTP status, fewer than four storage races,
+or missing encrypted isolated restore cannot pass. The checker uses actual local
+Supabase Storage/PostgREST with synthetic data; it never restores or purges the
+production owner. Storage HTTP 400 is accepted only after the checker confirms
+the missing-bucket contract, alongside HTTP 404.
+
+Resilience reuses the core proof's **fresh** real private create/regenerate/pin/
+unpin/extend/accelerated natural expiry and both removal checks, with the existing
+resumable core registry. It skips the extra API-proof disposable playlist. Both
+operator observations and deployment identity are checked again at completion.
+Software-check/backup receipts establish isolated recovery coverage, while the
+fresh lifecycle establishes the real deployed Spotify path; neither is presented
+as a deliberate live provider outage or six-month waiting experiment.
+
+Recovery coverage lives in the existing synthetic suites:
+
+- `supabase/tests/database/library.sql`: changing pages, equal-count swaps, stable
+  full passes, interrupted checkpoints, 90-day metadata purge and retained keys.
+- `library_test.ts`: lost commit acknowledgement, reclaimed completed job,
+  checkpoint/lease cancellation, bounded execution and cooldown/reconnect retry.
+- `playlist-runner_test.ts` and `playlist-runtime_test.ts`: ambiguous create and
+  append, restart reconciliation, divergent remote sequences, deadline reserve,
+  retries and disconnect/lease fences; deployed lifecycle does not force outages.
+- `tokens_test.ts`, `spotify_test.ts`, `retry-after_test.ts`: rotated tokens,
+  invalid grants, malformed/lost refresh responses, 401/403/429 and quota delays
+  with no immediate remote replay or live request flood.
+- `playlist-domain_test.ts` and database playlist tests: New York DST/month-end
+  date math and serialized pin/regenerate/cleanup decisions.
+- Actual isolated backup checker: encrypted daily copy/restore, concurrent upload
+  and retirement, disconnected late upload rejection and absence checks.
+
+Free-project pause recovery is operator dashboard resume followed by ordinary
+durable catch-up; cron does not prevent pausing. Quota failure remains a blocker,
+never upgrade permission. Architecture review, reviewed corrections, final
+same-head smoke and temporary review automation shutdown remain independent
+software gates. Actual phone under-one-minute and familiar-song 3–5-second
+acceptance remain pending human checks even when stage receipts pass.

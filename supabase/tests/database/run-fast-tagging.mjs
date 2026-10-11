@@ -110,6 +110,24 @@ try {
   await sql(
     await readFile(new URL("./fast-tagging.sql", import.meta.url), "utf8"),
   );
+  // The same mandatory-rollback proof used on deployment runs against synthetic
+  // installed SQL here. The outer transaction supplies an isolated owner only.
+  const deployedFastSql = await command(
+    [
+      "eval",
+      "--no-remote",
+      'import {newRegistry} from "./scripts/live/core-fixtures.ts"; ' +
+      'import {fastProofSql} from "./scripts/live/fast-proof-sql.ts"; ' +
+      'console.log(fastProofSql(newRegistry(1,"a".repeat(64))));',
+    ],
+    "",
+    "deno",
+  );
+  await sql(
+    "begin; select public.app_connect(1,'synthetic-account',repeat('a',64),true,'synthetic',now()+interval '1 hour',now(),repeat('b',64),true); " +
+      "update app.jobs set state='done' where id is not null; " +
+      deployedFastSql + " rollback;",
+  );
   await sql(`
     select public.app_connect(1,'synthetic-account',repeat('a',64),true,'synthetic',now()+interval '1 hour',now(),repeat('b',64),true);
     insert into app.annotations values(repeat('1',64),1);
