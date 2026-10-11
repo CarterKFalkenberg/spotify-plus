@@ -139,6 +139,16 @@ try {
     finish.every((result) => result === "f"),
     "Concurrent old workers must stay cancelled",
   );
+  await sql(
+    await readFile(
+      new URL(
+        "../../migrations/20261011000400_library_annotations.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await sql(await readFile(new URL("./library.sql", import.meta.url), "utf8"));
   console.log(
     "Synthetic PostgreSQL foundation, role-denial, leases, refresh, pacing, and disconnect checks passed.",
   );

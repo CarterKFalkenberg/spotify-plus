@@ -13,6 +13,15 @@ import { createJobs } from "../../functions/jobs/handler.ts";
 import { SPOTIFY_SCOPES } from "../../functions/_shared/spotify.ts";
 import { SESSION_COOKIE } from "../../functions/_shared/http.ts";
 import { TEST_KEY } from "../../functions/_shared/testing.ts";
+import { createLibraryRunner } from "../../functions/_shared/library.ts";
+import type {
+  CreateTagResponse,
+  LibrarySearchResponse,
+  LibraryStatusDTO,
+  QueryPreviewResponse,
+  TagActionResponse,
+  UndoTagActionResponse,
+} from "../../functions/_shared/contracts.ts";
 
 let phase = "input";
 let assertions = 0;
@@ -329,6 +338,39 @@ try {
     db,
     sha: config.sha,
     cronSecret,
+    library: createLibraryRunner({
+      db,
+      annotationBox: new SecretBox(TEST_KEY),
+      wait: () => Promise.resolve(),
+      spotify: () => ({
+        getSavedTracksPage: () =>
+          Promise.resolve({
+            offset: 0,
+            limit: 50,
+            nextOffset: null,
+            total: 1,
+            items: [{
+              addedAt: "2026-01-01T00:00:00Z",
+              track: {
+                id: "a".repeat(22),
+                uri: `spotify:track:${"a".repeat(22)}`,
+                name: "Synthetic library track",
+                artists: [{ id: "b".repeat(22), name: "Synthetic artist" }],
+                album: {
+                  id: "c".repeat(22),
+                  name: "Synthetic album",
+                  releaseDate: "2026",
+                  images: [],
+                },
+                durationMs: 1000,
+                explicit: false,
+                isLocal: false,
+                isPlayable: true,
+              },
+            }],
+          }),
+      }),
+    }),
     backups: {
       purge: () => {
         purges++;
@@ -353,6 +395,81 @@ try {
       Number.isFinite(Date.parse(health.lastJobAt)),
   );
   check((await fixture("inspect")).maintenanceRecorded === true);
+  phase = "library_transactions";
+  const libraryStatus = await db.rpc<LibraryStatusDTO>("app_library_status", {
+    p_epoch: epoch,
+  });
+  check(libraryStatus.initialSyncComplete && libraryStatus.activeCount === 1);
+  const createdTag = await db.rpc<CreateTagResponse>("app_tag_create", {
+    p_epoch: epoch,
+    p_name: "Synthetic Tag",
+  });
+  check(createdTag.created);
+  check(
+    !(await db.rpc<CreateTagResponse>("app_tag_create", {
+      p_epoch: epoch,
+      p_name: "synthetic tag",
+    })).created,
+  );
+  const filter = {
+    membership: "active",
+    search: "",
+    untagged: false,
+    newOnly: false,
+    artistId: null,
+  };
+  const foundTracks = await db.rpc<LibrarySearchResponse>(
+    "app_library_search",
+    {
+      p_epoch: epoch,
+      p_request: { filter, groupBy: null, cursor: null, limit: 1 },
+    },
+  );
+  check(
+    foundTracks.groupBy === null && foundTracks.tracks.length === 1 &&
+      foundTracks.totalTracks === 1,
+  );
+  const tagAction = await db.rpc<TagActionResponse>("app_tag_action", {
+    p_epoch: epoch,
+    p_session_hash: sessionHash,
+    p_request: {
+      action: "add",
+      tagId: createdTag.tag.id,
+      selection: {
+        kind: "filter",
+        filter,
+        expectedRevision: foundTracks.revision,
+      },
+    },
+  });
+  check(tagAction.changedCount === 1 && tagAction.selectedCount === 1);
+  const preview = await db.rpc<QueryPreviewResponse>("app_query_preview", {
+    p_epoch: epoch,
+    p_request: {
+      query: { version: 1, root: { op: "tag", tagId: createdTag.tag.id } },
+      cursor: null,
+      limit: 1,
+    },
+  });
+  check(
+    preview.generationReady && preview.matchedCount === 1 &&
+      preview.playableCount === 1 && preview.durationMs === 1000,
+  );
+  const undone = await db.rpc<UndoTagActionResponse>("app_tag_undo", {
+    p_epoch: epoch,
+    p_session_hash: sessionHash,
+    p_action_id: tagAction.actionId,
+  });
+  check(undone.restoredCount === 1 && undone.skippedCount === 0);
+  const acknowledgement = await db.rpc<{ changedCount: number }>(
+    "app_library_acknowledge",
+    { p_epoch: epoch, p_track_keys: [foundTracks.tracks[0].trackKey] },
+  );
+  check(acknowledgement.changedCount === 1);
+  check(
+    (await raw("app_library_status", { p_epoch: epoch }, input.anonKey))
+      .status === 401,
+  );
   phase = "disconnect_and_purge";
   await db.rpc("app_oauth_start", {
     p_state_hash: "f".repeat(64),
@@ -427,6 +544,7 @@ try {
     bootstrap: true,
     tokenRecovery: true,
     jobsDrain: true,
+    libraryTransactions: true,
     disconnectPurge: true,
     spotifyNetworkRequests: 0,
   }));
