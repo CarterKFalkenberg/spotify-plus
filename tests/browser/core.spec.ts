@@ -809,3 +809,222 @@ test("empty import is an explicit empty-library state instead of zero-of-zero pr
   ).toBeVisible();
   await expect(page.locator("body")).not.toContainText("0 of 0");
 });
+
+test("import revision refresh preserves typing draft, focus and frozen explicit keys", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Explicit bulk selection is desktop only");
+  let currentRevision = revision;
+  let searches = 0;
+  const calls = await mock(page, async (route, path) => {
+    if (path === "/api/library/status" || path === "/api/library/sync") {
+      await route.fulfill({
+        json: {
+          ...status,
+          revision: currentRevision,
+          initialSyncComplete: false,
+          syncPhase: "importing",
+        },
+      });
+      return true;
+    }
+    if (path === "/api/library/search") {
+      searches++;
+      await route.fulfill({
+        json: {
+          groupBy: null,
+          tracks: [track(1), track(2)],
+          totalTracks: 2,
+          revision: currentRevision,
+          nextCursor: null,
+        },
+      });
+      return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  await page.getByLabel("Select Synthetic song 1").check();
+  const input = page.getByLabel("Add tag to selection", { exact: true });
+  await input.fill("Draft during import");
+  const before = searches;
+  currentRevision = { library: "2", annotations: "2" };
+  // Workspace's unattended status poll observes the next import revision.
+  await expect.poll(() => searches, { timeout: 10000 }).toBeGreaterThan(before);
+  await expect(input).toHaveValue("Draft during import");
+  await expect(input).toBeFocused();
+  await expect(page.getByLabel("Select Synthetic song 1")).toBeChecked();
+  await expect(page.locator(".bulk-bar")).toContainText("1 selected");
+  await input.press("Enter");
+  await expect
+    .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
+    .toBe(1);
+  expect(
+    calls.find((call) => call.path === "/api/tag-actions")!.body.selection,
+  ).toEqual({ kind: "tracks", trackKeys: [track().trackKey] });
+});
+
+test("successful freeform tag keeps input focus for the next tag and preserves explicit selection", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Explicit bulk selection is desktop only");
+  const calls = await mock(page, async (route, path) => {
+    if (path !== "/api/tags") return false;
+    await route.fulfill({ json: { tags: [], hasMore: false, revision } });
+    return true;
+  });
+  await page.goto("/");
+  await page.getByLabel("Group by artist").uncheck();
+  await page.getByLabel("Select Synthetic song 1").check();
+  const input = page.getByLabel("Add tag to selection", { exact: true });
+  await input.fill("First keyboard tag");
+  await expect(
+    page.getByRole("button", { name: "Create “First keyboard tag”" }),
+  ).toBeEnabled();
+  await input.press("Enter");
+  await expect(input).toHaveValue("");
+  await expect(input).toBeFocused();
+  await expect(page.getByLabel("Select Synthetic song 1")).toBeChecked();
+  await input.pressSequentially("Second keyboard tag");
+  await expect(
+    page.getByRole("button", { name: "Create “Second keyboard tag”" }),
+  ).toBeEnabled();
+  await input.press("Enter");
+  await expect
+    .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
+    .toBe(2);
+  await expect(input).toBeFocused();
+  const actions = calls
+    .filter((call) => call.path === "/api/tag-actions")
+    .map((call) => call.body);
+  expect(actions.map((action) => action.tagName)).toEqual([
+    "First keyboard tag",
+    "Second keyboard tag",
+  ]);
+  expect(actions[1].selection).toEqual(actions[0].selection);
+});
+
+test("background refresh never silently renews a frozen filter selection", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Filter bulk selection is desktop only");
+  let currentRevision = revision,
+    searches = 0;
+  const calls = await mock(page, async (route, path) => {
+    if (path === "/api/library/status" || path === "/api/library/sync") {
+      await route.fulfill({ json: { ...status, revision: currentRevision } });
+      return true;
+    }
+    if (path === "/api/library/search") {
+      searches++;
+      await route.fulfill({
+        json: {
+          groupBy: "artist",
+          groups: [
+            {
+              ...group,
+              selection: {
+                ...group.selection,
+                expectedRevision: currentRevision,
+              },
+            },
+          ],
+          totalGroups: 1,
+          totalTracks: 3,
+          revision: currentRevision,
+          nextCursor: null,
+        },
+      });
+      return true;
+    }
+    if (path === "/api/tag-actions") {
+      await route.fulfill({ status: 409, json: { error: "stale_revision" } });
+      return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Select all 3 matching" }).click();
+  const input = page.getByLabel("Add tag to selection", { exact: true });
+  await input.fill("Frozen filter draft");
+  const before = searches;
+  currentRevision = { library: "2", annotations: "2" };
+  await expect.poll(() => searches, { timeout: 10000 }).toBeGreaterThan(before);
+  await expect(input).toHaveValue("Frozen filter draft");
+  await expect(input).toBeFocused();
+  await expect(
+    page.getByRole("status").filter({ hasText: "earlier library revision" }),
+  ).toBeVisible();
+  await input.press("Enter");
+  await expect
+    .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
+    .toBe(1);
+  expect(
+    calls.find((call) => call.path === "/api/tag-actions")!.body.selection
+      .expectedRevision,
+  ).toEqual(revision);
+  await expect(input).toHaveValue("Frozen filter draft");
+});
+
+for (const paged of [false, true])
+  test(`transient ${paged ? "pagination" : "initial"} preview failure can retry the unchanged query safely`, async ({
+    page,
+  }) => {
+    let attempts = 0,
+      recovered = false;
+    const calls = await mock(page, async (route, path) => {
+      if (path !== "/api/query/preview") return false;
+      attempts++;
+      const body = route.request().postDataJSON();
+      if (attempts === (paged ? 2 : 1)) {
+        await route.fulfill({ status: 503, json: { error: "unavailable" } });
+        return true;
+      }
+      if (attempts > (paged ? 2 : 1)) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        recovered = true;
+      }
+      await route.fulfill({
+        json: {
+          query: body.query,
+          revision,
+          generationReady: true,
+          matchedCount: 1,
+          playableCount: 1,
+          excludedCount: 0,
+          durationMs: 180000,
+          tracks: [track()],
+          nextCursor: paged && !recovered ? "abcdefghijklmnop" : null,
+        },
+      });
+      return true;
+    });
+    await page.goto("/");
+    await builder(page);
+    await choose(page);
+    if (paged)
+      await page.getByRole("button", { name: "More preview songs" }).click();
+    await expect(
+      page.getByRole("button", { name: "Create private playlist →" }),
+    ).toBeDisabled();
+    await page
+      .getByRole("button", { name: "Retry preview", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Create private playlist →" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Create private playlist →" }),
+    ).toBeEnabled();
+    const requests = calls
+      .filter((call) => call.path === "/api/query/preview")
+      .map((call) => call.body);
+    expect(requests.at(-1).query).toEqual(requests[0].query);
+    expect(requests.at(-1).cursor).toBeNull();
+    await expect(
+      page.getByRole("button", { name: "Retry saved create request" }),
+    ).toHaveCount(0);
+  });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, tags, errorMessage } from "./api";
 import type { TagDTO } from "../../supabase/functions/_shared/contracts";
 export function TagPicker({
@@ -14,6 +14,8 @@ export function TagPicker({
   disabled?: boolean;
   actionLabel?: "Add" | "Remove";
 }) {
+  const container = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const allowCreate = !!onCreate;
   const [text, setText] = useState("");
   const [options, setOptions] = useState<readonly TagDTO[]>([]);
@@ -62,15 +64,27 @@ export function TagPicker({
       if (item) await onChoose(item);
       else await onCreate?.(text);
       setText("");
-      setFocused(false);
+      setFocused(true);
     } catch (error) {
       setError(errorMessage(error));
     } finally {
       setBusy(false);
+      if (
+        document.activeElement === document.body ||
+        container.current?.contains(document.activeElement)
+      )
+        input.current?.focus();
     }
   }
   return (
-    <div className="tag-picker">
+    <div
+      className="tag-picker"
+      ref={container}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          setFocused(false);
+      }}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -81,10 +95,12 @@ export function TagPicker({
         <label>
           {label}
           <input
+            ref={input}
             value={text}
             maxLength={640}
             placeholder={allowCreate ? "Find or create a tag…" : "Find a tag…"}
-            disabled={disabled || busy}
+            readOnly={disabled || busy}
+            aria-disabled={disabled || busy}
             onFocus={() => {
               if (!focused) setSearching(true);
               setFocused(true);

@@ -79,6 +79,7 @@ export function Builder({
   const [name, setName] = useState("");
   const [retention, setRetention] = useState<Retention>("month");
   const [busy, setBusy] = useState(false);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [paging, setPaging] = useState(false);
   const [pending, setPending] = useState<CreatePlaylistRequest | null>(
     readIntent,
@@ -127,9 +128,10 @@ export function Builder({
           if (
             current === version.current &&
             JSON.stringify(value.query) === key
-          )
+          ) {
             setResult({ key, refresh, value });
-          else if (current === version.current)
+            setError("");
+          } else if (current === version.current)
             setError(
               "The preview did not match your query. Update your tags and try again.",
             );
@@ -143,7 +145,7 @@ export function Builder({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [key, refresh, pending]);
+  }, [key, refresh, pending, previewAttempt]);
   const matched =
     result?.key === key && result.refresh === refresh ? result.value : null;
   const canCreate =
@@ -391,10 +393,23 @@ export function Builder({
         </>
       )}
       {error && (
-        <p role="alert" className="notice">
+        <div role="alert" className="notice">
           {error}{" "}
           {reconnect && <a href="/auth/spotify/start">Reconnect Spotify</a>}
-        </p>
+          {!pending && key && (
+            <button
+              disabled={busy || paging}
+              onClick={() => {
+                version.current++;
+                setResult(null);
+                setError("");
+                setPreviewAttempt((value) => value + 1);
+              }}
+            >
+              Retry preview
+            </button>
+          )}
+        </div>
       )}
       {submitted && (
         <p role="status" className="notice">

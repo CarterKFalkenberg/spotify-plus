@@ -91,13 +91,14 @@ export function Library({
   useEffect(() => {
     setFilter((v) => ({ ...v, membership: "active", newOnly }));
     setGrouped(!newOnly);
+    setData(null);
     setCursor(null);
     setSelection(null);
   }, [newOnly]);
   useEffect(() => {
     const controller = new AbortController();
-    setData(null);
-    setSelection(null);
+    // Keep keyed rows, drafts and explicit keys mounted during current-view refresh.
+    // A selected filter retains its original expectedRevision until explicitly reselected.
     setError("");
     const timer = setTimeout(() => {
       void api(
@@ -477,6 +478,16 @@ export function Library({
           )}
         </>
       )}
+      {selection?.kind === "filter" &&
+        data &&
+        JSON.stringify(selection.expectedRevision) !==
+          JSON.stringify(data.revision) && (
+          <p role="status" className="notice">
+            Your matching selection is from an earlier library revision. Select
+            the matching results again to include the current set; its saved
+            revision has not changed.
+          </p>
+        )}
       {selection &&
         (selection.kind === "filter" || selection.trackKeys.length > 0) && (
           <div className="bulk-bar desktop-bulk">
