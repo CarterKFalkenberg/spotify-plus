@@ -17,6 +17,7 @@ export interface JobContext {
   now?: () => number;
   library?: FeatureJob;
   playlist?: FeatureJob;
+  annotationBackup?: FeatureJob;
 }
 export async function drainJobs(
   context: JobContext,
@@ -60,7 +61,12 @@ export async function drainJobs(
           });
           continue;
         }
-        if (!await backups.purge()) throw new Error("backup_purge_pending");
+        const paths = await db.rpc<string[]>("app_backup_purge_targets", {
+          p_epoch: job.payload.epoch,
+        });
+        if (!await backups.purge(paths)) {
+          throw new Error("backup_purge_pending");
+        }
         if (
           !await db.rpc<boolean>("app_job_renew", {
             p_id: job.id,
@@ -89,6 +95,18 @@ export async function drainJobs(
             p_outcome: "queued",
             p_retry_ms: result.retryMs ?? 1000,
             p_error: (result.retryMs ?? 0) >= 60000 ? "library_unstable" : null,
+          });
+          continue;
+        }
+      } else if (job.kind === "annotation_backup" && context.annotationBackup) {
+        const result = await context.annotationBackup(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
           });
           continue;
         }
