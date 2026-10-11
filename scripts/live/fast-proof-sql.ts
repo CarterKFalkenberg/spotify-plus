@@ -71,9 +71,12 @@ export function fastProofSql(r: CoreRegistry): string {
       "bulk_changed_only",
     )
   }
+      -- A volatile mutation and a table read must use separate SQL statements:
+      -- the enclosing statement's MVCC snapshot can predate the mutation.
+      result:=public.app_tag_undo(${r.epoch},'${x}',(result->>'actionId')::uuid);
       ${
     assert(
-      `public.app_tag_undo(${r.epoch},'${x}',(result->>'actionId')::uuid)->>'restoredCount'='1' and (select count(*)=1 from app.track_tags where tag_id='${a}' and present)`,
+      `result->>'restoredCount'='1' and (select count(*)=1 from app.track_tags where tag_id='${a}' and present)`,
       "undo_preserves_preexisting",
     )
   }
