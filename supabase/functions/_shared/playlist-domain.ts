@@ -74,7 +74,8 @@ export function playlistDescription(
 ): string {
   const start = creationMarker(id);
   const end = "[/Tagger]";
-  // Only our exact block is replaceable. All outside text survives byte-for-byte.
+  // Only our exact block is replaceable. Outside canonical text survives exactly;
+  // Spotify response escape bytes are normalized by the adapter, not here.
   const existing = current ?? "";
   const from = existing.indexOf(start);
   const to = from < 0 ? -1 : existing.indexOf(end, from + start.length);

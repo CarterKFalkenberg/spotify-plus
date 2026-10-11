@@ -116,6 +116,7 @@ export interface SpotifyPlaylistItem {
 export interface SpotifyPlaylist {
   id: string;
   name: string;
+  // Canonical text: one Spotify response escape layer removed, never HTML.
   description: string | null;
   public: boolean | null;
   collaborative: boolean;
@@ -654,6 +655,34 @@ function normalize(data: unknown, request: Prepared): Result {
   return { ...page, items: data.items.map(normalizePlaylistItem) };
 }
 
+// Spotify can HTML-escape playlist descriptions in responses, including the
+// slash in our closing marker. Decode exactly once at the transport boundary:
+// an owner's literal "&amp;" arrives as "&amp;amp;" and must stay "&amp;".
+// This is text normalization, not HTML rendering or recursive entity expansion.
+function decodePlaylistDescription(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+  };
+  return value.replace(
+    /&(#(?:[xX][0-9a-fA-F]+|[0-9]+)|amp|lt|gt|quot|apos);/g,
+    (reference, entity: string) => {
+      if (!entity.startsWith("#")) return named[entity];
+      const hex = entity[1].toLowerCase() === "x";
+      const code = Number.parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
+      // Leave malformed/non-scalar references intact rather than losing notes.
+      if (
+        code === 0 || code > 0x10ffff ||
+        (code >= 0xd800 && code <= 0xdfff)
+      ) return reference;
+      return String.fromCodePoint(code);
+    },
+  );
+}
+
 function normalizePlaylist(value: unknown): SpotifyPlaylist {
   requireSchema(record(value) && validId(value.id) && text(value.name));
   requireSchema(value.description === null || text(value.description));
@@ -670,7 +699,9 @@ function normalizePlaylist(value: unknown): SpotifyPlaylist {
   return {
     id: value.id,
     name: value.name,
-    description: value.description,
+    description: value.description === null
+      ? null
+      : decodePlaylistDescription(value.description),
     public: value.public,
     collaborative: value.collaborative,
     ownerId: value.owner.id,
