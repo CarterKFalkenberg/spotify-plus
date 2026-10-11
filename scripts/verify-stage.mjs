@@ -86,11 +86,63 @@ export function spotifyProofArguments(config, registryPath) {
     "scripts/live/spotify-proof.ts",
   ];
 }
-async function runSpotifyProof(root, config, input) {
+export function coreProofArguments(config, registryPath) {
+  return [
+    "run",
+    "--no-prompt",
+    `--allow-net=${new URL(config.appUrl).hostname},${config.supabaseProjectRef}.supabase.co,api.supabase.com,api.spotify.com,accounts.spotify.com`,
+    `--allow-read=${registryPath},${registryPath}.tmp,${registryPath}.lock`,
+    `--allow-write=${registryPath},${registryPath}.tmp,${registryPath}.lock`,
+    "scripts/live/core-proof.ts",
+  ];
+}
+export function redactedCoreResult(value) {
+  const booleans = [
+    "automaticImportComplete",
+    "stableManualSync",
+    "protectedCoreRoutes",
+    "isolatedTagging",
+    "changedOnlyUndo",
+    "filterRevisionGuard",
+    "previewPacingCredentialObservationUnchanged",
+    "privateSnapshot",
+    "orderedSnapshot",
+    "requestIntentDeduplicated",
+    "pinUnpinExtend",
+    "regeneratePreservesNameAndNotes",
+    "acceleratedDeadline",
+    "authenticatedScheduledExpiry",
+    "removedByContains",
+    "removedByCurrentUserPlaylists",
+    "fixturesCleaned",
+  ];
+  const counts = [
+    "progressObservations",
+    "activeTracks",
+    "previewMatches",
+    "previewPlayable",
+    "previewExcluded",
+    "previewDurationMs",
+  ];
+  requireCheck(
+    value?.passed === true &&
+      booleans.every((key) => value[key] === true) &&
+      counts.every(
+        (key) => Number.isSafeInteger(value[key]) && value[key] >= 0,
+      ),
+    "core_proof_receipt_invalid",
+  );
+  return Object.fromEntries(
+    [...booleans, ...counts].map((key) => [key, value[key]]),
+  );
+}
+async function runSpotifyProof(root, config, input, core = false) {
   return new Promise((done, fail) => {
     const child = spawn(
       "deno",
-      spotifyProofArguments(config, input.registryPath),
+      core
+        ? coreProofArguments(config, input.registryPath)
+        : spotifyProofArguments(config, input.registryPath),
       {
         cwd: root,
         env: { PATH: process.env.PATH },
@@ -99,6 +151,11 @@ async function runSpotifyProof(root, config, input) {
     );
     let stdout = "";
     child.stdout.on("data", (data) => {
+      // A child must never fill memory with accidental response dumps.
+      if (stdout.length + data.length > 16384) {
+        child.kill();
+        return;
+      }
       stdout += data;
     });
     child.stderr.resume(); // Stack traces may include inputs; never forward them.
@@ -107,16 +164,16 @@ async function runSpotifyProof(root, config, input) {
         Object.assign(new Error(), { code: "live_probe_runtime_unavailable" }),
       ),
     );
-    child.on("close", () => {
+    child.on("close", (exitCode) => {
       try {
         const result = JSON.parse(stdout);
         requireCheck(
-          result.passed === true,
+          exitCode === 0 && result.passed === true,
           /^[a-z_]+$/.test(result.blocker)
             ? result.blocker
             : "live_spotify_proof_failed",
         );
-        done(result);
+        done(core ? redactedCoreResult(result) : result);
       } catch (error) {
         fail(
           Object.assign(new Error(), {
@@ -125,11 +182,15 @@ async function runSpotifyProof(root, config, input) {
         );
       }
     });
+    child.stdin.on("error", () => {}); // Child failure is classified by close/error.
     child.stdin.end(JSON.stringify(input));
   });
 }
 export async function verifyStage(stage, root) {
-  requireCheck(stage === "api-proof", "stage_live_verifier_not_implemented");
+  requireCheck(
+    ["api-proof", "core-loop"].includes(stage),
+    "stage_live_verifier_not_implemented",
+  );
   const local = resolve(root, ".local");
   const head = currentHead(root);
   const config = validateTargets(readJson(resolve(local, "config.json")));
@@ -372,16 +433,43 @@ export async function verifyStage(stage, root) {
     registryPath: resolve(local, "api-proof-playlist.json"),
     authorized: true,
   });
+  const core =
+    stage === "core-loop"
+      ? await runSpotifyProof(
+          root,
+          config,
+          {
+            origin: base,
+            appUrl: config.appUrl,
+            projectRef: config.supabaseProjectRef,
+            managementToken,
+            serviceKey,
+            clientId: config.spotifyClientId,
+            encryptionKey: keys.tokenEncryptionKey,
+            bindingKey: keys.ownerBindingKey,
+            ownerFingerprint: rows[0].owner_fingerprint,
+            epoch: account.epoch,
+            cookie: owner.cookie,
+            head,
+            registryPath: resolve(local, "core-proof-registry.json"),
+            authorized: true,
+          },
+          true,
+        )
+      : null;
+  // A background API drain can update lastJobAt. Correlate the natural scheduler's
+  // recorded pg_net request with a successful authenticated jobs HTTP response too.
   // Enqueue actual bounded maintenance, but do not invoke the jobs endpoint or scheduler ourselves.
   const before = Date.now();
-  await rpc("app_job_enqueue", {
+  const pingId = await rpc("app_job_enqueue", {
     p_kind: "scheduler_ping",
     p_epoch: null,
     p_payload: {},
     p_priority: 0,
   });
+  requireCheck(/^[a-f0-9-]{36}$/.test(pingId), "scheduled_probe_job_invalid");
   let scheduled = false;
-  for (let attempt = 0; attempt < 19; attempt++) {
+  for (let attempt = 0; attempt < 36; attempt++) {
     await new Promise((done) => setTimeout(done, 5000));
     const current = await health();
     if (
@@ -389,11 +477,37 @@ export async function verifyStage(stage, root) {
       Date.parse(current.lastSchedulerAt) >= before &&
       Date.parse(current.lastJobAt) >= before
     ) {
-      scheduled = true;
-      break;
+      const observations = await managementQuery(
+        config,
+        managementToken,
+        `select exists(select 1 from app.cron_dispatches d join net._http_response h on h.id=d.request_id where d.dispatched_at>=to_timestamp(${before}/1000.0) and h.status_code=200 and not coalesce(h.timed_out,false) and h.error_msg is null and h.content::jsonb->>'jobsSha'='${head}' and (h.content::jsonb->>'completed')::integer>0) and exists(select 1 from app.jobs where id='${pingId}' and kind='scheduler_ping' and state='done') as confirmed;`,
+      );
+      if (observations[0]?.confirmed === true) {
+        scheduled = true;
+        break;
+      }
     }
   }
   requireCheck(scheduled, "closed_browser_scheduled_job_not_observed");
+  requireCheck(currentHead(root) === head, "verification_head_changed");
+  const finalHealth = await health();
+  requireCheck(
+    ["frontendSha", "apiSha", "jobsSha"].every(
+      (name) => finalHealth[name] === head,
+    ),
+    "deployed_revisions_changed_during_proof",
+  );
+  // Long import/expiry runs must finish with current operator observations too.
+  validateDashboardEvidence(
+    readJson(resolve(local, "deployment-dashboard-evidence.json")),
+    config,
+    head,
+  );
+  validateOperatorEvidence(
+    readJson(resolve(local, "live-operator-evidence.json")),
+    config,
+    head,
+  );
   const receipt = {
     passed: true,
     live: true,
@@ -411,11 +525,12 @@ export async function verifyStage(stage, root) {
       "Bootstrap committed once; immutable owner and encrypted persisted credential path passed.",
       "Live saved-track schema/paging, private ordered add/replace and playlist-only removal passed.",
       "Both containment and current-user playlist collection confirm removal.",
-      "Fresh scheduled maintenance executed after enqueue with app browsers reported closed; no manual jobs invocation.",
+      "Natural scheduler dispatch matched a successful authenticated jobs HTTP response and completed maintenance after enqueue; app browsers reported closed.",
       "Fresh Cloudflare request traces report successful proxy CPU below the Free ceiling.",
     ],
     assertions: {
       ...spotify,
+      ...(core ? { core } : {}),
       scheduledJob: true,
       databaseBytes: rows[0].database_bytes,
       cpuMaxMs: operator.cpu.maxCpuMs,
@@ -426,6 +541,18 @@ export async function verifyStage(stage, root) {
       plans: dashboard.source,
       cpu: operator.cpu.source,
       browsers: operator.closedBrowsers.source,
+      scheduler: "pg_net-response-joined-to-private-scheduler-dispatch",
+      ...(core
+        ? {
+            previewTransport:
+              "unchanged-shared-pacing-and-credential-state-with-no-active-work",
+            previewTransportLimit:
+              "Observes guarded deployed transport side effects; synthetic handler tests separately prove no Spotify dispatch. It is not provider-wide request telemetry.",
+            sync: "fresh-status-and-persisted-stable-completion-transition; matching-set-algorithm-tested-synthetically",
+            expiry:
+              "registered-disposable-deadline-accelerated-to-prior-New-York-date; natural-authenticated-cron",
+          }
+        : {}),
     },
   };
   privateJson(resolve(local, "verification", stage + ".json"), receipt);
