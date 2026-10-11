@@ -134,5 +134,5 @@ try {
     "Synthetic PostgreSQL foundation, role-denial, leases, refresh, pacing, and disconnect checks passed.",
   );
 } finally {
-  await command(["rm", "--force", container]).catch(() => {});
+  await command(["rm", "--force", "--volumes", container]).catch(() => {});
 }

@@ -320,3 +320,88 @@ Deno.test("local decryption failure releases unused refresh lease without losing
   assert(released);
   equal(requests, 0);
 });
+
+for (
+  const header of [
+    "1e308",
+    "999999999999999999999999999999999999",
+    "NaN",
+    "Infinity",
+  ]
+) {
+  Deno.test(`invalid token Retry-After ${header} persists a finite conservative cooldown`, async () => {
+    const encrypted = await box.encrypt(pair, "tokens:1");
+    let released = false;
+    const db = database((name, args) => {
+      if (name === "app_token_claim") {
+        return {
+          action: "refresh",
+          encryptedTokens: encrypted,
+          version: 1,
+          lease: "lease",
+        };
+      }
+      equal(name, "app_token_fail");
+      const wireArgs = JSON.parse(JSON.stringify(args));
+      equal(wireArgs.p_retry_ms, 30000);
+      equal(wireArgs.p_reconnect, false);
+      released = true;
+      return true;
+    });
+    await rejects(
+      () =>
+        new OwnerTokens(
+          db,
+          box,
+          1,
+          "client",
+          () =>
+            mockResponse("", {
+              status: 429,
+              headers: { "Retry-After": header },
+            }),
+        )
+          .getAccessToken(),
+      (error) =>
+        error instanceof SpotifyError && error.kind === "rate_limit" &&
+        error.retryAfterMs === 30000 && !error.ambiguous,
+    );
+    assert(released);
+  });
+}
+Deno.test("errored token 429 stream cannot replace cooldown with reconnect", async () => {
+  const encrypted = await box.encrypt(pair, "tokens:1");
+  let retained = false;
+  const db = database((name, args) => {
+    if (name === "app_token_claim") {
+      return {
+        action: "refresh",
+        encryptedTokens: encrypted,
+        version: 1,
+        lease: "lease",
+      };
+    }
+    equal(name, "app_token_fail");
+    equal(args.p_retry_ms, 60000);
+    equal(args.p_reconnect, false);
+    retained = true;
+    return true;
+  });
+  const request: typeof fetch = () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new Error("synthetic stream failure"));
+      },
+    });
+    return Promise.resolve(
+      new Response(body, { status: 429, headers: { "Retry-After": "60" } }),
+    );
+  };
+  await rejects(
+    () => new OwnerTokens(db, box, 1, "client", request).getAccessToken(),
+    (error) =>
+      error instanceof SpotifyError && error.kind === "rate_limit" &&
+      error.retryAfterMs === 60000 && !error.ambiguous,
+  );
+  assert(retained);
+});

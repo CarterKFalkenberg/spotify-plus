@@ -1,6 +1,7 @@
 import type { Database } from "./database.ts";
 import { SecretBox } from "./crypto.ts";
 import { SpotifyError } from "./spotify.ts";
+import { retryAfter } from "./retry-after.ts";
 
 export interface TokenPair {
   accessToken: string;
@@ -36,17 +37,15 @@ export async function exchangeToken(
   // A 429 is an explicit refusal even when the gateway omitted or mangled JSON.
   // Classify it before decoding; it never means a refresh rotation was ambiguous.
   if (response.status === 429) {
-    const retryAfter = response.headers.get("Retry-After");
-    const seconds = retryAfter === null ? NaN : Number(retryAfter);
-    const dateDelay = retryAfter === null
-      ? NaN
-      : Date.parse(retryAfter) - Date.now();
-    const delay = Number.isFinite(seconds) && seconds >= 0
-      ? seconds * 1000
-      : Number.isFinite(dateDelay) && dateDelay > 0
-      ? dateDelay
-      : 30000;
-    await response.body?.cancel();
+    const delay = Math.max(
+      1000,
+      retryAfter(response.headers.get("Retry-After"), Date.now()) ?? 30000,
+    );
+    try {
+      await response.body?.cancel();
+    } catch {
+      /* Body cleanup cannot override a known refusal and its cooldown. */
+    }
     throw new SpotifyError("rate_limit", 429, delay);
   }
   let data: Record<string, unknown>;
