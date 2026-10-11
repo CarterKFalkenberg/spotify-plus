@@ -24,7 +24,6 @@ test("private landing has an accessible connection path and responsive layout", 
   await expect(
     page.getByText("Your Liked Songs are never changed.", { exact: false }),
   ).toBeVisible();
-  await expect(page.getByText("SETUP PREVIEW", { exact: true })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -78,7 +77,9 @@ test("renewal warning and expired connection keep an explicit reconnect action",
 }) => {
   await session(page, { ...connected, reconnectWarning: "seven_days" });
   await page.goto("/");
-  await expect(page.getByRole("status")).toContainText("Reconnect soon");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Reconnect soon" }),
+  ).toContainText("Reconnect soon");
   await expect(
     page.getByRole("link", { name: "Reconnect Spotify" }),
   ).toBeVisible();

@@ -100,7 +100,7 @@ describe("fixed same-origin proxy", () => {
       },
     );
     const response = await handleRequest(
-      request("/api/disconnect?upstream=https://evil.test", {
+      request("/api/disconnect", {
         method: "POST",
         headers: {
           cookie: "session=synthetic",
@@ -232,6 +232,109 @@ describe("fixed same-origin proxy", () => {
         )
       ).status,
     ).toBe(503);
+    expect(remote).not.toHaveBeenCalled();
+  });
+});
+
+describe("core product proxy boundary", () => {
+  const post = (
+    path: string,
+    body = "{}",
+    headers: Record<string, string> = {},
+  ) =>
+    request(path, {
+      method: "POST",
+      headers: {
+        origin: env.APP_ORIGIN,
+        "content-type": "application/json",
+        ...headers,
+      },
+      body,
+    });
+  it.each([
+    "/api/library/status",
+    "/api/tags?search=chill%20%26%20slow&limit=20",
+    "/api/playlists?cursor=abcdefghijklmnop&limit=50",
+  ])("forwards bounded GET %s to the fixed product backend", async (path) => {
+    const remote = vi.fn(async (url: URL | RequestInfo) => {
+      expect(String(url)).toBe(
+        `${env.SUPABASE_ORIGIN}/functions/v1/api${path}`,
+      );
+      return Response.json({});
+    });
+    expect((await handleRequest(request(path), env, remote)).status).toBe(200);
+    expect(remote).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    "/api/library/sync",
+    "/api/library/search",
+    "/api/library/acknowledge",
+    "/api/tags",
+    "/api/tag-actions",
+    "/api/tag-actions/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/undo",
+    "/api/query/preview",
+    "/api/playlists",
+    "/api/playlists/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/actions",
+  ])("forwards authorized POST %s", async (path) => {
+    const remote = vi.fn(async () => Response.json({}, { status: 202 }));
+    expect((await handleRequest(post(path), env, remote)).status).toBe(202);
+    expect(remote).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    "/api/tags?search=a&search=b",
+    "/api/tags?limit=101",
+    "/api/tags?limit=01",
+    "/api/tags?limit=2.5",
+    "/api/tags?limit=-1",
+    "/api/tags?cursor=abcdefghijklmnop",
+    "/api/playlists?cursor=bad",
+    "/api/playlists?upstream=https://evil.test",
+    "/api/library/status?anything=1",
+    "/api/tags?search=" + "a".repeat(201),
+    "/api/playlists?limit=1&limit=2",
+  ])("rejects invalid query %s", async (path) => {
+    const remote = vi.fn();
+    expect((await handleRequest(request(path), env, remote)).status).toBe(400);
+    expect(remote).not.toHaveBeenCalled();
+  });
+  it("enforces origin, content type, and actual streamed body size before forwarding", async () => {
+    const remote = vi.fn();
+    expect(
+      (
+        await handleRequest(
+          post("/api/playlists", "{}", { origin: "https://evil.test" }),
+          env,
+          remote,
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await handleRequest(
+          post("/api/playlists", "{}", { "content-type": "text/plain" }),
+          env,
+          remote,
+        )
+      ).status,
+    ).toBe(415);
+    expect(
+      (
+        await handleRequest(
+          post("/api/playlists", "a".repeat(16385)),
+          env,
+          remote,
+        )
+      ).status,
+    ).toBe(413);
+    expect(remote).not.toHaveBeenCalled();
+  });
+  it.each([
+    "/api/playlists/arbitrary/actions",
+    "/api/tag-actions/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/delete",
+    "/api/playlists/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/actions/extra",
+  ])("does not widen dynamic routing for %s", async (path) => {
+    const remote = vi.fn();
+    expect((await handleRequest(post(path), env, remote)).status).toBe(404);
     expect(remote).not.toHaveBeenCalled();
   });
 });

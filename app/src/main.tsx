@@ -9,6 +9,7 @@ import {
 } from "react-router";
 import { disconnect, readSession, type Session } from "./session";
 import "./style.css";
+import { Workspace } from "./Workspace";
 const authErrors: Readonly<Record<string, { title: string; detail: string }>> =
   {
     consent_denied: {
@@ -134,17 +135,25 @@ function Home() {
   const connected = session?.authenticated;
   return (
     <>
-      <div className="eyebrow">YOUR LIBRARY, IN YOUR WORDS</div>
-      <h1>
-        Good music.
-        <br />
-        <span>Your kind of order.</span>
-      </h1>
-      <p className="intro">
-        A quiet place for your Liked Songs, personal tags, and playlists for the
-        moment.
-      </p>
-      <section className="connection-card" aria-labelledby="connection-title">
+      {!connected && (
+        <>
+          <div className="eyebrow">YOUR LIBRARY, IN YOUR WORDS</div>
+          <h1>
+            Good music.
+            <br />
+            <span>Your kind of order.</span>
+          </h1>
+          <p className="intro">
+            A quiet place for your Liked Songs, personal tags, and playlists for
+            the moment.
+          </p>
+        </>
+      )}
+      {connected && <Workspace />}
+      <section
+        className={`connection-card ${connected ? "account-card" : ""}`}
+        aria-labelledby="connection-title"
+      >
         <div className="card-kicker">
           <span className="status-dot" />
           PRIVATE · ONE ACCOUNT
@@ -205,7 +214,7 @@ function Home() {
             <p>
               {session.connection === "reconnect"
                 ? "Your authorization has expired or needs renewing. Reconnect with the same Spotify account."
-                : "Your account is ready for the next step."}
+                : "Your Liked Songs stay yours. Tags and playlists live here."}
             </p>
             {session.reconnectWarning && session.connection !== "reconnect" && (
               <p className="notice" role="status">
@@ -248,30 +257,25 @@ function Home() {
           </>
         )}
       </section>
-      <aside className="stage-note">
-        <span>SETUP PREVIEW</span>
-        <p>
-          Connection and privacy controls are available here. Library sync,
-          tagging, and playlist creation are still being built.
-        </p>
-      </aside>
-      <div className="principles">
-        <div>
-          <span>01</span>
-          <h3>Tag in your own words</h3>
-          <p>Make room for moods, places, and everything between.</p>
+      {!connected && (
+        <div className="principles">
+          <div>
+            <span>01</span>
+            <h3>Tag in your own words</h3>
+            <p>Make room for moods, places, and everything between.</p>
+          </div>
+          <div>
+            <span>02</span>
+            <h3>Make a playlist for now</h3>
+            <p>Choose your tags. Preview the songs. Listen in Spotify.</p>
+          </div>
+          <div>
+            <span>03</span>
+            <h3>Keep the clutter out</h3>
+            <p>Set a retention window, or pin a playlist to keep it.</p>
+          </div>
         </div>
-        <div>
-          <span>02</span>
-          <h3>Make a playlist for now</h3>
-          <p>Choose your tags. Preview the songs. Listen in Spotify.</p>
-        </div>
-        <div>
-          <span>03</span>
-          <h3>Keep the clutter out</h3>
-          <p>Set a retention window, or pin a playlist to keep it.</p>
-        </div>
-      </div>
+      )}
       {confirming && (
         <div className="dialog-backdrop">
           <section
@@ -367,11 +371,11 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
           <h2>What is stored</h2>
           <p>
-            Authorization credentials are encrypted on the server. The app is
-            being built to cache the track metadata needed for tagging, store
-            your tags and playlist queries, and keep three encrypted daily
-            annotation backups. Spotify artwork remains hosted by Spotify.
-            Spotify content is not sent to AI services.
+            Authorization credentials are encrypted on the server. The app
+            caches the track metadata needed for tagging, store your tags and
+            playlist queries, and keep three encrypted daily annotation backups.
+            Spotify artwork remains hosted by Spotify. Spotify content is not
+            sent to AI services.
           </p>
           <p>
             Removed-track metadata is scheduled for deletion after 90 days. Tags
@@ -424,10 +428,10 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
           <h2>Playlist behavior</h2>
           <p>
-            The planned playlist workflow creates private snapshots. Regenerate
-            replaces playlist contents while preserving your Spotify name and
-            other description text. Retention removes an app-managed playlist
-            from Your Library after the displayed expiry date unless you pin or
+            The playlist workflow creates private snapshots. Regenerate replaces
+            playlist contents while preserving your Spotify name and other
+            description text. Retention removes an app-managed playlist from
+            Your Library after the displayed expiry date unless you pin or
             extend it.
           </p>
           <h2>Availability and limits</h2>
@@ -439,8 +443,8 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
           <h2>Current availability</h2>
           <p>
-            This is an internal connection and privacy preview. The full tagging
-            and playlist workflow is not released yet.
+            Library tagging and playlist creation are available. Free hosting
+            can delay sync and cleanup; check their status in the app.
           </p>
         </>
       )}
