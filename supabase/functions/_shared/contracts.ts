@@ -194,8 +194,13 @@ export type LibrarySearchResponse =
   & (
     | { readonly groupBy: null; readonly tracks: readonly TrackDTO[] }
     | {
-      readonly groupBy: "artist" | "album" | "decade";
-      readonly groups: readonly (ArtistGroupDTO | LibraryGroupDTO)[];
+      readonly groupBy: "artist";
+      readonly groups: readonly ArtistGroupDTO[];
+      readonly totalGroups: number;
+    }
+    | {
+      readonly groupBy: "album" | "decade";
+      readonly groups: readonly LibraryGroupDTO[];
       readonly totalGroups: number;
     }
   );

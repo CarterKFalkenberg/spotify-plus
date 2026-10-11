@@ -385,7 +385,7 @@ export function Library({
                 </article>
               ))}
             </div>
-          ) : (
+          ) : data.groupBy === null ? (
             <div className="track-list">
               {data.tracks.map((track) => (
                 <article className="track-row" key={track.trackKey}>
@@ -457,7 +457,7 @@ export function Library({
                 </article>
               ))}
             </div>
-          )}
+          ) : null}
           {filter.artistId && (
             <button
               className="compact"
