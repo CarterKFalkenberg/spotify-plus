@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+node -e 'if (process.versions.node.split(".")[0] !== "24") { console.error("Node 24 is required"); process.exit(1); }'
+node --test tests/*.test.mjs
+npm run typecheck
+npm run format:check
+npm test
+npm run build
+npm run test:browser
+deno task check
+deno check --no-remote scripts/live/spotify-proof.ts supabase/tests/database/rest.ts
+deno test --no-prompt --deny-net --no-remote scripts/live/paced-request_test.ts
+deno task test
+deno lint supabase/functions scripts/live/*.ts supabase/tests/database/rest.ts
+deno fmt --check deno.json supabase/functions supabase/tests/database/run.mjs supabase/tests/database/rest.ts scripts/live/*.ts
+node supabase/tests/database/run.mjs

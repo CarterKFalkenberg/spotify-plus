@@ -100,11 +100,11 @@ export function createApi(
       expiresAt: string;
       authorizedAt: string;
       bootstrap: boolean;
-      sessionHash: string | null;
     },
   ) {
     const profile = await identity(input.pair.accessToken, input.epoch);
-    return await db.rpc<boolean>("app_connect", {
+    const session = opaqueToken();
+    const accepted = await db.rpc<boolean>("app_connect", {
       p_epoch: input.epoch,
       p_account_id: profile.accountId,
       p_owner_fingerprint: await ownerFingerprint(
@@ -118,9 +118,10 @@ export function createApi(
       ),
       p_access_expires_at: input.expiresAt,
       p_authorized_at: input.authorizedAt,
-      p_session_hash: input.sessionHash,
+      p_session_hash: await sha256(session),
       p_bootstrap: input.bootstrap,
     });
+    return accepted ? session : null;
   }
   return async (req: Request): Promise<Response> => {
     if (
@@ -183,7 +184,7 @@ export function createApi(
         if (Date.parse(expiresAt) <= now()) {
           return json({ error: "bootstrap_access_expired" }, 409);
         }
-        const consumed = await persistGrant({
+        const session = await persistGrant({
           epoch: status.epoch,
           pair: {
             accessToken: stringField(body, "accessToken"),
@@ -192,10 +193,11 @@ export function createApi(
           expiresAt,
           authorizedAt,
           bootstrap: true,
-          sessionHash: null,
         });
-        if (!consumed) return json({ error: "bootstrap_conflict" }, 409);
-        return json({ consumed: true });
+        if (!session) return json({ error: "bootstrap_conflict" }, 409);
+        return json({ consumed: true }, 200, {
+          "Set-Cookie": cookie(SESSION_COOKIE, session, 30 * 24 * 60 * 60),
+        });
       }
       if (path === "/auth/spotify/start" && req.method === "GET") {
         const state = opaqueToken(),
@@ -264,8 +266,7 @@ export function createApi(
           !tokens.refreshToken ||
           SPOTIFY_SCOPES.some((scope) => !tokens.scopes?.includes(scope))
         ) return authFailure("missing_scopes");
-        const session = opaqueToken();
-        const accepted = await persistGrant({
+        const session = await persistGrant({
           epoch: grant.epoch,
           pair: {
             accessToken: tokens.accessToken,
@@ -274,9 +275,8 @@ export function createApi(
           expiresAt: new Date(now() + tokens.expiresIn * 1000).toISOString(),
           authorizedAt: new Date(now()).toISOString(),
           bootstrap: false,
-          sessionHash: await sha256(session),
         });
-        if (!accepted) return authFailure("authorization_cancelled");
+        if (!session) return authFailure("authorization_cancelled");
         return redirect(config.origin, [
           CLEAR_OAUTH,
           cookie(SESSION_COOKIE, session, 30 * 24 * 60 * 60),

@@ -1,0 +1,366 @@
+:root {
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #183c34;
+  background: #f7f7ef;
+  font-synthesis: none;
+  font-weight: 400;
+  line-height: 1.6;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+a {
+  color: inherit;
+  text-underline-offset: 4px;
+}
+button,
+.button {
+  font: inherit;
+  cursor: pointer;
+  min-height: 46px;
+  border: 1px solid #c3cfc7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 18px;
+  color: inherit;
+  font-weight: 600;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+:focus-visible {
+  outline: 3px solid #577961;
+  outline-offset: 4px;
+}
+.shell {
+  max-width: 1080px;
+  padding: 0 40px;
+  margin: auto;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 28px 0;
+  border-bottom: 1px solid #dfe4d8;
+}
+.wordmark {
+  font-weight: 730;
+  font-size: 20px;
+  text-decoration: none;
+  letter-spacing: -0.7px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mark {
+  background: #193d33;
+  color: #d8f2a6;
+  display: inline-grid;
+  place-items: center;
+  width: 35px;
+  height: 35px;
+  border-radius: 11px;
+  font-size: 28px;
+  line-height: 1;
+}
+.private-label,
+.muted {
+  color: #607367;
+  font-size: 14px;
+}
+main {
+  padding-top: 64px;
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: 750;
+  color: #526e56;
+}
+h1 {
+  font-size: clamp(38px, 5vw, 66px);
+  letter-spacing: -2.7px;
+  line-height: 1.13;
+  font-weight: 680;
+  margin: 20px 0;
+}
+h1 span {
+  color: #70855e;
+}
+.intro {
+  font-size: 18px;
+  max-width: 550px;
+  color: #617364;
+  margin-bottom: 36px;
+}
+.connection-card {
+  position: relative;
+  max-width: 610px;
+  padding: 30px;
+  border: 1px solid #d3dfcc;
+  border-radius: 18px;
+  background: #fffef8;
+  box-shadow: 0 8px 25px #233c1e06;
+}
+.card-kicker {
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  font-weight: 750;
+  color: #526e56;
+  margin-bottom: 17px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  background: #77964e;
+  border-radius: 100%;
+}
+h2 {
+  font-size: 24px;
+  letter-spacing: -0.65px;
+  line-height: 1.3;
+  margin: 10px 0;
+}
+.connection-card p {
+  max-width: 515px;
+  color: #586c5e;
+  margin: 10px 0 18px;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  background: #193d33;
+  color: #f8ffee;
+  border-color: #193d33;
+  text-decoration: none;
+  padding: 12px 20px;
+  margin: 4px 0 10px;
+}
+.button:hover {
+  background: #285145;
+}
+.connection-card .permission-note {
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 455px;
+  margin: 9px 0 0;
+}
+.notice {
+  background: #f2eedc;
+  border-left: 3px solid #9d8d45;
+  border-radius: 4px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+.notice h2 {
+  font-size: 20px;
+}
+.notice p {
+  margin-bottom: 0;
+}
+.stage-note {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  max-width: 610px;
+  margin: 20px 0 56px;
+}
+.stage-note span {
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: 1px;
+  font-weight: 750;
+  background: #e5ecda;
+  padding: 3px 7px;
+  border-radius: 3px;
+}
+.stage-note p {
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 0;
+  color: #687767;
+}
+.principles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  padding: 30px 0 55px;
+  border-top: 1px solid #dfe4d8;
+}
+.principles span {
+  font-size: 12px;
+  color: #819474;
+}
+.principles h3 {
+  font-size: 17px;
+  margin: 12px 0 7px;
+  letter-spacing: -0.4px;
+}
+.principles p {
+  font-size: 14px;
+  color: #687767;
+  margin: 0;
+  max-width: 245px;
+}
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #dfe4d8;
+  padding: 25px 0 35px;
+  font-size: 12px;
+  color: #687767;
+}
+footer nav {
+  display: flex;
+  gap: 22px;
+}
+.text-button {
+  display: block;
+  border: 0;
+  padding-left: 0;
+  background: transparent;
+  font-size: 13px;
+  text-decoration: underline;
+  color: #687767;
+}
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #14312888;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.dialog {
+  background: #fffef8;
+  max-width: 530px;
+  max-height: 90dvh;
+  overflow: auto;
+  padding: 28px;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px #0003;
+}
+.dialog p {
+  font-size: 14px;
+}
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 25px;
+  flex-wrap: wrap;
+}
+.danger {
+  background: #853c30;
+  color: white;
+  border-color: #853c30;
+}
+.policy {
+  max-width: 670px;
+  margin-bottom: 65px;
+}
+.policy h1 {
+  font-size: 44px;
+  margin-bottom: 35px;
+}
+.policy h2 {
+  font-size: 23px;
+  margin-top: 30px;
+}
+.policy p {
+  color: #526658;
+}
+.policy > a {
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .shell {
+    padding: 0 22px;
+  }
+  header {
+    padding: 22px 0;
+  }
+  .private-label {
+    display: none;
+  }
+  main {
+    padding-top: 42px;
+  }
+  h1 {
+    letter-spacing: -1.6px;
+    font-size: 42px;
+  }
+  .intro {
+    font-size: 16px;
+  }
+  .connection-card {
+    padding: 24px 22px;
+  }
+  .principles {
+    grid-template-columns: 1fr;
+    gap: 25px;
+    padding: 25px 0 38px;
+  }
+  .principles > div {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    column-gap: 8px;
+  }
+  .principles span {
+    grid-row: span 2;
+    margin-top: 1px;
+  }
+  .principles h3 {
+    margin: 0 0 5px;
+  }
+  .principles p {
+    max-width: none;
+  }
+  .stage-note {
+    display: block;
+    margin-bottom: 35px;
+  }
+  .stage-note p {
+    margin-top: 9px;
+  }
+  footer {
+    font-size: 11px;
+  }
+  .dialog {
+    padding: 24px;
+  }
+  .dialog-actions {
+    flex-direction: column;
+  }
+  .dialog-actions button {
+    width: 100%;
+  }
+  .policy h1 {
+    font-size: 36px;
+  }
+}

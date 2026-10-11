@@ -27,6 +27,12 @@ select public.app_connect(1,'synthetic-account',repeat('a',64),true,'ciphertext'
 reset role;
 select pg_temp.assert((public.app_session(repeat('b',64))->>'state')='connected','session authenticates');
 select pg_temp.assert(public.app_session(repeat('c',64)) is null,'unknown session denies');
+select pg_temp.assert((select expires_at=now()+interval '30 days' from app.sessions where token_hash=repeat('b',64)),'verified bootstrap session expires in 30 days');
+savepoint session_expiry;
+update app.sessions set expires_at=now()-interval '1 second' where token_hash=repeat('b',64);
+select pg_temp.assert(public.app_session(repeat('b',64)) is null,'expired bootstrap session denies');
+rollback to savepoint session_expiry;
+release savepoint session_expiry;
 select pg_temp.assert(not public.app_connect(1,'synthetic-account',repeat('a',64),true,'overwrite',now()+interval '1 hour',now(),null,true),'bootstrap consumed once');
 select pg_temp.assert((select encrypted_tokens='ciphertext' from app.credentials),'bootstrap retry does not overwrite grant');
 select pg_temp.assert((select authorization_deadline=authorized_at+interval '6 months' from app.account),'deadline anchored to original authorization');

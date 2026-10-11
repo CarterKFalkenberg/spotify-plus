@@ -82,6 +82,15 @@ try {
     ),
   );
   await sql(
+    await readFile(
+      new URL(
+        "../../migrations/20261011000300_safeupdate_rpc.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  await sql(
     await readFile(new URL("./foundation.sql", import.meta.url), "utf8"),
   );
   await sql(

@@ -19,7 +19,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm install -g wrangler
 ```
 
-Use Homebrew's printed Node path if different. `node --version` should show 24; setup helpers also support 22+. Node builds the frontend, Deno checks backend functions, Supabase CLI handles the database/functions, and Wrangler deploys the frontend/proxy. Project dependencies will be pinned during the build. [Supabase CLI](https://supabase.com/docs/reference/cli/introduction), [Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/general/).
+Use Homebrew's printed Node path if different. `node --version` should show 24; setup helpers also support 22+. Node builds the frontend, Deno checks backend functions, Supabase CLI handles the database/functions, and Wrangler deploys the frontend/proxy. Application tooling is pinned in `.node-version` and `package-lock.json`; install with `npm ci`. Use the local package Wrangler through `npx wrangler` for application deployment. [Supabase CLI](https://supabase.com/docs/reference/cli/introduction), [Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/general/).
 
 Authenticate:
 
@@ -100,7 +100,7 @@ Check `.local/config.json`: Spotify identifiers, Supabase reference, Cloudflare 
 
 The build transfers secrets using a private ignored env file with `supabase secrets set --env-file ... --project-ref ...` and Wrangler stdin. No values in command arguments, Git, model output or browser bundles. [Supabase secrets](https://supabase.com/docs/guides/functions/secrets).
 
-The first milestone imports the Spotify grant once, preserves its original authorization date, removes the local raw grant, and leaves a non-secret `.local/spotify-bootstrap-consumed.json` receipt. Back up runtime encryption/annotation keys in your password manager; losing them prevents recovery. Never paste secret files into chat.
+The first milestone imports the Spotify grant once and preserves its original authorization date. After a fresh Spotify identity check, the API commits its encrypted credentials and opaque session hash in the same owner-binding transaction, then issues a secure HttpOnly cookie. This completes the setup OAuth login the user already authorized; it does not claim fresh hosted consent. The helper saves the cookie privately in `.local/owner-session.json` with source `verified-bootstrap-oauth`, removes the raw local grant only after confirmed consumption, and leaves a non-secret `.local/spotify-bootstrap-consumed.json` receipt. A lost committed import response cannot be replayed to obtain another cookie; normal hosted PKCE remains the recovery login. See [operator and live verification instructions](../scripts/LIVE-VERIFICATION.md) for exact checks, Free-plan evidence and redaction rules. Back up runtime encryption/annotation keys in your password manager; losing them prevents recovery. Never paste secret files into chat.
 
 ## 6. Authorize the concrete build scope once
 
@@ -121,13 +121,15 @@ The user started the native goal on October 11, 2026 after setup/preflight had p
 node scripts/connect-spotify.mjs
 ```
 
-Open the printed URL, verify the Spotify account and consent. Keep port 3000 free. The helper validates state/account/scopes and saves `.local/spotify-bootstrap.json` with mode 600. It reads only account identity and makes no playlist changes.
+Open the printed URL, verify the Spotify account and consent. Keep port 3000 free. The helper validates state/account/scopes and saves `.local/spotify-bootstrap.json` with mode 600. It reads only account identity and makes no playlist changes. If the import helper reports `bootstrap_refresh_ambiguous_reconnect_required`, a previous refresh may have rotated the token before its response was lost. Do not remove the saved `refreshAttemptedAt` marker or retry the old grant. Complete this setup OAuth flow again; the new grant replaces the entire marked file and allows import to proceed safely.
 
 ```sh
 ./scripts/build --check
 ```
 
 `--check` is permitted during the native goal and only checks configuration/access. The first live milestone must still prove actual free plans, quotas, API behavior and scheduled execution. The optional `./scripts/build` (or `caffeinate -i ./scripts/build`) starts a separate unattended build in `codex/build-mvp`; use it only when the native goal is inactive. Its lock does not coordinate the native goal, so do not run both. The same skills, PR and milestone gates apply to either route.
+
+The disposable local proof is `node scripts/check-supabase.mjs` (coordinate ports 61021–61030). It uses synthetic data and actual PostgREST with safe-update protection active, so direct administrative SQL success cannot hide an RPC failure. The [operator instructions](../scripts/LIVE-VERIFICATION.md#local-checks) describe source snapshots, empty void responses, transaction/recovery assertions and teardown. Apply the additive safe-update correction before retrying bootstrap or relying on jobs; do not disable database protections to make a request pass.
 
 ## Free-tier operation and remaining human checks
 
