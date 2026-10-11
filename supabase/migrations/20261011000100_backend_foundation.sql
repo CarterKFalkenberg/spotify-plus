@@ -9,6 +9,7 @@ create table app.account (
   singleton boolean primary key default true check (singleton),
   epoch bigint not null default 1,
   account_id text,
+  owner_fingerprint text check (length(owner_fingerprint)=64),
   state text not null default 'disconnected' check (state in ('disconnected','connected','reconnect','disconnecting')),
   authorized_at timestamptz,
   authorization_deadline timestamptz,
@@ -72,7 +73,7 @@ create function public.app_health() returns jsonb language sql security definer 
  from app.runtime_health;
 $$;
 create function public.app_account_status() returns jsonb language sql security definer set search_path = '' as $$
- select jsonb_build_object('epoch',epoch,'state',state,'bootstrapConsumed',bootstrap_consumed) from app.account;
+ select jsonb_build_object('epoch',epoch,'state',state,'bootstrapConsumed',bootstrap_consumed,'ownerBound',owner_fingerprint is not null) from app.account;
 $$;
 create function public.app_oauth_start(p_state_hash text,p_browser_hash text,p_encrypted_verifier text)
  returns bigint language plpgsql security definer set search_path = '' as $$
@@ -97,18 +98,20 @@ create function public.app_oauth_consume(p_state_hash text,p_browser_hash text) 
   return jsonb_build_object('epoch',s.epoch,'encryptedVerifier',s.encrypted_verifier);
  end;
 $$;
-create function public.app_connect(p_epoch bigint,p_account_id text,p_encrypted_tokens text,
+create function public.app_connect(p_epoch bigint,p_account_id text,p_owner_fingerprint text,p_initial_owner_verified boolean,p_encrypted_tokens text,
  p_access_expires_at timestamptz,p_authorized_at timestamptz,p_session_hash text,p_bootstrap boolean default false)
  returns boolean language plpgsql security definer set search_path = '' as $$
  declare a app.account;
  begin
   select * into a from app.account for update;
   if a.epoch<>p_epoch or a.state='disconnecting' then return false; end if;
-  if a.account_id is not null and a.account_id<>p_account_id then raise exception 'wrong_account'; end if;
-  if p_bootstrap and a.bootstrap_consumed then return false; end if;
+  if (a.owner_fingerprint is null and not p_initial_owner_verified)
+    or (a.owner_fingerprint is not null and a.owner_fingerprint<>p_owner_fingerprint)
+    or p_owner_fingerprint is null or length(p_owner_fingerprint)<>64 then raise exception 'wrong_account'; end if;
+  if p_bootstrap and (a.bootstrap_consumed or a.state<>'disconnected' or a.owner_fingerprint is not null) then return false; end if;
   if p_account_id is null or p_account_id='' or p_authorized_at>now()+interval '1 minute'
     or p_authorized_at + interval '6 months' <= now() then raise exception 'invalid_authorization'; end if;
-  update app.account set account_id=p_account_id,state='connected',authorized_at=p_authorized_at,
+  update app.account set account_id=p_account_id,owner_fingerprint=p_owner_fingerprint,state='connected',authorized_at=p_authorized_at,
     authorization_deadline=p_authorized_at+interval '6 months',bootstrap_consumed=bootstrap_consumed or p_bootstrap;
   insert into app.credentials(singleton,epoch,encrypted_tokens,access_expires_at)
     values(true,a.epoch,p_encrypted_tokens,p_access_expires_at)
@@ -150,6 +153,9 @@ create function public.app_token_claim(p_epoch bigint,p_force_version bigint def
   if c.access_expires_at>now()+interval '60 seconds' and (p_force_version is null or p_force_version<>c.version) then
     return jsonb_build_object('action','cached','encryptedTokens',c.encrypted_tokens,'version',c.version);
   end if;
+  if exists(select 1 from app.spotify_pacing where cooldown_until>now()) then
+    return (select jsonb_build_object('action','cooldown','retryAfterMs',ceil(extract(epoch from(cooldown_until-now()))*1000)) from app.spotify_pacing);
+  end if;
   lease:=gen_random_uuid();
   update app.credentials set refresh_lease=lease,refresh_until=now()+interval '45 seconds';
   return jsonb_build_object('action','refresh','encryptedTokens',c.encrypted_tokens,'version',c.version,'lease',lease);
@@ -187,7 +193,7 @@ create function public.app_pacing_acquire(p_epoch bigint,p_interval_ms integer) 
  language plpgsql security definer set search_path = '' as $$
  declare p app.spotify_pacing; available timestamptz; t timestamptz;
  begin
-  perform 1 from app.account where epoch=p_epoch and state='connected' for share;
+  perform 1 from app.account where epoch=p_epoch and state<>'disconnecting' for share;
   if not found then raise exception 'inactive_epoch'; end if;
   if p_interval_ms<500 or p_interval_ms>60000 then raise exception 'invalid_pacing'; end if;
   select * into p from app.spotify_pacing for update;
@@ -200,7 +206,7 @@ $$;
 create function public.app_pacing_defer(p_epoch bigint,p_retry_ms bigint,p_kind text) returns void
  language plpgsql security definer set search_path = '' as $$
  begin
-  perform 1 from app.account where epoch=p_epoch and state='connected' for share;
+  perform 1 from app.account where epoch=p_epoch and state<>'disconnecting' for share;
   if not found then return; end if;
   if p_kind not in ('rate_limit','quota') or p_retry_ms<0 then raise exception 'invalid_cooldown'; end if;
   update app.spotify_pacing set cooldown_until=greatest(cooldown_until,clock_timestamp()+make_interval(secs=>greatest(p_retry_ms,case when p_kind='quota' then 21600000 else 30000 end)/1000.0)),cooldown_kind=p_kind;
@@ -280,7 +286,8 @@ create function public.app_jobs_started(p_sha text) returns void language sql se
 $$;
 
 -- Later feature migrations extend this purge transaction with their tables. Keep the account
--- epoch tombstone; immutable owner identity is configured server-side, outside product data.
+-- epoch and keyed owner fingerprint as minimal server authentication configuration. The
+-- fingerprint cannot be rebound by a later login and contains no raw Spotify identifier.
 create function app.purge_product_data() returns void language sql set search_path = '' as $$
  delete from app.credentials;
  delete from app.sessions;
@@ -296,6 +303,7 @@ create function public.app_disconnect(p_epoch bigint) returns jsonb
   update app.jobs set state='cancelled',lease_token=null,lease_until=null,payload='{}',last_error=null
     where epoch is not null;
   perform app.purge_product_data();
+  delete from app.jobs where epoch is not null;
   insert into app.jobs(kind,payload,priority) values('purge_backups',jsonb_build_object('epoch',a.epoch+1),1000) returning id into job_id;
   return jsonb_build_object('epoch',a.epoch+1,'jobId',job_id);
  end;
