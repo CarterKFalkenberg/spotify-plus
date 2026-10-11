@@ -1,6 +1,10 @@
 .local
 .local/
 .railway/
+.wrangler/
+supabase/.temp/
+supabase/.branches/
+.dev.vars
 .worktrees/
 .env
 .env.*

@@ -1,6 +1,6 @@
 # Spotify Song Tagger: build plan
 
-Prepared October 10, 2026. This is the implementation proposal for the original [product brief](PRODUCT-BRIEF.md). Product defaults below are proposals until the user ratifies them; no application build or paid infrastructure creation has started.
+Updated October 11, 2026 for the user's [accepted decisions](DECISIONS.md) and strict $0/month budget. This implements the original [product brief](PRODUCT-BRIEF.md). The application has not been built or deployed yet.
 
 ## Outcome and scope
 
@@ -8,9 +8,9 @@ Build one private personal application whose first useful release can connect, s
 
 Keep all five stages in the first useful release. The initial API/hosting proof is internal preparation, not a read-only browser advertised as a release. Preserve every MVP feature in the brief; use later stages to finish throughput, vocabulary gardening, mobile triage, and fault recovery. Deep-link-only audio and snapshot playlists are appropriate MVP boundaries.
 
-## Decisions to ratify
+## Accepted decisions
 
-| Decision | Recommendation | Reason |
+| Decision | Accepted choice | Reason |
 | --- | --- | --- |
 | Default playlist retention | One calendar month; picker has 1 week / 1 month / 3 months / pinned | Disposable by default, without frequent surprise removal |
 | Removed metadata retention | 90 days | Useful short archive, finite Spotify metadata cache |
@@ -19,21 +19,23 @@ Keep all five stages in the first useful release. The initial API/hosting proof 
 | Regenerate name | Preserve the current Spotify name | User renames remain authoritative |
 | Disconnect playlists | Keep existing playlists; explicitly explain that automatic cleanup stops | Disconnect deletes app data, rather than surprising the user with playlist removal |
 | Letter shortcuts | Alt/Option+letter in the focused input; bare letters only outside editable controls | Empty-input S still consumes the first letter of “sad”; emptiness alone cannot solve this conflict |
-| Initial hosting budget | Aim for $10–20/month, ratify a spend ceiling | Three small always-on services; measured usage determines cost |
+| Hosting budget | $0/month; Supabase Free + Cloudflare Workers Free | Scheduled functions replace paid always-on services |
 
-The persistent-annotation key is a minimization design, not a claim that pseudonymized identifiers are exempt from Spotify terms. Delete the annotations, key, credentials, and all derived data on explicit “delete everything.” If the user chooses different defaults, record them in `.local/config.json` before implementation.
+The persistent-annotation key is a minimization design, not a claim that pseudonymized identifiers are exempt from Spotify terms. Delete the annotations, key, credentials, and all derived data on explicit “delete everything.” These choices are already recorded in the configuration template; no repeated product ratification is needed.
 
 ## Architecture
 
-Use **TypeScript, React Router framework mode, Node 24 LTS, PostgreSQL with Drizzle migrations**, and Railway. One codebase builds a web process and a worker process. PostgreSQL stores jobs as well as application data. SQL leases, scheduled timestamps, and retries suffice at one user; Redis would add operations without solving a current problem. React Router supports a Docker-based Node deployment; Node 24 is an LTS release. [React Router deployment docs](https://reactrouter.com/start/framework/deploying), [Node release status](https://nodejs.org/en/about/previous-releases).
+Use **TypeScript, React + Vite + React Router, Supabase PostgreSQL and Edge Functions, and Cloudflare Workers Static Assets**. Node 24 LTS is local build tooling; Supabase functions run on Deno. Use versioned SQL migrations and server-side Supabase RPCs for atomic mutations, leases and query evaluation. Keep transactional logic in SQL functions rather than trying to compose a transaction from separate REST calls. No Redis or permanent server process is needed.
 
-Railway hosts `web`, `worker`, and `Postgres` in one project and environment. Web serves authenticated UI/actions and creates durable jobs. Worker processes import, playlist writes, cleanup, reconciliation and retention independently of browser requests. One worker polls briefly and sleeps when idle. App-open probes can use the shared rate limiter while long walks stay in the worker. Never enable sleep for the worker. The web process remains running initially for predictable phone access.
+Cloudflare serves the frontend and a small same-origin API/OAuth proxy. The proxy only forwards to the fixed configured Supabase origin, adds a server-held proxy secret, strips client-supplied forwarding/secret headers, preserves cookies and redirects, and disables caching on private routes. Keep Spotify tokens and database keys out of this proxy and all browser code. Supabase's `api` function owns Spotify OAuth, opaque sessions and product actions; `jobs` runs the shared durable-job implementation. Spotify remains the only product login; Supabase Auth is not needed.
 
-Budget is an estimate, not a platform quote: Railway Hobby has a $5 minimum including $5 usage, with actual memory, CPU, disk and egress billed by consumption. Small web/worker/database processes suggest roughly $10–20/month initially; measure after deployment. Set a billing alert and a user-chosen hard ceiling, understanding that hitting the ceiling stops services and cleanup. [Railway pricing](https://docs.railway.com/pricing/plans), [cost controls](https://docs.railway.com/pricing/cost-control).
+The function gateway's Supabase JWT check is disabled only for these handlers because they use our Spotify-backed sessions and service authentication. The API checks the proxy secret plus owner session on protected routes; OAuth start/callback have state/PKCE checks. The jobs function requires a separate cron secret held in Vault. Neither disabling gateway JWT verification nor possessing a publishable key authorizes a product action. Tables/RPCs grant no anonymous access; use server-only privileges and explicit grants. [Function authentication](https://supabase.com/docs/guides/functions/auth).
 
-Sites was evaluated. Its private hosting uses ChatGPT identity and its documented unattended update path depends on linked automation. This project specifically requires Spotify login to be the only login and a continuously available worker. Railway is the selected deployment target.
+`pg_cron` checks for due work every minute; `pg_net` invokes `jobs` with a Vault-held secret. Jobs lease rows transactionally, checkpoint small batches and stop before their execution budget. Immediate UI actions can start a bounded drain through the API; cron continues unfinished work if the browser closes. No self-invocation chain or in-memory queue is the durability mechanism. Bound each drain to 90 seconds with lease renewal and cancellation checks; if the platform kills it earlier, the next tick resumes safely. [Scheduling functions](https://supabase.com/docs/guides/functions/schedule-functions).
 
-Repository structure stays small: `app/` for routes/components, `server/` for database, auth, query and Spotify logic, `worker/` for durable jobs, `db/` for schema/migrations, `tests/` for synthetic contracts and browser flows, and `scripts/` for repeatable checks/deployments. No monorepo or separate backend repository.
+The hosting ceiling is **$0**, not a usage estimate. [HOSTING.md](HOSTING.md) compares alternatives, records free quotas and explains pausing. Do not enable paid plans/add-ons or silently upgrade when quotas fail. Live proof must verify free account plans, actual CPU/storage/egress use, and closed-browser cleanup. A paused Supabase project requires dashboard resume; daily jobs are real work, not proof against pausing.
+
+Keep one repository: `app/` for frontend, `proxy/` for the tiny Cloudflare Worker, `supabase/functions/api`, `supabase/functions/jobs` and `supabase/functions/_shared` for the backend, `supabase/migrations/` for SQL, `tests/` for synthetic contracts/browser flows, and `scripts/` for repeatable checks/deployment.
 
 ## Data and authentication
 
@@ -91,7 +93,7 @@ Consent denial and wrong verified account have distinct screens. A 403 screen na
 
 Disconnect first disables the account epoch and cancels/invalidates jobs. In-flight responses cannot restore data after deletion. Purge derived data and tokens immediately, plus annotations for this explicit “delete everything” action. The supported revocation path we found is the user's Spotify account Apps page; link to it and distinguish forgetting local credentials from revoking the grant. Existing playlists follow the ratified policy.
 
-Backups must not silently defeat deletion. Enable daily managed backups only after the API-proof stage verifies the project token can enumerate and delete this database's backups. Daily Railway backups normally last six days, so natural expiry alone misses Spotify's five-day disconnect deadline. Disconnect creates a durable host-cleanup job that deletes every affected backup and verifies absence; it remains runnable without Spotify credentials. Keep a deletion epoch outside restoreable application data, and restore only through the documented procedure, so an old backup cannot re-enable a disconnected account. Do not enable PITR or extra backup copies in the MVP. If scoped backup deletion is unavailable in the actual account, resolve the backup design before enabling it or claiming disconnect complete. [Railway backups](https://docs.railway.com/volumes/backups), [backup API](https://docs.railway.com/integrations/api/manage-volumes).
+Use a private Storage bucket for three daily encrypted annotation backups: tag identities/names, assignment HMACs and necessary key-version information only. Exclude cached Spotify metadata, OAuth tokens, sessions and pending Spotify writes. Keep encryption keys outside the backup. Disconnect invalidates the account epoch, deletes every application backup and confirms absence before reporting application-data deletion complete. Recovery requires an explicit operator action and a currently connected matching account; it cannot restore credentials or restart old playlist jobs. The backup protects against accidental edits, not whole-account loss. Managed provider backup retention is outside the app's direct controls; do not claim byte-level provider erasure. See [hosting backup limits](HOSTING.md).
 
 Keep credentials, screenshots, actual library names and raw responses out of model context, public Git history and build logs. Use synthetic data for AI-assisted UI QA. This is a conservative implementation of the current policy, which covers model ingestion as well as training. [Developer terms](https://developer.spotify.com/terms), [Developer policy](https://developer.spotify.com/policy).
 

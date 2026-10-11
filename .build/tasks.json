@@ -3,12 +3,13 @@
     "id": "api-proof",
     "title": "Prove the real Spotify and deployment contracts",
     "acceptance": [
-      "Pin Node 24 LTS and React Router framework mode, PostgreSQL/Drizzle, Vitest and Playwright; provide npm ci, scripts/check and scripts/verify-stage.mjs.",
-      "Deploy web and worker from the same source on Railway; health reports build SHA and worker heartbeat without sensitive data.",
+      "Pin Node 24 build tooling, React/Vite/React Router, Deno TypeScript functions, Supabase SQL migrations, Vitest and Playwright; provide npm ci, scripts/check and scripts/verify-stage.mjs. Use server-side SQL RPCs for atomic transactions and deny anonymous database access.",
+      "Verify actual Supabase Free and Cloudflare Workers Free plans and available quotas before deployment; $0/month is mandatory. Deploy static frontend/thin same-origin proxy and Supabase api/jobs from the same commit. Health reports frontend/API/jobs SHAs and scheduler heartbeat. Prove proxy CPU fits the free limit.",
+      "Implement pg_cron/pg_net with Vault-held cron authentication, durable leases and bounded resumable drains. Prove a real scheduled job executes with all app browsers closed. Test owner sessions, proxy-secret enforcement and job auth; disabling Supabase JWT checks must not expose protected handlers.",
       "Consume the bootstrap grant once into encrypted database credentials; bind to immutable account_id; production web OAuth uses PKCE and has no profile scopes.",
       "Live probe reads saved tracks without printing metadata, confirms fields and paging, creates one private disposable test playlist, adds and replaces >100 tracks when available, and removes it through DELETE /me/library with playlist-only URI guards.",
       "Prove removal using library containment and current-user playlist membership, not GET /playlists returning 404. Record only redacted contract evidence. Report unsupported cleanup rather than silently using deprecated endpoints.",
-      "Support consent denied, wrong account, ambiguous forbidden access and reconnect states honestly. Implement disconnect data purge and backup deletion design early.",
+      "Support consent denied, wrong account, ambiguous forbidden access and reconnect states honestly. Implement disconnect purge and deletion of private annotation backups early. No managed paid backups; restore must not revive tokens/jobs or disconnected accounts.",
       "This is an internal feasibility gate, not a read-only product release."
     ]
   },
@@ -16,10 +17,10 @@
     "id": "core-loop",
     "title": "Deploy the first useful complete loop",
     "acceptance": [
-      "Automatic resumable worker import; tagging works during import; first complete sync requires verified stable full passes; no generation from partial import.",
+      "Automatic resumable job import with checkpoints across function time limits; tagging works during import; first complete sync requires verified stable full passes; no generation from partial import.",
       "Simple useful bulk artist tagging plus immediate-save tag input, and mobile All/Any/None builder with local count/duration/preview.",
       "Create real private snapshot playlists, durable retry/reconcile for ambiguous writes, retention selection, description disclosure, Open/Extend/Pin/Unpin/Regenerate/Delete actions.",
-      "Worker-driven expiration works with browser closed; cleanup removes only app-managed playlists and reconciles externally removed rows.",
+      "Scheduled expiration works with browser closed; cleanup removes only app-managed playlists and reconciles externally removed rows. Display stale cleanup status and resume overdue work after a free-project pause or quota failure.",
       "App-open probe, manual sync, daily full sync, soft removals with tags preserved, and sensible empty-library states.",
       "Deploy and verify against actual Spotify account. No read-only library handoff qualifies."
     ]
@@ -42,9 +43,9 @@
     "title": "Verify failure recovery, retention and final acceptance",
     "acceptance": [
       "Exercise changing pagination, equal-count membership swaps, worker restarts, timed-out create/add writes, rotated refresh tokens, invalid_grant, 429 Retry-After and QUOTA_EXCEEDED without flooding live Spotify.",
-      "Purge removed metadata at accepted deadline while restoring persistent annotations on re-like; disconnect cancels in-flight jobs and prevents resurrection, with no recoverable derived data left in backups.",
+      "Purge removed metadata at the accepted deadline while restoring persistent annotations on re-like; disconnect cancels in-flight jobs, prevents resurrection and deletes application-controlled backups. Document provider-internal retention limits honestly.",
       "Verify expiry date math in America/New_York including month-end and DST; pin/regenerate/cleanup races are serialized.",
-      "Run production checks, smoke the real private create-regenerate-expire path, verify database restore procedure in an isolated database, and record deploy SHA, evidence and review instructions.",
+      "Run production checks, smoke real private create-regenerate-expire, verify encrypted annotation-backup restore using synthetic data, and record deploy SHAs, evidence and review instructions. Measure database/egress/function usage and recheck both plans remain Free; never upgrade to make tests pass.",
       "Push feature branch and create or update one draft PR, with concise evidence. Attach PR when Codex app tool is available.",
       "Mark software ready for review but keep MVP acceptance pending until the user performs the actual phone <1-minute flow and desktop 3–5-second tagging trial."
     ]

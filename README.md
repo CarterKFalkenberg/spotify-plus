@@ -5,7 +5,9 @@ Personal tags for Spotify Liked Songs, with boolean queries that create disposab
 The product is currently in planning/setup. No live account or deployment has been verified yet.
 
 - [Product brief](docs/PRODUCT-BRIEF.md)
-- [Build plan and proposed decisions](docs/PLAN.md)
+- [Build plan](docs/PLAN.md)
+- [Accepted product decisions](docs/DECISIONS.md)
+- [$0 hosting research and limits](docs/HOSTING.md)
 - [Current Spotify API research](docs/SPOTIFY-API.md)
 - [Complete setup checklist](docs/SETUP.md)
 - [Autonomous build command](docs/AUTONOMY.md)

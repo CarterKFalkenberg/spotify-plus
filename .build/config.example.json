@@ -1,12 +1,16 @@
 {
   "spotifyClientId": "REPLACE_WITH_CLIENT_ID",
   "spotifyExpectedUserId": "REPLACE_WITH_ID_FROM_YOUR_PROFILE_LINK",
-  "railwayProjectId": "REPLACE_WITH_PROJECT_ID",
-  "railwayEnvironmentId": "REPLACE_WITH_PRODUCTION_ENVIRONMENT_ID",
-  "railwayWebServiceId": "REPLACE_WITH_WEB_SERVICE_ID",
-  "railwayWorkerServiceId": "REPLACE_WITH_WORKER_SERVICE_ID",
-  "appUrl": "https://REPLACE_WITH_RAILWAY_DOMAIN",
-  "budgetMonthlyUsd": 20,
+  "supabaseProjectRef": "REPLACE_WITH_PROJECT_REF",
+  "cloudflareAccountId": "REPLACE_WITH_ACCOUNT_ID",
+  "cloudflareWorkerName": "spotify-plus",
+  "appUrl": "https://REPLACE_WITH_WORKERS_DEV_DOMAIN",
+  "budgetMonthlyUsd": 0,
+  "hosting": {
+    "provider": "supabase-cloudflare-free",
+    "supabasePlan": "free",
+    "cloudflarePlan": "free"
+  },
   "product": {
     "playlistRetention": "1_month",
     "removedMetadataRetentionDays": 90,
@@ -17,10 +21,10 @@
     "letterShortcuts": "modified"
   },
   "authorization": {
-    "productDecisionsAccepted": false,
+    "productDecisionsAccepted": true,
     "installDependencies": false,
     "pushFeatureBranchesAndCreateDraftPR": false,
-    "deployToThisRailwayProject": false,
+    "deployToConfiguredFreeHosting": false,
     "createAndRemoveDisposableTestPlaylists": false
   }
 }

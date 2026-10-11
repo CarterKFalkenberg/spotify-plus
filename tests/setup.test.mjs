@@ -1,24 +1,50 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { validateConfig, validateResult, validateReceipt } from '../scripts/build.mjs';
+import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { validateConfig, validateResult, validateReceipt, runtimeEnv } from '../scripts/build.mjs';
 import { sameState, bindAccount, SCOPES } from '../scripts/connect-spotify.mjs';
 
 const example = JSON.parse(readFileSync(new URL('../.build/config.example.json', import.meta.url), 'utf8'));
 export function validConfig() {
   const config = structuredClone(example);
-  for (const key of ['spotifyClientId', 'spotifyExpectedUserId', 'railwayProjectId',
-    'railwayEnvironmentId', 'railwayWebServiceId', 'railwayWorkerServiceId']) config[key] = `test-${key}`;
+  for (const key of ['spotifyClientId', 'spotifyExpectedUserId', 'supabaseProjectRef',
+    'cloudflareAccountId', 'cloudflareWorkerName']) config[key] = `test-${key}`;
   config.appUrl = 'https://tagger.example.test';
   for (const key of Object.keys(config.authorization)) config.authorization[key] = true;
   return config;
 }
 
-test('setup cannot silently accept placeholders or unratified authorization', () => {
+test('accepted product defaults do not authorize deployment or unresolved setup', () => {
   const errors = validateConfig(example);
-  assert.ok(errors.some(e => e.includes('productDecisionsAccepted')));
+  assert.equal(example.authorization.productDecisionsAccepted, true);
+  assert.ok(errors.some(e => e.includes('deployToConfiguredFreeHosting')));
   assert.ok(errors.some(e => e.includes('spotifyClientId')));
   assert.deepEqual(validateConfig(validConfig()), []);
+});
+
+test('zero budget accepts only the selected free plans and rejects stale paid setup', () => {
+  const config = validConfig(); assert.equal(config.budgetMonthlyUsd, 0);
+  for (const budget of [20, -1, '0', null]) {
+    assert.ok(validateConfig({ ...config, budgetMonthlyUsd: budget }).some(e => e.includes('budgetMonthlyUsd')));
+  }
+  for (const key of ['supabasePlan', 'cloudflarePlan']) {
+    assert.ok(validateConfig({ ...config, hosting: { ...config.hosting, [key]: 'paid' } }).some(e => e.includes('paid upgrades')));
+  }
+  assert.ok(validateConfig({ ...config, railwayProjectId: 'old' }).some(e => e.includes('obsolete Railway')));
+});
+
+test('hosting credentials stay in the child environment and obsolete provider credentials are dropped', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'tagger-env-test-'));
+  writeFileSync(resolve(directory, 'supabase-access-token'), 'SYNTHETIC_TOKEN\n');
+  writeFileSync(resolve(directory, 'supabase-db-password'), 'SYNTHETIC_PASSWORD\n');
+  writeFileSync(resolve(directory, 'config.json'), JSON.stringify({ cloudflareAccountId: 'configured-account' }));
+  const env = runtimeEnv(directory, { RAILWAY_TOKEN: 'obsolete', RAILWAY_API_TOKEN: 'obsolete', CLOUDFLARE_ACCOUNT_ID: 'other-account' });
+  assert.equal(env.SUPABASE_ACCESS_TOKEN, 'SYNTHETIC_TOKEN');
+  assert.equal(env.SUPABASE_DB_PASSWORD, 'SYNTHETIC_PASSWORD');
+  assert.equal(env.CLOUDFLARE_ACCOUNT_ID, 'configured-account');
+  assert.equal(env.RAILWAY_TOKEN, undefined); assert.equal(env.RAILWAY_API_TOKEN, undefined);
 });
 
 test('invalid product settings and insecure hosted URLs are rejected', () => {
@@ -35,11 +61,14 @@ test('saying ready without evidence or with blockers never completes a stage', (
 
 test('verification rejects stale deployment, simulated live status and mismatched host', () => {
   const config = validConfig();
-  const receipt = { passed: true, live: true, buildSha: 'abc', deploymentUrl: config.appUrl, evidence: ['assertion passed'] };
+  const receipt = { passed: true, live: true, buildSha: 'abc', deploymentUrl: config.appUrl,
+    deployments: { frontend: 'abc', api: 'abc', jobs: 'abc' }, hostingPlans: { supabase: 'free', cloudflare: 'free' }, evidence: ['assertion passed'] };
   assert.doesNotThrow(() => validateReceipt(receipt, config, 'abc'));
   assert.throws(() => validateReceipt({ ...receipt, live: false }, config, 'abc'));
   assert.throws(() => validateReceipt(receipt, config, 'def'));
   assert.throws(() => validateReceipt({ ...receipt, deploymentUrl: 'https://other.example.test' }, config, 'abc'));
+  assert.throws(() => validateReceipt({ ...receipt, deployments: { ...receipt.deployments, jobs: 'old' } }, config, 'abc'));
+  assert.throws(() => validateReceipt({ ...receipt, hostingPlans: { supabase: 'pro', cloudflare: 'free' } }, config, 'abc'));
 });
 
 test('OAuth state and owner binding reject mismatches and missing immutable identity', () => {

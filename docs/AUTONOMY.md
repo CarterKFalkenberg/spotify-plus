@@ -6,13 +6,15 @@ After [setup](SETUP.md), run one command from the planning checkout:
 ./scripts/build
 ```
 
+The accepted hosting budget is $0/month. The runner rejects positive budgets, paid-plan configuration and obsolete Railway targets. It supplies the configured Supabase credentials through environment variables and selects the Cloudflare account for Wrangler. Each build session must verify the actual provider plans/quotas before deploying; these local checks are not billing verification. Paid upgrades are never an automatic fallback.
+
 It completes all remaining software milestones by default. `--one` runs one milestone, `--check` checks setup, and `--status` shows durable progress without starting Codex. You can also tell this chat “continue the build”; an agent must then read the same brief, decisions and stage ledger, use a worktree, and preserve the same verification boundaries.
 
 The launcher uses ordinary `codex exec` with the configured default model, live web search, automatic approval review, a structured result schema and specific writable paths. This is a local CLI process, not a scheduled desktop automation, background promise, or additional OpenAI API integration. [Official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 It creates/reuses `.worktrees/build` on `codex/build-mvp`, starting from the committed source checkout. `.local` is shared through a symlink so secrets are neither copied nor tracked. Main's files are untouched. Run from the same source checkout on subsequent invocations; do not launch a second runner from the build worktree itself.
 
-For each stage, a fresh Codex invocation reads the complete product brief, researched contracts, ratified config and last stage result. It implements, checks, commits and deploys the exact commit. Then the launcher independently reruns `scripts/check` and `scripts/verify-stage.mjs`, and checks the deployed `/healthz` SHA against Git HEAD. A stage advances only after these gates pass. At most three repair attempts follow a failed independent verification. Merely saying “done” cannot advance the stage.
+For each stage, a fresh Codex invocation reads the complete product brief, researched contracts, ratified config and last stage result. It implements, checks, commits and deploys the exact commit. The launcher reruns `scripts/check` and `scripts/verify-stage.mjs`, requires a receipt for all three deployments and free-plan assertions, then independently checks `/healthz` for matching frontend, API and jobs SHAs. A stage advances only after these gates pass. There are three attempts total, with verification feedback after a failure. Merely saying “done” cannot advance the stage.
 
 The stage verifier is application code to be implemented in the first stage; it must execute meaningful assertions, not replay stored receipts. The launcher tests exercise its control flow with simulated Codex/CLI processes. They do **not** prove future application tests, live Spotify behavior, or deployment work before credentials/setup exist.
 
@@ -28,4 +30,4 @@ The build runs while this machine stays awake, network access is available and C
 caffeinate -i ./scripts/build
 ```
 
-The deployed app's worker continues independently after your Mac stops. A permanent cloud build agent is not needed for the product, and would add credentials, billing and setup. If you later need builds to continue through Mac shutdown, migrate the same runner to a controlled remote environment as a separate requested change.
+Supabase cron and deployed functions run independently after your Mac stops, subject to the free tier's pausing and quota limits described in [HOSTING.md](HOSTING.md). A permanent cloud build agent is not needed. The app runtime can continue while this Mac is off; the local build command cannot.

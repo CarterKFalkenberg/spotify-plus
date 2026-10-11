@@ -20,13 +20,22 @@ function command(executable, args, cwd = root, options = {}) {
 
 export function validateConfig(config) {
   const errors = [];
-  for (const key of ['spotifyClientId', 'spotifyExpectedUserId', 'railwayProjectId',
-    'railwayEnvironmentId', 'railwayWebServiceId', 'railwayWorkerServiceId', 'appUrl']) {
+  for (const key of ['spotifyClientId', 'spotifyExpectedUserId', 'supabaseProjectRef',
+    'cloudflareAccountId', 'cloudflareWorkerName', 'appUrl']) {
     if (typeof config[key] !== 'string' || !config[key] || config[key].includes('REPLACE')) errors.push(`Set ${key}`);
   }
-  try { if (new URL(config.appUrl).protocol !== 'https:') errors.push('appUrl must use HTTPS'); }
+  try {
+    const url = new URL(config.appUrl);
+    if (url.protocol !== 'https:') errors.push('appUrl must use HTTPS');
+    if (url.username || url.password || url.search || url.hash || url.pathname !== '/') errors.push('appUrl must be an origin without credentials, path, query or fragment');
+  }
   catch { errors.push('appUrl must be a valid HTTPS URL'); }
-  if (!Number.isFinite(config.budgetMonthlyUsd) || config.budgetMonthlyUsd <= 0) errors.push('Set a positive budgetMonthlyUsd');
+  if (config.budgetMonthlyUsd !== 0) errors.push('budgetMonthlyUsd must be 0: paid hosting is not authorized');
+  if (config.hosting?.provider !== 'supabase-cloudflare-free' ||
+    config.hosting?.supabasePlan !== 'free' || config.hosting?.cloudflarePlan !== 'free') {
+    errors.push('Use Supabase Free and Cloudflare Workers Free; paid upgrades are not authorized');
+  }
+  if (Object.keys(config).some(key => key.startsWith('railway'))) errors.push('Replace the obsolete Railway configuration using docs/SETUP.md');
   const product = config.product ?? {};
   const enums = { playlistRetention: ['1_week', '1_month', '3_months', 'pinned'],
     returningDesktopHome: ['queue', 'groups_over_100'], disconnectPlaylists: ['keep', 'remove_unpinned', 'remove_all'],
@@ -35,7 +44,7 @@ export function validateConfig(config) {
   if (!Number.isInteger(product.removedMetadataRetentionDays) || product.removedMetadataRetentionDays < 1) errors.push('Choose a positive metadata retention');
   for (const key of ['retainTagAssignments', 'regeneratePreservesSpotifyName']) if (typeof product[key] !== 'boolean') errors.push(`Choose product.${key}`);
   for (const key of ['productDecisionsAccepted', 'installDependencies', 'pushFeatureBranchesAndCreateDraftPR',
-    'deployToThisRailwayProject', 'createAndRemoveDisposableTestPlaylists']) {
+    'deployToConfiguredFreeHosting', 'createAndRemoveDisposableTestPlaylists']) {
     if (config.authorization?.[key] !== true) errors.push(`Authorize ${key} to run the complete unattended build`);
   }
   return errors;
@@ -55,7 +64,9 @@ export function validateResult(result) {
 
 export function validateReceipt(receipt, config, sha) {
   if (receipt.passed !== true || receipt.live !== true || receipt.buildSha !== sha ||
-    receipt.deploymentUrl !== config.appUrl || !Array.isArray(receipt.evidence) || !receipt.evidence.length) {
+    receipt.deploymentUrl !== config.appUrl || !Array.isArray(receipt.evidence) || !receipt.evidence.length ||
+    !['frontend', 'api', 'jobs'].every(name => receipt.deployments?.[name] === sha) ||
+    receipt.hostingPlans?.supabase !== 'free' || receipt.hostingPlans?.cloudflare !== 'free') {
     throw new Error('Stage verification did not prove local checks, live API behavior and the expected deployment.');
   }
 }
@@ -71,9 +82,19 @@ function preflight() {
   const config = JSON.parse(readFileSync(resolve(local, 'config.json'), 'utf8'));
   const errors = validateConfig(config);
   for (const [exe, args] of [['git', ['--version']], ['codex', ['--version']],
-    ['gh', ['auth', 'status']], ['railway', ['status', '--json']], ['docker', ['info']]]) {
+    ['gh', ['auth', 'status']], ['deno', ['--version']], ['supabase', ['--version']],
+    ['wrangler', ['whoami', '--account', config.cloudflareAccountId ?? '', '--json']], ['docker', ['info']]]) {
     try { command(exe, args, root, { env: runtimeEnv() }); }
     catch { errors.push(`Install/authenticate/configure ${exe} (see docs/SETUP.md)`); }
+  }
+  try {
+    const projects = JSON.parse(command('supabase', ['projects', 'list', '--output', 'json'], root, { env: runtimeEnv() }));
+    if (!Array.isArray(projects) || !projects.some(project => project.id === config.supabaseProjectRef)) {
+      errors.push('The authenticated Supabase account cannot see the configured project');
+    }
+  } catch { errors.push('Authenticate Supabase and verify the configured project (see docs/SETUP.md)'); }
+  for (const name of ['supabase-access-token', 'supabase-db-password']) {
+    if (!existsSync(resolve(local, name)) || !readFileSync(resolve(local, name), 'utf8').trim()) errors.push(`Save .local/${name} using docs/SETUP.md`);
   }
   try { command('codex', ['login', 'status']); } catch { errors.push('Authenticate Codex CLI with codex login'); }
   if (Number(process.versions.node.split('.')[0]) < 22) errors.push('Node 22+ is needed for setup; use Node 24 LTS for the application');
@@ -88,10 +109,16 @@ function preflight() {
   return { config, errors };
 }
 
-function runtimeEnv() {
-  const env = { ...process.env };
-  const tokenFile = resolve(local, 'railway-token');
-  if (existsSync(tokenFile)) { env.RAILWAY_TOKEN = readFileSync(tokenFile, 'utf8').trim(); delete env.RAILWAY_API_TOKEN; }
+export function runtimeEnv(directory = local, inherited = process.env) {
+  const env = { ...inherited };
+  delete env.RAILWAY_TOKEN;
+  delete env.RAILWAY_API_TOKEN;
+  for (const [name, key] of [['supabase-access-token', 'SUPABASE_ACCESS_TOKEN'], ['supabase-db-password', 'SUPABASE_DB_PASSWORD']]) {
+    const path = resolve(directory, name);
+    if (existsSync(path)) env[key] = readFileSync(path, 'utf8').trim();
+  }
+  const configPath = resolve(directory, 'config.json');
+  if (existsSync(configPath)) env.CLOUDFLARE_ACCOUNT_ID = JSON.parse(readFileSync(configPath, 'utf8')).cloudflareAccountId;
   return env;
 }
 
@@ -141,10 +168,14 @@ async function run() {
           `Prior result:\n${JSON.stringify(state.lastResult)}\n${repair}\n` +
           `Implement and run appropriate checks; repair failures. Commit on ${branch}, deploy that exact commit, and verify live behavior. ` +
           `Create scripts/check and scripts/verify-stage.mjs if absent. The latter takes the stage ID as its argument and emits only JSON: ` +
-          `{passed:true,live:true,buildSha:<git HEAD>,deploymentUrl:<config appUrl>,evidence:[<redacted assertions>]}. ` +
-          `It must run assertions, not echo a saved success file. /healthz must report the deployed buildSha. ` +
+          `{passed:true,live:true,buildSha:<git HEAD>,deploymentUrl:<config appUrl>,` +
+          `deployments:{frontend:<SHA>,api:<SHA>,jobs:<SHA>},hostingPlans:{supabase:"free",cloudflare:"free"},evidence:[<redacted assertions>]}. ` +
+          `It must run assertions, not echo a saved success file. /healthz must report buildSha, apiBuildSha and jobsBuildSha from the actual deployments. ` +
           `Keep real Spotify content out of model outputs and browser screenshots. Read API data inside assertion scripts only. ` +
-          `Use Railway CLI from this project only; no account changes or unrelated resources. ` +
+          `Use only the configured Supabase project and Cloudflare account/Worker, both on Free plans. ` +
+          `Verify actual plan and quota state before deployment; config declarations are not billing proof. ` +
+          `No paid plans, trials requiring later payment, add-ons, custom domains, account changes or unrelated resources. ` +
+          `Use explicit Supabase --project-ref and a Wrangler config with the configured account_id/name. ` +
           `No merge to main. No subagents. Return ready only with a clean committed tree, passing checks and live deployment. ` +
           `Use blocked/needs_user for unresolved credentials, review denials, platform behavior or required manual actions; do not claim MVP acceptance before the real phone test.`;
         const logFile = resolve(buildDir, `${runId}.log`);
@@ -173,7 +204,11 @@ async function run() {
             { env: runtimeEnv(), timeout: 10 * 60 * 1000 }));
           validateReceipt(receipt, config, sha);
           const healthResponse = await fetch(new URL('/healthz', config.appUrl), { signal: AbortSignal.timeout(20000) });
-          if (!healthResponse.ok || (await healthResponse.json()).buildSha !== sha) throw new Error('Deployed health check does not match this commit.');
+          if (!healthResponse.ok) throw new Error('Deployed health check failed.');
+          const health = await healthResponse.json();
+          if (![health.buildSha, health.apiBuildSha, health.jobsBuildSha].every(value => value === sha)) {
+            throw new Error('Frontend/API/jobs deployments do not all match this commit.');
+          }
           if (command('git', ['status', '--porcelain'], worktree)) throw new Error('Checks modified tracked files; commit and redeploy.');
           state.completed.push({ id: task.id, sha, verifiedAt: new Date().toISOString(), evidence: receipt.evidence });
           saveState(state); finished = true;

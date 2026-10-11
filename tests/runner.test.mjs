@@ -14,12 +14,14 @@ function fixture(mode = 'ready') {
   for (const entry of ['scripts', '.build', '.gitignore']) cpSync(resolve(source, entry), resolve(root, entry), { recursive: true });
   mkdirSync(resolve(root, '.local'), { mode: 0o700 });
   const config = structuredClone(template);
-  for (const key of ['spotifyClientId', 'spotifyExpectedUserId', 'railwayProjectId',
-    'railwayEnvironmentId', 'railwayWebServiceId', 'railwayWorkerServiceId']) config[key] = `test-${key}`;
+  for (const key of ['spotifyClientId', 'spotifyExpectedUserId', 'supabaseProjectRef',
+    'cloudflareAccountId', 'cloudflareWorkerName']) config[key] = `test-${key}`;
   config.appUrl = 'https://tagger.example.test';
   for (const key of Object.keys(config.authorization)) config.authorization[key] = true;
   writeFileSync(resolve(root, '.local/config.json'), JSON.stringify(config));
   writeFileSync(resolve(root, '.local/runtime-keys.json'), '{}');
+  writeFileSync(resolve(root, '.local/supabase-access-token'), 'SYNTHETIC_PLATFORM_TOKEN');
+  writeFileSync(resolve(root, '.local/supabase-db-password'), 'SYNTHETIC_DB_PASSWORD');
   writeFileSync(resolve(root, '.local/spotify-bootstrap.json'), JSON.stringify({
     clientId: config.spotifyClientId, userId: config.spotifyExpectedUserId, accountId: 'synthetic',
     refreshToken: 'SYNTHETIC_TEST_TOKEN', authorizedAt: '2026-10-10T00:00:00Z'
@@ -32,6 +34,7 @@ function fixture(mode = 'ready') {
   const fake = `#!/usr/bin/env node
 const fs = require('node:fs'), cp = require('node:child_process'), path = require('node:path');
 const args = process.argv.slice(2), root = process.env.TAGGER_TEST_ROOT;
+if (args[0] === 'projects') { console.log(JSON.stringify([{id:process.env.TAGGER_TEST_MODE === 'wrong-project' ? 'other' : 'test-supabaseProjectRef'}])); process.exit(0); }
 if (!args.includes('exec')) { console.log('authenticated test tool'); process.exit(0); }
 const input = fs.readFileSync(0, 'utf8');
 const id = input.match(/\"id\": \"([^\"]+)\"/)[1];
@@ -43,13 +46,13 @@ if (process.env.TAGGER_TEST_MODE === 'blocked') {
 const cwd = args[args.indexOf('-C') + 1];
 fs.writeFileSync(path.join(cwd, 'implemented.txt'), fs.readFileSync(log, 'utf8'));
 fs.writeFileSync(path.join(cwd, 'scripts/check'), '#!/bin/sh\\nexit 0\\n');
-fs.writeFileSync(path.join(cwd, 'scripts/verify-stage.mjs'), \`import fs from 'node:fs'; import cp from 'node:child_process'; const config=JSON.parse(fs.readFileSync('.local/config.json')); const sha=cp.execFileSync('git',['rev-parse','HEAD']).toString().trim(); console.log(JSON.stringify({passed:process.env.TAGGER_TEST_MODE!=='fail',live:true,buildSha:sha,deploymentUrl:config.appUrl,evidence:['synthetic fixture assertion']}));\`);
+fs.writeFileSync(path.join(cwd, 'scripts/verify-stage.mjs'), \`import fs from 'node:fs'; import cp from 'node:child_process'; const config=JSON.parse(fs.readFileSync('.local/config.json')); const sha=cp.execFileSync('git',['rev-parse','HEAD']).toString().trim(); console.log(JSON.stringify({passed:process.env.TAGGER_TEST_MODE!=='fail',live:true,buildSha:sha,deploymentUrl:config.appUrl,deployments:{frontend:sha,api:sha,jobs:sha},hostingPlans:{supabase:"free",cloudflare:"free"},evidence:['synthetic fixture assertion']}));\`);
 cp.execFileSync('git', ['add', '.'], {cwd}); cp.execFileSync('git',['commit','-m','synthetic '+id], {cwd});
 fs.writeFileSync(out, JSON.stringify({status:'ready',summary:'synthetic stage',evidence:['synthetic assertion'],blockers:[]}));
 `;
-  for (const exe of ['codex', 'gh', 'railway', 'docker']) writeFileSync(resolve(bin, exe), fake, { mode: 0o755 });
+  for (const exe of ['codex', 'gh', 'deno', 'supabase', 'wrangler', 'docker']) writeFileSync(resolve(bin, exe), fake, { mode: 0o755 });
   const preload = resolve(root, '.local/mock-fetch.mjs');
-  writeFileSync(preload, `import cp from 'node:child_process'; globalThis.fetch=async()=>({ok:true,json:async()=>({buildSha:cp.execFileSync('git',['rev-parse','HEAD'],{cwd:process.env.TAGGER_TEST_ROOT+'/.worktrees/build'}).toString().trim()})});`);
+  writeFileSync(preload, `import cp from 'node:child_process'; globalThis.fetch=async()=>({ok:true,json:async()=>{const sha=cp.execFileSync('git',['rev-parse','HEAD'],{cwd:process.env.TAGGER_TEST_ROOT+'/.worktrees/build'}).toString().trim();return {buildSha:sha,apiBuildSha:sha,jobsBuildSha:sha};}});`);
   const env = { ...process.env, PATH: bin + ':' + process.env.PATH, TAGGER_TEST_ROOT: root,
     TAGGER_TEST_MODE: mode, NODE_OPTIONS: `--import=${preload}` };
   const run = args => spawnSync(process.execPath, ['scripts/build.mjs', ...args], { cwd: root, env, encoding: 'utf8', timeout: 30000 });
@@ -68,6 +71,12 @@ test('runner completes stages, preserves main, ignores secrets, and resumes with
   const calls = readFileSync(resolve(f.root, '.local/calls'), 'utf8');
   const again = f.run([]); assert.equal(again.status, 0, again.stderr);
   assert.equal(readFileSync(resolve(f.root, '.local/calls'), 'utf8'), calls);
+});
+
+test('preflight stops before Codex if the configured Supabase project is inaccessible', () => {
+  const f = fixture('wrong-project'); const result = f.run([]);
+  assert.equal(result.status, 1); assert.match(result.stderr, /cannot see the configured project/);
+  assert.equal(existsSync(resolve(f.root, '.local/calls')), false);
 });
 
 test('needs-user results preserve unfinished state and release the lock', () => {
