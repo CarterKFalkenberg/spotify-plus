@@ -13,6 +13,7 @@ import type {
   TrackDTO,
   UndoTagActionResponse,
 } from "../../supabase/functions/_shared/contracts.ts";
+import { parseQuery } from "../../supabase/functions/_shared/contracts.ts";
 import { ServiceDatabase } from "../../supabase/functions/_shared/database.ts";
 import {
   ownerFingerprint,
@@ -136,6 +137,29 @@ export function assertPreview(
     );
   }
 }
+export function assertPreviewPage(
+  expected: StoredQuery,
+  first: QueryPreviewResponse,
+  page: QueryPreviewResponse,
+) {
+  let sameQuery = false;
+  try {
+    sameQuery = JSON.stringify(parseQuery(expected)) ===
+      JSON.stringify(parseQuery(page.query));
+  } catch {
+    throw new ProofFailure("core_preview_query_invalid");
+  }
+  check(
+    first.revision.library === page.revision.library &&
+      first.revision.annotations === page.revision.annotations &&
+      first.matchedCount === page.matchedCount &&
+      first.playableCount === page.playableCount &&
+      first.excludedCount === page.excludedCount &&
+      first.generationReady === page.generationReady && sameQuery &&
+      first.durationMs === page.durationMs,
+    "core_preview_revision_changed",
+  );
+}
 export async function runCoreProof(input: Input) {
   check(input.authorized === true, "core_playlist_authorization_required");
   check(
@@ -176,6 +200,13 @@ export async function runCoreProof(input: Input) {
     } catch {
       throw new ProofFailure("core_operator_schema_failed");
     }
+  };
+  const fixtureStatement = async (query: string) => {
+    const result = await sql<{ ok: boolean }>(query, false);
+    check(
+      result.length === 1 && result[0].ok === true,
+      "core_fixture_statement_unconfirmed",
+    );
   };
   const api = async <T>(
     path: string,
@@ -266,7 +297,7 @@ export async function runCoreProof(input: Input) {
         "core_recovery_create_outcome_unconfirmed",
       );
       await waitQuiet();
-      await sql(cleanupFixturesSql(old, true), false);
+      await fixtureStatement(cleanupFixturesSql(old, true));
       old.phase = "cleaned";
       await save(old);
       throw new ProofFailure("core_previous_fixture_cleaned_rerun");
@@ -329,12 +360,12 @@ export async function runCoreProof(input: Input) {
     await save(r);
     r.phase = "inserting";
     await save(r);
-    await sql(insertFixturesSql(r), false);
+    await fixtureStatement(insertFixturesSql(r));
     r.phase = "fixtures";
     await save(r);
     try {
       await tagging(r);
-      await sql(cleanupFixturesSql(r, false), false);
+      await fixtureStatement(cleanupFixturesSql(r, false));
       r.phase = "tracks-cleaned";
       await save(r);
       const query: StoredQuery = {
@@ -446,21 +477,18 @@ export async function runCoreProof(input: Input) {
         p.trackCount === regeneratedPreview.page.playableCount,
         "core_regenerate_count_failed",
       );
-      // Every API-triggered drain is bounded to80s. Wait100s AFTER its final action and require
+      // Every API-triggered drain is bounded to 80s. Wait 100s after its final action and require
       // no live leases/due jobs before making the recorded playlist due. Never invoke jobs/tick.
-      await sleep(100000);
+      await sleep(50000);
+      await sleep(50000);
       await waitQuiet();
       const before = await sql<{ boundary: string }>(
         "select clock_timestamp()::text as boundary;",
       );
-      await sql(duePlaylistSql(r), false);
-      await db.rpc("app_job_enqueue", {
-        p_kind: "scheduler_ping",
-        p_epoch: null,
-        p_payload: {},
-        p_priority: 0,
-      });
-      await waitRemoved(r);
+      await fixtureStatement(duePlaylistSql(r));
+      // Natural maintenance may take fifteen minutes, followed by minute dispatch
+      // and bounded worker drains. This proof never queues scheduler work.
+      await waitRemoved(r, 240);
       let scheduled = false;
       for (let i = 0; i < 24; i++) {
         scheduled = await cronEvidence(before[0].boundary, r);
@@ -472,7 +500,7 @@ export async function runCoreProof(input: Input) {
       r.phase = "removed";
       await save(r);
       await waitQuiet();
-      await sql(cleanupFixturesSql(r, true), false);
+      await fixtureStatement(cleanupFixturesSql(r, true));
       r.phase = "cleaned";
       await save(r);
       return {
@@ -545,6 +573,7 @@ export async function runCoreProof(input: Input) {
     let cursor: string | null = null;
     let first: QueryPreviewResponse | null = null;
     const tracks: TrackDTO[] = [];
+    const cursors = new Set<string>();
     do {
       const p: QueryPreviewResponse = await api("/query/preview", {
         query,
@@ -552,16 +581,18 @@ export async function runCoreProof(input: Input) {
         limit: 100,
       });
       first ??= p;
-      check(
-        JSON.stringify(first.revision) === JSON.stringify(p.revision) &&
-          first.matchedCount === p.matchedCount &&
-          first.playableCount === p.playableCount &&
-          first.durationMs === p.durationMs,
-        "core_preview_revision_changed",
-      );
+      assertPreviewPage(query, first, p);
       tracks.push(...p.tracks);
       cursor = p.nextCursor;
-      check(tracks.length <= 100000, "core_preview_unbounded");
+      check(
+        cursor === null || typeof cursor === "string" && !cursors.has(cursor),
+        "core_preview_paging_invalid",
+      );
+      if (cursor !== null) cursors.add(cursor);
+      check(
+        tracks.length <= 100000 && cursors.size <= 1000,
+        "core_preview_unbounded",
+      );
     } while (cursor !== null);
     assertPreview(first!, tracks);
     return { page: first!, tracks };
@@ -596,6 +627,31 @@ export async function runCoreProof(input: Input) {
         groups.groups[0].trackCount === 2,
       "core_fixture_groups_failed",
     );
+    const safeGroup = (page: LibrarySearchResponse) => {
+      check(
+        page.groupBy === "artist" && page.groups.length === 1 &&
+          page.groups[0].artistId === r.artistId,
+        "core_fixture_groups_failed",
+      );
+      const selection = page.groups[0].selection;
+      check(
+        selection.kind === "filter" &&
+          JSON.stringify(selection.expectedRevision) ===
+            JSON.stringify(page.revision) &&
+          selection.filter.membership === "active" &&
+          selection.filter.search === fixtureName(r) &&
+          selection.filter.artistId === r.artistId &&
+          selection.filter.untagged === false &&
+          selection.filter.newOnly === false,
+        "core_fixture_selection_unsafe",
+      );
+      return {
+        kind: "filter",
+        filter: { ...filter, artistId: r.artistId },
+        expectedRevision: page.revision,
+      };
+    };
+    const frozenGroup = safeGroup(groups);
     const removed = await search({ membership: "removed" });
     check(removed.totalTracks === 1, "core_fixture_removed_failed");
     const fresh = await search({ newOnly: true });
@@ -622,9 +678,7 @@ export async function runCoreProof(input: Input) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        selection: groups.groupBy === "artist"
-          ? groups.groups[0].selection
-          : null,
+        selection: frozenGroup,
         tagId: r.tagIds[0],
         action: "add",
       }),
@@ -636,7 +690,7 @@ export async function runCoreProof(input: Input) {
       "core_tag_durable_read_failed",
     );
     const bulk = await api<TagActionResponse>("/tag-actions", {
-      selection: now.groups[0].selection,
+      selection: safeGroup(now),
       tagId: r.tagIds[0],
       action: "add",
     });
@@ -773,8 +827,8 @@ export async function runCoreProof(input: Input) {
     }, 202);
     return await waitReady(r);
   }
-  async function waitRemoved(r: CoreRegistry) {
-    for (let i = 0; i < 60; i++) {
+  async function waitRemoved(r: CoreRegistry, attempts = 60) {
+    for (let i = 0; i < attempts; i++) {
       const rows = await sql<{ removed: boolean }>(
         `select status='removed' and active_operation is null as removed from app.playlists where id='${r.playlistId}' and epoch=${r.epoch};`,
       );

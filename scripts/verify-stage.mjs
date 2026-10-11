@@ -203,7 +203,7 @@ export async function verifyStage(stage, root) {
     config,
     head,
   );
-  const operator = validateOperatorEvidence(
+  let operator = validateOperatorEvidence(
     readJson(resolve(local, "live-operator-evidence.json")),
     config,
     head,
@@ -457,38 +457,41 @@ export async function verifyStage(stage, root) {
           true,
         )
       : null;
-  // A background API drain can update lastJobAt. Correlate the natural scheduler's
-  // recorded pg_net request with a successful authenticated jobs HTTP response too.
-  // Enqueue actual bounded maintenance, but do not invoke the jobs endpoint or scheduler ourselves.
-  const before = Date.now();
-  const pingId = await rpc("app_job_enqueue", {
-    p_kind: "scheduler_ping",
-    p_epoch: null,
-    p_payload: {},
-    p_priority: 0,
-  });
-  requireCheck(/^[a-f0-9-]{36}$/.test(pingId), "scheduled_probe_job_invalid");
-  let scheduled = false;
-  for (let attempt = 0; attempt < 36; attempt++) {
-    await new Promise((done) => setTimeout(done, 5000));
-    const current = await health();
-    if (
-      current.jobsSha === head &&
-      Date.parse(current.lastSchedulerAt) >= before &&
-      Date.parse(current.lastJobAt) >= before
-    ) {
-      const observations = await managementQuery(
-        config,
-        managementToken,
-        `select exists(select 1 from app.cron_dispatches d join net._http_response h on h.id=d.request_id where d.dispatched_at>=to_timestamp(${before}/1000.0) and h.status_code=200 and not coalesce(h.timed_out,false) and h.error_msg is null and h.content::jsonb->>'jobsSha'='${head}' and (h.content::jsonb->>'completed')::integer>0) and exists(select 1 from app.jobs where id='${pingId}' and kind='scheduler_ping' and state='done') as confirmed;`,
-      );
-      if (observations[0]?.confirmed === true) {
-        scheduled = true;
-        break;
+  let scheduled = core?.authenticatedScheduledExpiry === true;
+  if (stage === "api-proof") {
+    // A background API drain can update lastJobAt. Correlate the natural scheduler's
+    // recorded pg_net request with a successful authenticated jobs HTTP response too.
+    // Enqueue actual bounded maintenance, but do not invoke the jobs endpoint or scheduler ourselves.
+    const before = Date.now();
+    const pingId = await rpc("app_job_enqueue", {
+      p_kind: "scheduler_ping",
+      p_epoch: null,
+      p_payload: {},
+      p_priority: 0,
+    });
+    requireCheck(/^[a-f0-9-]{36}$/.test(pingId), "scheduled_probe_job_invalid");
+    scheduled = false;
+    for (let attempt = 0; attempt < 36; attempt++) {
+      await new Promise((done) => setTimeout(done, 5000));
+      const current = await health();
+      if (
+        current.jobsSha === head &&
+        Date.parse(current.lastSchedulerAt) >= before &&
+        Date.parse(current.lastJobAt) >= before
+      ) {
+        const observations = await managementQuery(
+          config,
+          managementToken,
+          `select exists(select 1 from app.cron_dispatches d join net._http_response h on h.id=d.request_id where d.dispatched_at>=to_timestamp(${before}/1000.0) and h.status_code=200 and not coalesce(h.timed_out,false) and h.error_msg is null and h.content::jsonb->>'jobsSha'='${head}' and (h.content::jsonb->>'completed')::integer>0) and exists(select 1 from app.jobs where id='${pingId}' and kind='scheduler_ping' and state='done') as confirmed;`,
+        );
+        if (observations[0]?.confirmed === true) {
+          scheduled = true;
+          break;
+        }
       }
     }
+    requireCheck(scheduled, "closed_browser_scheduled_job_not_observed");
   }
-  requireCheck(scheduled, "closed_browser_scheduled_job_not_observed");
   requireCheck(currentHead(root) === head, "verification_head_changed");
   const finalHealth = await health();
   requireCheck(
@@ -503,7 +506,7 @@ export async function verifyStage(stage, root) {
     config,
     head,
   );
-  validateOperatorEvidence(
+  operator = validateOperatorEvidence(
     readJson(resolve(local, "live-operator-evidence.json")),
     config,
     head,
@@ -525,7 +528,9 @@ export async function verifyStage(stage, root) {
       "Bootstrap committed once; immutable owner and encrypted persisted credential path passed.",
       "Live saved-track schema/paging, private ordered add/replace and playlist-only removal passed.",
       "Both containment and current-user playlist collection confirm removal.",
-      "Natural scheduler dispatch matched a successful authenticated jobs HTTP response and completed maintenance after enqueue; app browsers reported closed.",
+      core
+        ? "Natural maintenance discovered the accelerated disposable expiry; authenticated cron response and completed expiry operation were correlated with app browsers reported closed."
+        : "Natural scheduler dispatch matched a successful authenticated jobs HTTP response and completed maintenance after enqueue; app browsers reported closed.",
       "Fresh Cloudflare request traces report successful proxy CPU below the Free ceiling.",
     ],
     assertions: {

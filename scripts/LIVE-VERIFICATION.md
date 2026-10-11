@@ -90,6 +90,98 @@ Run `node scripts/verify-stage.mjs api-proof`. It makes fresh public/direct auth
 
 The Spotify probe outputs only counts and schema/status booleans. It creates one private tracked “Tagger API test …” playlist, adds and replaces 101 usable distinct tracks when available, verifies ordered membership, and removes it using the guarded `DELETE /me/library` route. It checks both containment and current-user playlist absence. The probe’s Deno file permissions permit read/write only for `api-proof-playlist.json` and its `.tmp` sibling; read access to the temporary source is required for atomic rename. Synthetic subprocess tests exercise the actual writer and deny unrelated sibling-file access. The ignored `api-proof-playlist.json` registry is persisted before creation; a lost create response is reconciled by its unique description marker, never blindly replayed. If cleanup is unconfirmed, the registry remains and the next run resolves that tracked playlist before another proof. No Liked Songs writes occur. A rate-limit/quota error stops rather than retrying aggressively.
 
-A successful receipt is saved privately under `.local/verification/` and tied to exact frontend/API/jobs SHAs. A previous receipt is never an input that can pass a new run. Plan/CPU/browser observations are explicitly labelled operator evidence; live requests run again. Other stage IDs currently fail with `stage_live_verifier_not_implemented` until their corresponding application behavior and probes ship. The API proof is internal feasibility setup, not a complete library browser or MVP release.
+A successful receipt is saved privately under `.local/verification/` and tied to exact frontend/API/jobs SHAs. A previous receipt is never an input that can pass a new run. Plan/CPU/browser observations are explicitly labelled operator evidence; live requests run again. The fast-tagging and resilience stage IDs currently fail with `stage_live_verifier_not_implemented` until their corresponding application behavior and probes ship. The API proof is internal feasibility setup, not a complete library browser or MVP release.
 
 CI uses the pinned [Supabase setup action](https://github.com/supabase/setup-cli) and the [Playwright Chromium/dependency setup](https://playwright.dev/docs/ci-intro). It runs the same synthetic check plus the disposable vendor harness without production credentials.
+
+## Core-loop proof and recovery
+
+After the reviewed integrated revision has merged and all three deployments match
+that clean HEAD, refresh the signed-in Free-plan/usage, Worker CPU and closed-app
+browser observations above. The orchestrator alone runs:
+
+```sh
+source /Users/carterfalkenberg/.local/share/spotify-plus/tooling/env.sh
+node scripts/verify-stage.mjs core-loop
+```
+
+This repeats the API proof before running `scripts/live/core-proof.ts`. The core
+child receives credentials through stdin and has read/write permission only for
+its configured private `core-proof-registry.json`, `.tmp` and `.lock` siblings.
+Management credentials stay in that operator process, never runtime or browser
+code. Parent output whitelists fixed booleans and counts; provider bodies, cached
+metadata, real names/IDs and errors are discarded in memory. Never inspect real
+app DOM or capture screenshots during this run.
+
+The proof checks protected product routes, stable import completion, app-open
+probe debounce and a new manual full-sync completion. Stable adjacent-pass set
+comparison, function restart/checkpoints and failure recovery additionally remain
+synthetic SQL/worker assertions; an already completed import does not prove a
+fresh OAuth or actual worker interruption. It creates random isolated annotations,
+null-playable synthetic metadata and two disposable tags under the current owner
+and epoch. Operator fixture SQL serializes account/library state, rejects live
+leases and collisions, and refuses cleanup after changed metadata or foreign
+assignment/action edges. Group/filter selection, immediate durable tags,
+changed-only Undo, normalization, removed annotations, acknowledgement and nested
+All/Any/None semantics operate only on these synthetic rows. Cleanup removes the
+synthetic tracks before the actual library preview, retaining an unassigned test
+tag for a None query. No real assignments, purge or disconnect are changed.
+
+Every cached preview page must share query/revision/counts/duration/readiness;
+aggregate membership, playable exclusions, duration and liked-date/key order are
+checked privately. The deployed observation requires no overlapping jobs and
+unchanged shared Spotify pacing/credential version before and after preview. This
+is observable boundary evidence, not an omniscient count of all network traffic.
+The library/query handler's deny-transport synthetic invariant separately proves
+its code path does not call Spotify.
+
+Creation uses the product's durable intent route and recorded request UUID, then
+waits for confirmed ready state and verifies private ordered remote contents with
+50-item read pages. Writes remain the product worker's 100-item chunks. It checks
+request dedupe, Pin/Unpin/Extend and Regenerate. The narrow operator-only rename
+helper sends one exact `PUT /playlists/{registered-id}` after immutable owner,
+private playlist, registered intent, epoch and app-managed-row checks using owner
+tokens and shared pacing. Only the fixed synthetic name and outside note are sent;
+regeneration must preserve both. The runtime adapter still permits description
+updates only. Official [details](https://developer.spotify.com/documentation/web-api/reference/change-playlist-details)
+and [item read](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items)
+contracts were read October 11, 2026; these source checks do not prove live behavior.
+
+After waiting out the final API background drain and requiring quiet jobs, the
+operator accelerates only the exact registered disposable playlist's app deadline
+to yesterday in America/New_York. This is an accelerated test deadline, not elapsed
+calendar retention. Date/month-end/DST correctness remains synthetic evidence.
+The core proof never enqueues maintenance or invokes jobs/scheduler manually. It
+allows twenty minutes for the existing fifteen-minute maintenance cadence, minute
+cron dispatch and bounded drains, then correlates private `app.cron_dispatches`
+request IDs with successful authenticated `net._http_response` results and the
+completed expiry operation for that playlist. App browsers stay closed throughout.
+The historical API-proof queued maintenance assertion remains API-stage evidence.
+Run the long proof in a yielded command session, poll in intervals under a minute
+and keep the chat responsive; no raw child diagnostics should be forwarded.
+
+Finally, removal must be confirmed by both library containment and current-user
+playlist absence. Only exact registered synthetic rows/tags/actions are cleaned;
+unrelated metadata and assignments survive. The durable removed playlist record
+may remain as lifecycle history. A successful receipt never consumes an old proof.
+Missing permissions, auth, schema, cleanup or cron evidence blocks the stage.
+
+The import/expiry run can outlast the fifteen-minute evidence lifetime. While the
+yielded verifier is running, the orchestrator refreshes the same private dashboard,
+CPU and browser observations through the original measured procedures before the
+final checks. Updating a timestamp without repeating its observation is not fresh
+evidence. Failure to refresh leaves the stage blocked even if playlist cleanup
+completed; a stored receipt cannot bypass the required new proof.
+
+On interruption or ambiguity, preserve the registry and rerun the same command.
+Recovery resolves its recorded durable request/playlist, waits for a safe lifecycle
+state, uses the managed product deletion action if necessary, confirms remote
+absence, and performs exact-ID fixture cleanup. It reports
+`core_previous_fixture_cleaned_rerun`; rerun again for a fresh proof. An ambiguous
+create without a reconciled durable record remains blocked rather than replaying
+Spotify POST. Never remove a registry or edit identifiers to evade that blocker.
+For a leftover `.lock` or `.tmp`, the orchestrator must first verify the previous
+operator process is dead, preserve the private files for inspection/reconciliation,
+and remove only the confirmed stale lock/temp before recovery. Owner/epoch changes,
+foreign edges or metadata edits require explicit operator reconciliation; they are
+never permission to delete unrelated data. Do not print private registry contents.

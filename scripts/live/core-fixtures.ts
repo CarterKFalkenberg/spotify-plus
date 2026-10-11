@@ -95,7 +95,23 @@ function guard(r: CoreRegistry) {
     if exists(select 1 from app.jobs where state='running' and lease_until>clock_timestamp()) then raise exception 'fixture_active_lease'; end if;`;
 }
 function owned(r: CoreRegistry) {
-  return `if exists(select 1 from app.annotations a where a.track_key in (${
+  const exactMetadata = r.trackKeys.map((key, i) => `
+    (m.track_key='${key}' and m.spotify_id='${r.spotifyIds[i]}'
+      and m.added_run_id='${r.run}' and m.title='${fixtureName(r)}'
+      and m.artists='[{"id":"${r.artistId}","name":"Synthetic verification artist"}]'::jsonb
+      and m.album='Synthetic verification album' and m.release_date='2000'
+      and m.duration_ms=1000 and m.explicit=false
+      and m.artwork_url is null and m.spotify_url is null and m.playable_uri is null
+      and m.liked_at='2000-01-0${i + 1}T00:00:00Z'::timestamptz
+      and ${
+    i === 2
+      ? "m.removed_at is not null and m.acknowledged_at is null"
+      : "m.removed_at is null"
+  })`).join(" or ");
+  return `if exists(select 1 from app.track_metadata m where m.track_key in (${
+    strings(r.trackKeys)
+  }) and not (${exactMetadata})) then raise exception 'fixture_ownership_changed'; end if;
+    if exists(select 1 from app.annotations a where a.track_key in (${
     strings(r.trackKeys)
   }) and (a.epoch<>${r.epoch} or not exists(select 1 from app.track_metadata m where m.track_key=a.track_key and m.added_run_id='${r.run}' and m.title='${
     fixtureName(r)
@@ -104,9 +120,13 @@ function owned(r: CoreRegistry) {
   })))) then raise exception 'fixture_ownership_changed'; end if;
     if exists(select 1 from app.tags t where t.id in (${
     strings(r.tagIds)
-  }) and (t.epoch<>${r.epoch} or t.name not in ('${fixtureName(r, 0)}','${
-    fixtureName(r, 1)
-  }'))) then raise exception 'fixture_ownership_changed'; end if;
+  }) and (t.epoch<>${r.epoch} or not (${
+    r.tagIds.map((tag, i) =>
+      `(t.id='${tag}' and t.name='${
+        fixtureName(r, i)
+      }' and t.normalized_name='${fixtureName(r, i).toLowerCase()}')`
+    ).join(" or ")
+  }))) then raise exception 'fixture_ownership_changed'; end if;
     if exists(select 1 from app.track_tags where (track_key in (${
     strings(r.trackKeys)
   }) and tag_id not in (${strings(r.tagIds)})) or (tag_id in (${
@@ -157,9 +177,11 @@ export function cleanupFixturesSql(r: CoreRegistry, tags: boolean): string {
   return `do $fixture$ begin ${guard(r)} ${owned(r)}
     ${
     tags
-      ? `if exists(select 1 from app.playlists where epoch=${r.epoch} and status<>'removed' and query::text like '%${
+      ? `if exists(select 1 from app.playlists where epoch=${r.epoch} and status<>'removed' and (query::text like '%${
+        r.tagIds[0]
+      }%' or query::text like '%${
         r.tagIds[1]
-      }%') then raise exception 'fixture_playlist_remaining'; end if;`
+      }%')) then raise exception 'fixture_playlist_remaining'; end if;`
       : ""
   }
     delete from app.tag_actions where epoch=${r.epoch} and tag_id in (${
