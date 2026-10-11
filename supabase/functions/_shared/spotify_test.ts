@@ -589,6 +589,88 @@ Deno.test("paging validates bounds, echoed offsets, and next links without follo
   );
 });
 
+Deno.test("empty first playlist-items page accepts the observed terminal zero limit", async () => {
+  for (const limit of [1, 50]) {
+    const { client, calls } = harness([json(page([], { limit: 0 }))]);
+    deepStrictEqual(await client.getPlaylistItemsPage(PLAYLIST, { limit }), {
+      items: [],
+      total: 0,
+      offset: 0,
+      limit: 0,
+      nextOffset: null,
+    });
+    strictEqual(calls[0].url.searchParams.get("limit"), String(limit));
+  }
+});
+
+Deno.test("zero playlist-items limit rejects inconsistent and malformed pages", async () => {
+  for (
+    const overrides of [
+      { total: 1 },
+      { offset: 1 },
+      { items: [{ added_at: DATE, item: track(), is_local: false }] },
+      {
+        next: `https://api.spotify.com/v1/playlists/${PLAYLIST}/items?offset=1`,
+      },
+      { next: "https://example.test/?offset=1" },
+      { next: "invalid-url" },
+      { next: undefined },
+      { next: 0 },
+      { limit: 1 },
+      { limit: -1 },
+      { limit: "0" },
+      { total: "0" },
+      { items: null },
+    ]
+  ) {
+    await fails(() =>
+      harness([json(page([], { limit: 0, ...overrides }))])
+        .client.getPlaylistItemsPage(PLAYLIST), "response");
+  }
+  // Even an echoed nonzero offset cannot widen the observed first-page case.
+  await fails(() =>
+    harness([json(page([], { limit: 0, offset: 1 }))])
+      .client.getPlaylistItemsPage(PLAYLIST, { offset: 1 }), "response");
+  await fails(() =>
+    harness([json(page([], { limit: 0 }))])
+      .client.getPlaylistItemsPage(PLAYLIST, { offset: 1 }), "response");
+});
+
+Deno.test("empty saved-track and playlist-collection pages still require echoed limits", async () => {
+  await fails(() =>
+    harness([json(page([], { limit: 0 }))]).client
+      .getSavedTracksPage(), "response");
+  await fails(() =>
+    harness([json(page([], { limit: 0 }))]).client
+      .getCurrentUserPlaylistsPage(), "response");
+});
+
+Deno.test("nonempty playlist-items pages retain limit, offset, item-bound and next-URL checks", async () => {
+  const item = { added_at: DATE, item: track(), is_local: false };
+  for (
+    const overrides of [
+      { limit: 0 },
+      { limit: 1 },
+      { offset: 1 },
+      { next: "https://example.test/?offset=1" },
+      { next: "https://api.spotify.com/v1/me/tracks?offset=1" },
+      {
+        next: `https://api.spotify.com/v1/playlists/${PLAYLIST}/items?offset=0`,
+      },
+      {
+        next: `https://api.spotify.com/v1/playlists/${PLAYLIST}/items?offset=2`,
+      },
+    ]
+  ) {
+    await fails(() =>
+      harness([json(page([item], overrides))]).client
+        .getPlaylistItemsPage(PLAYLIST), "response");
+  }
+  await fails(() =>
+    harness([json(page([item, item], { limit: 1 }))]).client
+      .getPlaylistItemsPage(PLAYLIST, { limit: 1 }), "response");
+});
+
 Deno.test("containment validates exact positional booleans and never treats GET playlist as deletion proof", async () => {
   const { client, calls } = harness([json([false, true])]);
   deepStrictEqual(await client.containsPlaylists([PLAYLIST, OTHER]), [
