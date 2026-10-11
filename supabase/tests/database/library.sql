@@ -21,6 +21,29 @@ create function pg_temp.sync_page(ids integer[],total integer,next_offset intege
   return public.app_library_page_commit(2,j.id,j.lease_token,r.pass,r.next_offset,total,cardinality(ids)+unresolved,next_offset,rows,unresolved,jsonb_build_object('total',total,'members',ids));
  end;
 $$;
+-- Progress uses the newest denominator, even when the current pass is invalidated.
+savepoint changing_progress;
+select pg_temp.sync_page(array(select generate_series(1,50)),100,50);
+select pg_temp.assert(public.app_library_status(2)->>'importedCount'='50' and public.app_library_status(2)->>'reportedTotal'='100','first page establishes current progress total');
+select pg_temp.sync_page(array(select generate_series(51,100)),150,100);
+select pg_temp.assert(public.app_library_status(2)->>'importedCount'='100' and public.app_library_status(2)->>'reportedTotal'='150','mid-walk growth displays100of150 instead of100of100');
+select pg_temp.assert((select invalid_pass from app.sync_runs where id=(select latest_run_id from app.library_state where singleton)) and not (public.app_library_status(2)->>'initialSyncComplete')::boolean,'latest displayed total does not certify a changed pass');
+rollback to changing_progress;
+-- Returning to the original total must not erase evidence of intervening mutation.
+select pg_temp.sync_page(array(select generate_series(1,25)),100,25);
+select pg_temp.sync_page(array(select generate_series(26,50)),150,50);
+select pg_temp.sync_page(array(select generate_series(51,75)),100,75);
+select pg_temp.assert(public.app_library_status(2)->>'importedCount'='75' and public.app_library_status(2)->>'reportedTotal'='100','mid-walk shrink also updates displayed denominator');
+select pg_temp.assert((select invalid_pass from app.sync_runs where id=(select latest_run_id from app.library_state where singleton)),'100to150to100 preserves sticky invalidation');
+select pg_temp.sync_page(array(select generate_series(76,100)),100,null);
+select pg_temp.assert((select pass=2 and prior_valid_pass is null from app.sync_runs where id=(select latest_run_id from app.library_state where singleton)) and not (public.app_library_status(2)->>'initialSyncComplete')::boolean,'full unique coverage at original total cannot validate a changed pass');
+select pg_temp.sync_page(array(select generate_series(1,50)),100,50);
+select pg_temp.sync_page(array(select generate_series(51,100)),100,null);
+select pg_temp.assert(not (public.app_library_status(2)->>'initialSyncComplete')::boolean,'one stable walk after changing totals still needs verification');
+select pg_temp.sync_page(array(select generate_series(1,50)),100,50);
+select pg_temp.sync_page(array(select generate_series(51,100)),100,null);
+select pg_temp.assert((public.app_library_status(2)->>'initialSyncComplete')::boolean,'two subsequent unchanged walks can complete after total changes');
+rollback to changing_progress;
 select pg_temp.sync_page(array[1,2],3,2);
 select pg_temp.assert((public.app_library_status(2)->>'importedCount')::integer=2,'browsing progress counts unique imported keys');
 insert into library_snapshots values('tag',public.app_tag_create(2,'  Chill   Café  '));
