@@ -70,7 +70,14 @@ const playlist = (n = 1) => ({
   blockedBy: null,
 });
 type Override = (route: Route, path: string) => Promise<boolean>;
-async function mock(page: Page, override?: Override) {
+async function mock(
+  page: Page,
+  override?: Override,
+  context: {
+    revision?: () => typeof revision;
+    tracks?: () => ReturnType<typeof track>[];
+  } = {},
+) {
   const calls: { path: string; body: any }[] = [];
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -82,6 +89,8 @@ async function mock(page: Page, override?: Override) {
       body: route.request().postData() ? route.request().postDataJSON() : null,
     });
     if (override && (await override(route, path))) return;
+    const responseRevision = context.revision?.() ?? revision;
+    const responseTracks = context.tracks?.() ?? [track(1, [id(1)]), track(2)];
     let json: any;
     if (path === "/api/session")
       json = {
@@ -91,75 +100,131 @@ async function mock(page: Page, override?: Override) {
         reconnectWarning: null,
       };
     else if (path === "/api/library/status" || path === "/api/library/sync")
-      json = status;
+      json = { ...status, revision: responseRevision };
     else if (path === "/api/library/search") {
       const body = route.request().postDataJSON();
       json = body.groupBy
         ? {
             groupBy: "artist",
             totalGroups: 1,
-            groups: [group],
+            groups: [
+              {
+                ...group,
+                selection: {
+                  ...group.selection,
+                  expectedRevision: responseRevision,
+                },
+              },
+            ],
             totalTracks: 3,
-            revision,
+            revision: responseRevision,
             nextCursor: null,
           }
         : {
             groupBy: null,
-            tracks: [track(1, [id(1)]), track(2)],
+            tracks: responseTracks,
             totalTracks: 2,
-            revision,
+            revision: responseRevision,
             nextCursor: null,
           };
     } else if (path === "/api/library/facets")
       json = {
         facet: route.request().postDataJSON().facet,
-        revision,
+        revision: responseRevision,
         options: [],
         totalOptions: 0,
         nextCursor: null,
       };
     else if (path === "/api/tags/selection") {
       const body = route.request().postDataJSON();
+      if (
+        JSON.stringify(body.expectedRevision) !==
+          JSON.stringify(responseRevision) ||
+        (body.selection.kind === "filter" &&
+          JSON.stringify(body.selection.expectedRevision) !==
+            JSON.stringify(responseRevision))
+      ) {
+        await route.fulfill({ status: 409, json: { error: "stale_revision" } });
+        return;
+      }
+      const selectedTracks =
+        body.selection.kind === "tracks"
+          ? responseTracks.filter((t) =>
+              body.selection.trackKeys.includes(t.trackKey),
+            )
+          : responseTracks;
       const selectedCount =
         body.selection.kind === "tracks" ? body.selection.trackKeys.length : 3;
       json = {
-        revision,
+        revision: responseRevision,
         selectedCount,
-        tags: body.tagIds.map((value: string) => ({
-          tag: tag(parseInt(value.slice(0, 8), 16)),
-          assignedCount: 1,
-          state: selectedCount === 1 ? "all" : "some",
-        })),
+        tags: body.tagIds.map((value: string) => {
+          const assignedCount = selectedTracks.filter((t) =>
+            t.tagIds.includes(value),
+          ).length;
+          return {
+            tag: tag(parseInt(value.slice(0, 8), 16)),
+            assignedCount,
+            state:
+              assignedCount === 0
+                ? "none"
+                : assignedCount === selectedCount
+                  ? "all"
+                  : "some",
+          };
+        }),
       };
     } else if (path === "/api/tags/vocabulary")
-      json = { revision, tags: [tag()], hasMore: false, nextCursor: null };
+      json = {
+        revision: responseRevision,
+        tags: [tag()],
+        hasMore: false,
+        nextCursor: null,
+      };
     else if (path === "/api/tags")
-      json = { tags: [tag()], hasMore: false, revision };
+      json = { tags: [tag()], hasMore: false, revision: responseRevision };
     else if (path === "/api/tags/lookup")
       json = {
         tags: route
           .request()
           .postDataJSON()
           .tagIds.map((value: string) => tag(parseInt(value.slice(0, 8), 16))),
-        revision,
+        revision: responseRevision,
       };
-    else if (path === "/api/tag-actions")
+    else if (path === "/api/tag-actions") {
+      const body = route.request().postDataJSON();
+      if (
+        body.selection.kind === "filter" &&
+        JSON.stringify(body.selection.expectedRevision) !==
+          JSON.stringify(responseRevision)
+      ) {
+        await route.fulfill({ status: 409, json: { error: "stale_revision" } });
+        return;
+      }
       json = {
         actionId: id(400),
         selectedCount: 3,
         changedCount: 2,
-        revision: { ...revision, annotations: "2" },
+        revision: {
+          ...responseRevision,
+          annotations: String(BigInt(responseRevision.annotations) + 1n),
+        },
         tag: {
           ...tag(),
           name: route.request().postDataJSON().tagName ?? tag().name,
         },
       };
-    else if (path.endsWith("/undo"))
-      json = { actionId: id(400), restoredCount: 1, skippedCount: 1, revision };
+    } else if (path.endsWith("/undo"))
+      json = {
+        actionId: id(400),
+        restoredCount: 1,
+        skippedCount: 1,
+        revision: responseRevision,
+      };
     else if (path === "/api/query/preview")
       json = {
         query: route.request().postDataJSON().query,
-        revision,
+        revision: responseRevision,
         generationReady: true,
         matchedCount: 3,
         playableCount: 2,
@@ -841,66 +906,37 @@ test("import revision refresh preserves typing draft, focus and frozen explicit 
   test.skip(isMobile, "Explicit bulk selection is desktop only");
   let currentRevision = revision;
   let searches = 0;
-  const calls = await mock(page, async (route, path) => {
-    if (path === "/api/library/status" || path === "/api/library/sync") {
-      await route.fulfill({
-        json: {
-          ...status,
-          revision: currentRevision,
-          initialSyncComplete: false,
-          syncPhase: "importing",
-        },
-      });
-      return true;
-    }
-    if (path === "/api/library/search") {
-      searches++;
-      await route.fulfill({
-        json: {
-          groupBy: null,
-          tracks: [track(1), track(2)],
-          totalTracks: 2,
-          revision: currentRevision,
-          nextCursor: null,
-        },
-      });
-      return true;
-    }
-    if (path === "/api/tags" || path === "/api/tags/vocabulary") {
-      await route.fulfill({
-        json: {
-          revision: currentRevision,
-          tags: [tag()],
-          hasMore: false,
-          ...(path === "/api/tags/vocabulary" ? { nextCursor: null } : {}),
-        },
-      });
-      return true;
-    }
-    if (path === "/api/tags/selection") {
-      const body = route.request().postDataJSON();
-      if (
-        JSON.stringify(body.expectedRevision) !==
-        JSON.stringify(currentRevision)
-      ) {
-        await route.fulfill({ status: 409, json: { error: "stale_revision" } });
-      } else {
+  const calls = await mock(
+    page,
+    async (route, path) => {
+      if (path === "/api/library/status" || path === "/api/library/sync") {
         await route.fulfill({
           json: {
+            ...status,
             revision: currentRevision,
-            selectedCount: body.selection.trackKeys.length,
-            tags: body.tagIds.map((value: string) => ({
-              tag: tag(parseInt(value.slice(0, 8), 16)),
-              assignedCount: 0,
-              state: "none",
-            })),
+            initialSyncComplete: false,
+            syncPhase: "importing",
           },
         });
+        return true;
       }
-      return true;
-    }
-    return false;
-  });
+      if (path === "/api/library/search") {
+        searches++;
+        await route.fulfill({
+          json: {
+            groupBy: null,
+            tracks: [track(1), track(2)],
+            totalTracks: 2,
+            revision: currentRevision,
+            nextCursor: null,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+    { revision: () => currentRevision, tracks: () => [track(1), track(2)] },
+  );
   await page.goto("/");
   await page.getByLabel("Select Synthetic song 1").check();
   const input = page.getByLabel("Add tag to selection", { exact: true });
@@ -988,39 +1024,39 @@ test("background refresh never silently renews a frozen filter selection", async
   test.skip(isMobile, "Filter bulk selection is desktop only");
   let currentRevision = revision,
     searches = 0;
-  const calls = await mock(page, async (route, path) => {
-    if (path === "/api/library/status" || path === "/api/library/sync") {
-      await route.fulfill({ json: { ...status, revision: currentRevision } });
-      return true;
-    }
-    if (path === "/api/library/search") {
-      searches++;
-      await route.fulfill({
-        json: {
-          groupBy: "artist",
-          groups: [
-            {
-              ...group,
-              selection: {
-                ...group.selection,
-                expectedRevision: currentRevision,
+  const calls = await mock(
+    page,
+    async (route, path) => {
+      if (path === "/api/library/status" || path === "/api/library/sync") {
+        await route.fulfill({ json: { ...status, revision: currentRevision } });
+        return true;
+      }
+      if (path === "/api/library/search") {
+        searches++;
+        await route.fulfill({
+          json: {
+            groupBy: "artist",
+            groups: [
+              {
+                ...group,
+                selection: {
+                  ...group.selection,
+                  expectedRevision: currentRevision,
+                },
               },
-            },
-          ],
-          totalGroups: 1,
-          totalTracks: 3,
-          revision: currentRevision,
-          nextCursor: null,
-        },
-      });
-      return true;
-    }
-    if (path === "/api/tag-actions") {
-      await route.fulfill({ status: 409, json: { error: "stale_revision" } });
-      return true;
-    }
-    return false;
-  });
+            ],
+            totalGroups: 1,
+            totalTracks: 3,
+            revision: currentRevision,
+            nextCursor: null,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+    { revision: () => currentRevision },
+  );
   await page.goto("/");
   await page.getByRole("button", { name: "Select all 3 matching" }).click();
   const input = page.getByLabel("Add tag to selection", { exact: true });
@@ -1033,15 +1069,46 @@ test("background refresh never silently renews a frozen filter selection", async
   await expect(
     page.getByRole("status").filter({ hasText: "earlier library revision" }),
   ).toBeVisible();
+  const picker = page.locator(".bulk-bar .tag-picker").filter({ has: input });
+  await expect(picker.getByRole("alert")).toContainText("Your library changed");
+  await expect(
+    picker.getByRole("button", { name: "Add", exact: true }),
+  ).toBeDisabled();
+  await input.press("Enter");
+  expect(calls.filter((call) => call.path === "/api/tag-actions")).toHaveLength(
+    0,
+  );
+  const staleInspection = calls
+    .filter((call) => call.path === "/api/tags/selection")
+    .at(-1)!;
+  expect(staleInspection.body.expectedRevision).toEqual(revision);
+  expect(staleInspection.body.selection).toEqual({
+    kind: "filter",
+    filter,
+    expectedRevision: revision,
+  });
+  await expect(input).toHaveValue("Frozen filter draft");
+  await expect(input).toBeFocused();
+  // Only the owner's explicit reselection adopts the current revision.
+  await page.getByRole("button", { name: "Select all 3 matching" }).click();
+  await input.focus();
+  await expect(
+    page.getByRole("status").filter({ hasText: "earlier library revision" }),
+  ).toHaveCount(0);
+  await expect(
+    picker.getByRole("option", {
+      name: "Synthetic tag 1 some · 1 of 3 selected",
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await expect(input).toHaveValue("Frozen filter draft");
   await input.press("Enter");
   await expect
     .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
     .toBe(1);
   expect(
-    calls.find((call) => call.path === "/api/tag-actions")!.body.selection
-      .expectedRevision,
-  ).toEqual(revision);
-  await expect(input).toHaveValue("Frozen filter draft");
+    calls.find((call) => call.path === "/api/tag-actions")!.body.selection,
+  ).toEqual({ kind: "filter", filter, expectedRevision: currentRevision });
 });
 
 for (const paged of [false, true])
