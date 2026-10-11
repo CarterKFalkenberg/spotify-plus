@@ -437,7 +437,7 @@ Deno.test("library filters keep membership explicit and reject malformed flags, 
       { ...filter, artistId: "Synthetic artist" },
       { ...filter, artistId: "a".repeat(21) },
       { ...filter, search: "a".repeat(201) },
-      { ...filter, album: "unimplemented" },
+      { ...filter, album: 42 },
       { ...filter, search: undefined },
     ]
   ) invalid(parseLibraryFilter, value);
@@ -475,7 +475,7 @@ Deno.test("library search, preview and playlist list paging share the same bound
   });
   for (
     const value of [
-      { ...search, groupBy: "album" },
+      { ...search, groupBy: "genre" },
       { ...search, cursor: "bad" },
       { ...search, limit: 101 },
       { ...search, sql: "synthetic" },

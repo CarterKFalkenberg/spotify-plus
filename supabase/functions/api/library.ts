@@ -3,12 +3,16 @@ import {
   parseAcknowledge,
   parseCreateTag,
   parseId,
+  parseLibraryFacets,
   parseLibrarySearch,
   parseLibrarySync,
   parseQueryPreview,
   parseTagAction,
   parseTagLookup,
+  parseTagManage,
   parseTagSearch,
+  parseTagSelection,
+  parseTagVocabulary,
   parseUndoTagAction,
 } from "../_shared/contracts.ts";
 import type { Database } from "../_shared/database.ts";
@@ -51,6 +55,41 @@ export async function libraryApi(
     );
   }
   if (req.method !== "POST") return null;
+  if (
+    path === "/api/tags/vocabulary" || path === "/api/tags/selection" ||
+    path === "/api/tags/manage-preview" || path === "/api/tags/manage"
+  ) {
+    const raw = await readJson(req);
+    const managing = path === "/api/tags/manage";
+    const request = path === "/api/tags/vocabulary"
+      ? parseTagVocabulary(raw)
+      : path === "/api/tags/selection"
+      ? parseTagSelection(raw)
+      : parseTagManage(raw, managing);
+    const rpc = path === "/api/tags/vocabulary"
+      ? "app_tags_vocabulary"
+      : path === "/api/tags/selection"
+      ? "app_tags_selection"
+      : managing
+      ? "app_tags_manage"
+      : "app_tags_manage_preview";
+    return json(
+      await db.rpc(rpc, {
+        p_epoch: epoch,
+        p_request: request,
+        ...(managing ? { p_session_hash: sessionHash } : {}),
+      }),
+    );
+  }
+  if (path === "/api/library/facets") {
+    const request = parseLibraryFacets(await readJson(req));
+    return json(
+      await db.rpc("app_library_facets", {
+        p_epoch: epoch,
+        p_request: request,
+      }),
+    );
+  }
   if (path === "/api/library/sync") {
     const request = parseLibrarySync(await readJson(req));
     return json(

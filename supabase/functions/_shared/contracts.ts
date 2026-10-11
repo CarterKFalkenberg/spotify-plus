@@ -52,6 +52,10 @@ export interface LibraryFilter {
   readonly untagged: boolean;
   readonly newOnly: boolean;
   readonly artistId: string | null;
+  // Opaque cached-name identity returned by album groups/facets; null is unrestricted.
+  readonly album?: string | null;
+  readonly decade?: number | "unknown" | null;
+  readonly latestSyncOnly?: boolean;
 }
 export type Selection =
   | { readonly kind: "tracks"; readonly trackKeys: readonly TrackKey[] }
@@ -66,7 +70,24 @@ export interface PageRequest {
 }
 export interface LibrarySearchRequest extends PageRequest {
   readonly filter: LibraryFilter;
-  readonly groupBy: "artist" | null;
+  readonly groupBy: "artist" | "album" | "decade" | null;
+  readonly sort?: LibrarySort;
+  readonly seed?: string | null;
+}
+export type LibrarySort =
+  | "newest"
+  | "oldest"
+  | "title"
+  | "artist"
+  | "album"
+  | "year"
+  | "random";
+export interface LibraryGroupDTO {
+  readonly value: string;
+  readonly name: string;
+  readonly trackCount: number;
+  readonly taggedCount: number;
+  readonly selection: Extract<Selection, { kind: "filter" }>;
 }
 export interface LibrarySyncRequest {
   readonly reason: "app-open" | "manual";
@@ -175,6 +196,11 @@ export type LibrarySearchResponse =
     | {
       readonly groupBy: "artist";
       readonly groups: readonly ArtistGroupDTO[];
+      readonly totalGroups: number;
+    }
+    | {
+      readonly groupBy: "album" | "decade";
+      readonly groups: readonly LibraryGroupDTO[];
       readonly totalGroups: number;
     }
   );
@@ -431,13 +457,19 @@ export function queryMatchesTags(
 }
 
 export function parseLibraryFilter(value: unknown): LibraryFilter {
-  const filter = shape(value, [
-    "membership",
-    "search",
-    "untagged",
-    "newOnly",
-    "artistId",
-  ], "filter");
+  const filter = record(value, "filter");
+  fields(
+    filter,
+    [
+      "membership",
+      "search",
+      "untagged",
+      "newOnly",
+      "artistId",
+    ],
+    ["album", "decade", "latestSyncOnly"],
+    "filter",
+  );
   const membership = choice(
     filter.membership,
     ["active", "removed"],
@@ -454,7 +486,36 @@ export function parseLibraryFilter(value: unknown): LibraryFilter {
     (typeof filter.artistId !== "string" ||
       !/^[A-Za-z0-9]{22}$/.test(filter.artistId))
   ) invalid("filter.artistId");
+  if (
+    Object.hasOwn(filter, "latestSyncOnly") &&
+    typeof filter.latestSyncOnly !== "boolean"
+  ) invalid("filter.latestSyncOnly");
+  if (membership === "removed" && filter.latestSyncOnly) {
+    invalid("filter.latestSyncOnly");
+  }
+  if (
+    Object.hasOwn(filter, "decade") && filter.decade !== null &&
+    filter.decade !== "unknown" &&
+    (typeof filter.decade !== "number" || !Number.isInteger(filter.decade) ||
+      filter.decade < 0 || filter.decade > 9990 || filter.decade % 10 !== 0)
+  ) invalid("filter.decade");
+  if (
+    Object.hasOwn(filter, "album") && filter.album !== null &&
+    (typeof filter.album !== "string" ||
+      !/^album:[0-9a-f]{64}$/.test(filter.album))
+  ) invalid("filter.album");
   return {
+    ...(Object.hasOwn(filter, "album")
+      ? {
+        album: filter.album as string | null,
+      }
+      : {}),
+    ...(Object.hasOwn(filter, "decade")
+      ? { decade: filter.decade as number | "unknown" | null }
+      : {}),
+    ...(Object.hasOwn(filter, "latestSyncOnly")
+      ? { latestSyncOnly: filter.latestSyncOnly as boolean }
+      : {}),
     membership,
     search: text(filter.search, CONTRACT_LIMITS.searchLength, "filter.search"),
     untagged: filter.untagged,
@@ -506,19 +567,38 @@ export function parsePageRequest(value: unknown): PageRequest {
   return { cursor: cursor(page.cursor), limit: pageSize(page.limit) };
 }
 export function parseLibrarySearch(value: unknown): LibrarySearchRequest {
-  const request = shape(
-    value,
+  const request = record(value, "librarySearch");
+  fields(
+    request,
     ["filter", "cursor", "limit", "groupBy"],
+    ["sort", "seed"],
     "librarySearch",
   );
-  if (request.groupBy !== null && request.groupBy !== "artist") {
-    invalid("groupBy");
-  }
+  const groupBy = request.groupBy === null
+    ? null
+    : choice(request.groupBy, ["artist", "album", "decade"], "groupBy");
+  const sort = Object.hasOwn(request, "sort")
+    ? choice(request.sort, [
+      "newest",
+      "oldest",
+      "title",
+      "artist",
+      "album",
+      "year",
+      "random",
+    ], "sort")
+    : "newest";
+  const seed = Object.hasOwn(request, "seed") && request.seed !== null
+    ? parseId(request.seed)
+    : null;
+  if ((sort === "random") !== (seed !== null)) invalid("seed");
   return {
     filter: parseLibraryFilter(request.filter),
     cursor: cursor(request.cursor),
     limit: pageSize(request.limit),
-    groupBy: request.groupBy,
+    groupBy,
+    ...(Object.hasOwn(request, "sort") ? { sort } : {}),
+    ...(Object.hasOwn(request, "seed") ? { seed } : {}),
   };
 }
 export function parseLibrarySync(value: unknown): LibrarySyncRequest {
@@ -632,4 +712,134 @@ export function parsePlaylistAction(value: unknown): PlaylistActionRequest {
     };
   }
   return { ...base, action };
+}
+
+export interface TagVocabularyRequest extends PageRequest {
+  readonly search: string;
+  readonly sort: "name" | "mostUsed" | "lastUsed" | "unused";
+}
+export function parseTagVocabulary(value: unknown): TagVocabularyRequest {
+  const r = shape(value, ["search", "sort", "cursor", "limit"], "vocabulary");
+  return {
+    search: text(r.search, CONTRACT_LIMITS.searchLength, "search"),
+    sort: choice(r.sort, ["name", "mostUsed", "lastUsed", "unused"], "sort"),
+    ...parsePageRequest({ cursor: r.cursor, limit: r.limit }),
+  };
+}
+export function parseTagSelection(value: unknown) {
+  const r = shape(
+    value,
+    ["selection", "tagIds", "expectedRevision"],
+    "tagSelection",
+  );
+  return {
+    selection: parseSelection(r.selection),
+    tagIds: parseTagLookup({ tagIds: r.tagIds }).tagIds,
+    expectedRevision: parseLibraryRevision(r.expectedRevision),
+  };
+}
+export type TagManageIntent =
+  | { readonly action: "rename"; readonly tagId: TagId; readonly name: string }
+  | {
+    readonly action: "merge";
+    readonly sourceIds: readonly TagId[];
+    readonly targetId: TagId;
+  }
+  | { readonly action: "delete"; readonly tagId: TagId };
+export function parseTagManage(
+  value: unknown,
+  commit = false,
+): TagManageIntent & {
+  readonly expectedRevision: LibraryRevision;
+  readonly confirmedAssignmentCount?: number;
+} {
+  const r = record(value, "tagManage");
+  const action = choice(r.action, ["rename", "merge", "delete"], "action");
+  fields(
+    r,
+    action === "rename"
+      ? ["action", "tagId", "name", "expectedRevision"]
+      : action === "merge"
+      ? ["action", "sourceIds", "targetId", "expectedRevision"]
+      : ["action", "tagId", "expectedRevision"],
+    commit && action === "delete" ? ["confirmedAssignmentCount"] : [],
+    "tagManage",
+  );
+  const expectedRevision = parseLibraryRevision(r.expectedRevision);
+  if (action === "rename") {
+    return {
+      action,
+      tagId: parseId(r.tagId),
+      name: name(r.name, CONTRACT_LIMITS.tagNameLength, "name"),
+      expectedRevision,
+    };
+  }
+  if (action === "merge") {
+    const sourceIds = parseTagLookup({ tagIds: r.sourceIds }).tagIds,
+      targetId = parseId(r.targetId);
+    if (sourceIds.includes(targetId)) invalid("sourceIds");
+    return { action, sourceIds, targetId, expectedRevision };
+  }
+  if (
+    commit &&
+    (typeof r.confirmedAssignmentCount !== "number" ||
+      !Number.isSafeInteger(r.confirmedAssignmentCount) ||
+      r.confirmedAssignmentCount < 0)
+  ) invalid("confirmedAssignmentCount");
+  return {
+    action,
+    tagId: parseId(r.tagId),
+    expectedRevision,
+    ...(commit
+      ? { confirmedAssignmentCount: r.confirmedAssignmentCount as number }
+      : {}),
+  };
+}
+export interface TagManagePreviewResponse {
+  readonly revision: LibraryRevision;
+  readonly assignmentCount: number;
+  readonly activeTrackCount: number;
+  readonly unionCount: number;
+  readonly collisionTag: TagDTO | null;
+}
+export interface TagManageResponse extends TagManagePreviewResponse {
+  readonly actionId: string | null;
+  readonly changedCount: number;
+  readonly tag: TagDTO | null;
+}
+export interface TagSelectionResponse {
+  readonly revision: LibraryRevision;
+  readonly selectedCount: number;
+  readonly tags: readonly {
+    readonly tag: TagDTO;
+    readonly assignedCount: number;
+    readonly state: "all" | "some" | "none";
+  }[];
+}
+export interface TagVocabularyResponse extends TagSearchResponse {
+  readonly nextCursor: string | null;
+}
+
+export interface LibraryFacetsRequest extends PageRequest {
+  readonly filter: LibraryFilter;
+  readonly facet: "artist" | "album" | "decade";
+}
+export function parseLibraryFacets(value: unknown): LibraryFacetsRequest {
+  const r = shape(value, ["filter", "facet", "cursor", "limit"], "facets");
+  return {
+    filter: parseLibraryFilter(r.filter),
+    facet: choice(r.facet, ["artist", "album", "decade"], "facet"),
+    ...parsePageRequest({ cursor: r.cursor, limit: r.limit }),
+  };
+}
+export interface LibraryFacetsResponse {
+  readonly revision: LibraryRevision;
+  readonly facet: "artist" | "album" | "decade";
+  readonly options: readonly {
+    readonly value: string;
+    readonly name: string;
+    readonly trackCount: number;
+  }[];
+  readonly totalOptions: number;
+  readonly nextCursor: string | null;
 }
