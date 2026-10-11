@@ -91,6 +91,38 @@ export function fixtureAssertionsSql() {
     update app.track_metadata set album='Synthetic verification album' where track_key='${
     r.trackKeys[0]
   }';
+    create temp table fixture_null_baseline as select to_jsonb(m) as metadata from app.track_metadata m where track_key='${
+    r.trackKeys[0]
+  }';
+    ${
+    [
+      ["release_date", "'2000'"],
+      ["duration_ms", "1000"],
+      ["explicit", "false"],
+    ].map(([field, original]) => `
+      update app.track_metadata set ${field}=null where track_key='${
+      r.trackKeys[0]
+    }';
+      ${expect(cleanupFixturesSql(r, false), "fixture_ownership_changed")}
+      ${expect(cleanupFixturesSql(r, true), "fixture_ownership_changed")}
+      select pg_temp.fixture_check(
+        (select to_jsonb(m)=jsonb_set((select metadata from fixture_null_baseline),array['${field}'],'null'::jsonb)
+          from app.track_metadata m where track_key='${r.trackKeys[0]}')
+        and (select count(*)=3 from app.track_metadata where track_key in ('${
+      r.trackKeys.join("','")
+    }'))
+        and (select count(*)=3 from app.annotations where track_key in ('${
+      r.trackKeys.join("','")
+    }'))
+        and (select count(*)=2 from app.tags where id in ('${
+      r.tagIds.join("','")
+    }')),
+        '${field} NULL change refuses both cleanup modes and preserves registered rows');
+      update app.track_metadata set ${field}=${original} where track_key='${
+      r.trackKeys[0]
+    }';
+    `).join("\n")
+  }
     insert into app.jobs(id,kind,state,lease_token,lease_until) values('dddddddd-dddd-4ddd-8ddd-dddddddddddd','scheduler_ping','running',gen_random_uuid(),now()+interval '1 hour');
     ${expect(cleanupFixturesSql(r, true), "fixture_active_lease")}
     delete from app.jobs where id='dddddddd-dddd-4ddd-8ddd-dddddddddddd';

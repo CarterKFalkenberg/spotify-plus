@@ -110,7 +110,7 @@ function owned(r: CoreRegistry) {
   })`).join(" or ");
   return `if exists(select 1 from app.track_metadata m where m.track_key in (${
     strings(r.trackKeys)
-  }) and not (${exactMetadata})) then raise exception 'fixture_ownership_changed'; end if;
+  }) and (${exactMetadata}) is not true) then raise exception 'fixture_ownership_changed'; end if;
     if exists(select 1 from app.annotations a where a.track_key in (${
     strings(r.trackKeys)
   }) and (a.epoch<>${r.epoch} or not exists(select 1 from app.track_metadata m where m.track_key=a.track_key and m.added_run_id='${r.run}' and m.title='${
