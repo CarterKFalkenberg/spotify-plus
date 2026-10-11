@@ -10,6 +10,15 @@ const routes: Readonly<Record<string, string>> = {
   "/healthz": "GET",
   "/api/session": "GET",
   "/api/disconnect": "POST",
+  "/api/library/status": "GET",
+  "/api/library/sync": "POST",
+  "/api/library/search": "POST",
+  "/api/library/acknowledge": "POST",
+  "/api/tags": "GET POST",
+  "/api/tags/lookup": "POST",
+  "/api/tag-actions": "POST",
+  "/api/query/preview": "POST",
+  "/api/playlists": "GET POST",
   "/auth/spotify/start": "GET",
   "/auth/spotify/callback": "GET",
 };
@@ -45,10 +54,14 @@ export async function handleRequest(
   upstream = fetch,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const method = Object.hasOwn(routes, url.pathname)
+  const allowedMethods = Object.hasOwn(routes, url.pathname)
     ? routes[url.pathname]
-    : undefined;
-  if (!method) {
+    : /^\/api\/(?:tag-actions\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/undo|playlists\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/actions)$/.test(
+          url.pathname,
+        )
+      ? "POST"
+      : undefined;
+  if (!allowedMethods) {
     // Only the three public document routes and compiled assets reach the asset binding.
     if (request.method === "GET" || request.method === "HEAD") {
       if (
@@ -60,7 +73,34 @@ export async function handleRequest(
     }
     return error(404, "not_found");
   }
-  if (request.method !== method) return error(405, "method_not_allowed");
+  const method = request.method;
+  if (!allowedMethods.split(" ").includes(method))
+    return error(405, "method_not_allowed");
+  if (url.pathname !== "/auth/spotify/callback") {
+    const allowed =
+      method === "GET" && url.pathname === "/api/tags"
+        ? ["search", "limit"]
+        : method === "GET" && url.pathname === "/api/playlists"
+          ? ["cursor", "limit"]
+          : [];
+    for (const key of url.searchParams.keys()) {
+      if (!allowed.includes(key) || url.searchParams.getAll(key).length !== 1)
+        return error(400, "invalid_input");
+    }
+    const limit = url.searchParams.get("limit");
+    const search = url.searchParams.get("search");
+    const cursor = url.searchParams.get("cursor");
+    if (
+      (limit !== null &&
+        (!/^[1-9][0-9]{0,2}$/.test(limit) || Number(limit) > 100)) ||
+      (search !== null &&
+        (search.length > 1600 ||
+          [...search.normalize("NFC").trim().replace(/\s+/gu, " ")].length >
+            200)) ||
+      (cursor !== null && !/^[A-Za-z0-9_-]{16,512}$/.test(cursor))
+    )
+      return error(400, "invalid_input");
+  }
   if (
     url.origin !== env.APP_ORIGIN ||
     !/^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(env.SUPABASE_ORIGIN) ||
@@ -81,8 +121,8 @@ export async function handleRequest(
     `/functions/v1/api${url.pathname}`,
     env.SUPABASE_ORIGIN,
   );
-  // Only OAuth callback has query input; no arbitrary upstream/path selection exists.
-  if (url.pathname === "/auth/spotify/callback") target.search = url.search;
+  // Query input is bounded above; the upstream and path are always fixed.
+  target.search = url.search;
   try {
     const init: RequestInit & { duplex?: "half" } = {
       method,
@@ -91,8 +131,35 @@ export async function handleRequest(
       signal: AbortSignal.timeout(20_000),
     };
     if (method === "POST") {
-      init.body = request.body;
-      init.duplex = "half";
+      if (request.headers.get("origin") !== env.APP_ORIGIN)
+        return error(403, "invalid_origin");
+      if (
+        request.headers.get("content-type")?.split(";")[0]?.trim() !==
+        "application/json"
+      )
+        return error(415, "invalid_content_type");
+      const reader = request.body?.getReader();
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      if (reader) {
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          length += part.value.byteLength;
+          if (length > 16384) {
+            await reader.cancel();
+            return error(413, "body_too_large");
+          }
+          chunks.push(part.value);
+        }
+      }
+      const body = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.length;
+      }
+      init.body = body;
     }
     const response = await upstream(target, init);
     if (url.pathname !== "/healthz") {
