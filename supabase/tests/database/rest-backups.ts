@@ -34,7 +34,17 @@ try {
   const fixture = (p_action: string) =>
     db.rpc<Record<string, unknown>>("app_test_backup_fixture", { p_action });
   phase = "installed_fk";
-  check((await fixture("inspect")).bucketForeignKey === true);
+  // This fixture is installed after the earlier REST proof. PostgREST may still
+  // be reloading the service-only RPC cache when this child starts.
+  let ready = false;
+  const schemaDeadline = Date.now() + 10000;
+  while (!ready && Date.now() < schemaDeadline) {
+    try {
+      ready = (await fixture("inspect")).bucketForeignKey === true;
+    } catch { /* Fixed failure below; never print provider diagnostics. */ }
+    if (!ready) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  check(ready);
   const status = await db.rpc<{ state: string; epoch: number }>(
     "app_account_status",
   );
@@ -236,6 +246,12 @@ try {
     }),
   );
 } catch {
-  console.error(JSON.stringify({ status: "failed", phase, assertions }));
+  console.error(
+    JSON.stringify({
+      status: "failed",
+      blocker: `local_backup_${phase}_failed`,
+      assertions,
+    }),
+  );
   Deno.exit(1);
 }

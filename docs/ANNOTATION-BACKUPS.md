@@ -124,6 +124,11 @@ uses disposable PostgreSQL for transactional validation, retention and independe
 restore/disconnect races. Its minimal Storage metadata stand-in is **not** provider
 Storage acceptance.
 
+`scripts/check-supabase.mjs` runs this proof routinely in the same isolated local
+stack after the existing REST proof. CI and root verification therefore require
+real Storage/restore evidence in addition to the earlier authentication, library,
+playlist and authenticated cron assertions. Local generated credentials stay in
+child stdin and memory, and the existing `finally` tears down the complete stack.
 The root-coordinated disposable Supabase stack applies
 `supabase/tests/database/rest-backups-fixture.sql`, then invokes
 `supabase/tests/database/rest-backups.ts` with its synthetic service key on stdin.
