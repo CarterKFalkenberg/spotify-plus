@@ -204,6 +204,8 @@ try {
   const enteredPromise = new Promise<void>((resolve) => {
     entered = resolve;
   });
+  let lateHttpStatus: number | null = null;
+  let missingBucketResponse = false;
   const delayed = new PrivateBackups(
     input.origin,
     input.serviceKey,
@@ -211,6 +213,23 @@ try {
       if (init?.method === "POST" && String(url).includes("/object/")) {
         entered();
         await hold;
+        // The client signal was created before the deliberate hold. A fresh
+        // timeout ensures this proof reaches Storage after disconnect finishes.
+        const response = await fetch(url, {
+          ...init,
+          signal: AbortSignal.timeout(10000),
+        });
+        lateHttpStatus = response.status;
+        if (response.status === 404) missingBucketResponse = true;
+        else if (response.status === 400) {
+          // Some Storage versions wrap a missing-bucket 404 in HTTP 400.
+          // Inspect only the fixed code/message; never emit provider content.
+          const body = await response.clone().json().catch(() => null);
+          missingBucketResponse = body?.code === "NoSuchBucket" ||
+            body?.error === "Bucket not found" ||
+            body?.message === "Bucket not found";
+        }
+        return response;
       }
       return fetch(url, init);
     },
@@ -234,6 +253,7 @@ try {
   check(disconnected.epoch === epoch + 1);
   release();
   check(await late);
+  check(lateHttpStatus !== null && missingBucketResponse);
   check(await storage.read(path) === null);
   check((await fixture("inspect")).annotationBackups === 0);
   console.log(
@@ -243,6 +263,7 @@ try {
       storageRaceIterations: 4,
       isolatedRestore: true,
       lateUploadRejected: true,
+      lateUploadHttpStatus: lateHttpStatus,
     }),
   );
 } catch {
