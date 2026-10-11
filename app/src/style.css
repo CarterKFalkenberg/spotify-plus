@@ -977,3 +977,174 @@ dialog::backdrop {
     padding: 20px;
   }
 }
+/* Fast tagging: one calm focus surface, with a deliberate touch sheet. */
+.queue-card {
+  margin: 24px 0;
+  padding: 32px;
+  border: 1px solid #d2ddc7;
+  border-radius: 18px;
+  background: #fffef9;
+}
+.queue-card .track-summary {
+  gap: 24px;
+  align-items: flex-start;
+}
+.queue-card .track-summary img,
+.queue-card .art-placeholder {
+  width: 180px;
+  height: 180px;
+}
+.queue-card .track-summary strong {
+  font-size: 30px;
+  line-height: 1.3;
+  margin-top: 12px;
+}
+.queue-card .track-summary span {
+  font-size: 17px;
+  margin-top: 10px;
+}
+.queue-details,
+.track-dates {
+  color: #62745d;
+  font-size: 13px;
+}
+.quick-slots,
+.queue-actions,
+.facet-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.quick-slots > div {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.quick-slots kbd {
+  padding-right: 6px;
+  font: inherit;
+  color: #536b47;
+}
+.queue-actions {
+  align-items: center;
+}
+.facet-row > label {
+  flex: 1;
+  min-width: 160px;
+}
+.bulk-states {
+  flex-basis: 100%;
+}
+.tri-tag {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.vocabulary-list article {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 18px 0;
+  border-top: 1px solid #dce1d3;
+}
+.vocabulary-list article > div {
+  flex: 1;
+  min-width: 180px;
+}
+.vocabulary-list small {
+  display: block;
+  color: #62745d;
+  font-size: 12px;
+}
+.mobile-only {
+  display: none;
+}
+@media (max-width: 640px) {
+  .mobile-only {
+    display: block;
+  }
+  .queue-card {
+    display: none;
+  }
+  .queue-card.sheet-open {
+    display: block;
+    position: fixed;
+    inset: 12% 0 0;
+    overflow: auto;
+    z-index: 4;
+    margin: 0;
+    padding: 20px;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -20px 70px #14312855;
+    overscroll-behavior: contain;
+  }
+  .queue-card .track-summary img,
+  .queue-card .art-placeholder {
+    width: 85px;
+    height: 85px;
+  }
+  .queue-card .track-summary strong {
+    font-size: 21px;
+    margin-top: 0;
+  }
+  .queue-card .track-summary span {
+    font-size: 13px;
+  }
+  .queue-card .quick-slots button {
+    min-height: 44px;
+  }
+  .mobile-track {
+    width: 100%;
+    text-align: left;
+    margin: 8px 0;
+    padding: 12px;
+    background: #fffef9;
+  }
+  .mobile-track > span {
+    font-size: 12px;
+    color: #62745d;
+  }
+  .workspace-tabs {
+    flex-wrap: wrap;
+  }
+  .workspace-tabs button {
+    flex: 1 0 30%;
+  }
+  .facet-row {
+    gap: 8px;
+  }
+  .facet-row > label {
+    min-width: 130px;
+  }
+}
+.suggestions > .suggestion-selected {
+  background: #eaf0df;
+}
+.suggestions [role="option"] {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  border: 0;
+  padding: 8px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.suggestions [role="option"]:hover,
+.suggestions [role="option"][aria-selected="true"] {
+  background: #eaf0df;
+}
+.suggestion-prefix {
+  font-size: 11px;
+  padding: 8px;
+  color: #6b7a57;
+}
+.queue-card .suggestions {
+  position: relative;
+  top: auto;
+  margin-top: 6px;
+  box-shadow: none;
+}
