@@ -121,17 +121,13 @@ export class OwnerTokens {
     } catch (error) {
       const reconnect = !(error instanceof SpotifyError) || error.kind === "authentication" ||
         error.ambiguous;
-      if (error instanceof SpotifyError && error.kind === "rate_limit") {
-        await this.db.rpc("app_pacing_defer", {
-          p_epoch: this.epoch,
-          p_retry_ms: error.retryAfterMs ?? 30000,
-          p_kind: "rate_limit",
-        });
-      }
       await this.db.rpc("app_token_fail", {
         p_epoch: this.epoch,
         p_lease: claim.lease,
         p_reconnect: reconnect,
+        p_retry_ms: error instanceof SpotifyError && error.kind === "rate_limit"
+          ? error.retryAfterMs ?? 30000
+          : 0,
       });
       if (reconnect) throw new SpotifyError("authentication");
       throw error;

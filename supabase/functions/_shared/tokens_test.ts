@@ -145,11 +145,8 @@ Deno.test("explicit token rate-limit releases lease for later retry", async () =
     if (name === "app_token_claim") {
       return { action: "refresh", encryptedTokens: encrypted, version: 1, lease: "lease" };
     }
-    if (name === "app_pacing_defer") {
-      equal(args.p_kind, "rate_limit");
-      return true;
-    }
     equal(args.p_reconnect, false);
+    equal(args.p_retry_ms, 20000);
     cleared = true;
     return true;
   });

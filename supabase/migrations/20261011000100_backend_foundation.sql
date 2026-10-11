@@ -172,7 +172,7 @@ create function public.app_token_finish(p_epoch bigint,p_lease uuid,p_encrypted_
   return found;
  end;
 $$;
-create function public.app_token_fail(p_epoch bigint,p_lease uuid,p_reconnect boolean)
+create function public.app_token_fail(p_epoch bigint,p_lease uuid,p_reconnect boolean,p_retry_ms bigint default 0)
  returns boolean language plpgsql security definer set search_path = '' as $$
  begin
   perform 1 from app.account where epoch=p_epoch and state='connected' for update;
@@ -184,6 +184,7 @@ create function public.app_token_fail(p_epoch bigint,p_lease uuid,p_reconnect bo
     update app.account set state='reconnect';
     update app.jobs set state='parked',last_error='reconnect',lease_token=null,lease_until=null where epoch=p_epoch and state in ('queued','running');
   else
+    if p_retry_ms>0 then perform public.app_pacing_defer(p_epoch,p_retry_ms,'rate_limit'); end if;
     update app.credentials set refresh_lease=null,refresh_until=null where epoch=p_epoch;
   end if;
   return true;

@@ -43,6 +43,14 @@ select pg_temp.assert(public.app_token_finish(1,(select (value->>'lease')::uuid 
 select pg_temp.assert(public.app_token_claim(1,1)->>'action'='cached','stale 401 reuses rotated token');
 select pg_temp.assert((select authorized_at<now()-interval '29 days' from app.account),'refresh retains original authorization');
 select pg_temp.assert(not public.app_token_finish(1,(select (value->>'lease')::uuid from snapshots where name='refresh'),'late',now()+interval '1 hour'),'old refresh result fenced');
+insert into snapshots values('rate_limited_refresh',public.app_token_claim(1,2));
+select public.app_token_fail(1,(select (value->>'lease')::uuid from snapshots where name='rate_limited_refresh'),false,60000);
+select pg_temp.assert(public.app_token_claim(1,2)->>'action'='cooldown','another refresh caller obeys durable Retry-After after lease release');
+select pg_temp.assert((public.app_token_claim(1,2)->>'retryAfterMs')::bigint>59000,'remaining refresh delay is returned');
+update app.spotify_pacing set cooldown_until=now()-interval '1 second';
+insert into snapshots values('after_retry',public.app_token_claim(1,2));
+select pg_temp.assert((select value->>'action'='refresh' from snapshots where name='after_retry'),'refresh resumes after cooldown');
+select public.app_token_fail(1,(select (value->>'lease')::uuid from snapshots where name='after_retry'),false);
 select pg_temp.assert((public.app_pacing_acquire(1,500)->>'granted')::boolean,'first pacing request granted');
 select pg_temp.assert(not (public.app_pacing_acquire(1,500)->>'granted')::boolean,'second concurrent pacing request denied');
 select public.app_pacing_defer(1,1,'quota');
