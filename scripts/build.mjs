@@ -78,7 +78,19 @@ function saveState(state) {
   renameSync(`${destination}.tmp`, destination);
 }
 
-function preflight() {
+export async function verifySupabaseProject(projectRef, token, request = fetch) {
+  if (!projectRef || !token) throw new Error('Supabase project reference and access token are required.');
+  const response = await request(`https://api.supabase.com/v1/projects/${encodeURIComponent(projectRef)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: 'error', signal: AbortSignal.timeout(20000)
+  });
+  if (!response.ok) throw new Error(`Supabase project access failed (HTTP ${response.status}).`);
+  const project = await response.json();
+  if (project.id !== projectRef) throw new Error('Supabase returned a different project.');
+  if (project.status !== 'ACTIVE_HEALTHY') throw new Error('Supabase project is not active and healthy.');
+}
+
+async function preflight() {
   if (!existsSync(resolve(local, 'config.json'))) return { errors: ['Run node scripts/init-local.mjs, then follow docs/SETUP.md'] };
   const config = JSON.parse(readFileSync(resolve(local, 'config.json'), 'utf8'));
   const errors = validateConfig(config);
@@ -89,11 +101,8 @@ function preflight() {
     catch { errors.push(`Install/authenticate/configure ${exe} (see docs/SETUP.md)`); }
   }
   try {
-    const projects = JSON.parse(command('supabase', ['projects', 'list', '--output', 'json'], root, { env: runtimeEnv() }));
-    if (!Array.isArray(projects) || !projects.some(project => project.id === config.supabaseProjectRef)) {
-      errors.push('The authenticated Supabase account cannot see the configured project');
-    }
-  } catch { errors.push('Authenticate Supabase and verify the configured project (see docs/SETUP.md)'); }
+    await verifySupabaseProject(config.supabaseProjectRef, runtimeEnv().SUPABASE_ACCESS_TOKEN);
+  } catch { errors.push('Verify scoped Supabase token access and active health for the configured project (see docs/SETUP.md)'); }
   for (const name of ['supabase-access-token', 'supabase-db-password']) {
     if (!existsSync(resolve(local, name)) || !readFileSync(resolve(local, name), 'utf8').trim()) errors.push(`Save .local/${name} using docs/SETUP.md`);
   }
@@ -132,7 +141,7 @@ async function run() {
   if (args.includes('--status')) {
     console.log(existsSync(resolve(buildDir, 'state.json')) ? readFileSync(resolve(buildDir, 'state.json'), 'utf8') : 'No build has started.'); return;
   }
-  const { config, errors } = preflight();
+  const { config, errors } = await preflight();
   if (errors.length) throw new Error('Setup is incomplete:\n' + errors.map(e => `- ${e}`).join('\n'));
   if (args.includes('--check')) { console.log('Local setup checks passed. Live Spotify/deployment behavior is still the first build stage.'); return; }
   if (command('git', ['status', '--porcelain'])) throw new Error('Commit or preserve changes in the source checkout before launching. Main will not be modified.');

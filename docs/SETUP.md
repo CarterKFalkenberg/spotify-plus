@@ -47,7 +47,7 @@ The repository/skills/CI bootstrap was merged through PR #1, and main protection
 2. Choose a region near New York, preferably US East. Generate a strong database password and save it in your password manager. Wait for provisioning to finish.
 3. Project Settings → General: copy the project reference ID, also visible in its dashboard URL. Set `supabaseProjectRef` in `.local/config.json`. The API origin will be `https://PROJECT_REF.supabase.co`; no custom domain or IPv4 add-on is needed.
 4. Save only the database password in `.local/supabase-db-password`: no variable name, quotes or extra lines.
-5. Supabase account → Access Tokens: generate a personal access token named `spotify-plus-builder`. Save only its value in `.local/supabase-access-token`. It is a management credential, not an API key for the app. It may access more than this project, so build commands must explicitly select the configured project. Never deploy this token into the app.
+5. Supabase account → Access Tokens: generate a project-scoped personal access token named `spotify-plus-builder`, selecting only this project. Use a short expiry (7 days for the initial build). Save only its value in `.local/supabase-access-token`. It is a management credential, not an API key for the app. Grant read-write for Database, Migrations, Edge Functions, Edge Function Secrets, Storage and Storage Config. Grant read for Project Settings, Advisors, Logs, Usage Analytics, Database Config, Connection Pooling, API Keys, API Key Secrets, Auth Config and Data API Config. Keep billing, organization management and unrelated capabilities unset. Build commands must explicitly select the configured project. Never deploy this token into the app.
 6. Confirm organization Billing shows **Free**, without add-ons/trial. Keep pause/quota emails enabled. Do not upgrade if a free slot is unavailable; resolve the free-account limit first.
 7. Do not configure the Supabase Auth Spotify provider. The app implements Spotify PKCE directly, with no second login. Never expose a database secret/service key to the frontend.
 8. Leave PITR, paid backups, Realtime and image transformations off. The build configures migrations, `pg_cron`/`pg_net`, Vault and the private annotation-backup bucket with their permissions.
@@ -55,6 +55,8 @@ The repository/skills/CI bootstrap was merged through PR #1, and main protection
 ```sh
 chmod 600 .local/supabase-access-token .local/supabase-db-password
 ```
+
+Project-scoped tokens do not need account-wide `projects_read`: preflight checks the configured project directly through the Management API, including its healthy status. Do not broaden the token just to make `supabase projects list` work. Renew an expired token in the same private file.
 
 No manual `supabase link` is needed now. The runner passes these values through `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD`; the first milestone links its separate worktree. [CLI reference](https://supabase.com/docs/reference/cli/introduction).
 
