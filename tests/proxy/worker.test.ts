@@ -151,6 +151,24 @@ describe("fixed same-origin proxy", () => {
     expect(response.headers.get("location")).toBe(env.APP_ORIGIN + "/");
     expect(response.headers.getSetCookie()).toHaveLength(2);
   });
+  it("preserves separate OAuth and provider cookies without applying application policy to the provider", async () => {
+    const cookies = [
+      `__Host-sp_oauth=${"a".repeat(43)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+      "provider=synthetic; Path=/; HttpOnly; Secure; Domain=.example.test",
+    ];
+    const headers = new Headers({
+      location: "https://accounts.spotify.com/authorize?state=synthetic",
+    });
+    for (const value of cookies) headers.append("set-cookie", value);
+    const response = await handleRequest(
+      request("/auth/spotify/start"),
+      env,
+      async () => new Response(null, { status: 303, headers }),
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.getSetCookie()).toEqual(cookies);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
   it("reports actual jobs revision rather than assuming it matches the frontend", async () => {
     const remote = vi.fn(async () =>
       Response.json({

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { oauthCallbackCookie } from "./live/oauth-cookie.mjs";
 import {
   currentHead,
   privateFetch,
@@ -74,18 +75,22 @@ async function managementQuery(config, token, query) {
     "database_read_probe_failed",
   );
 }
+export function spotifyProofArguments(config, registryPath) {
+  return [
+    "run",
+    "--no-prompt",
+    `--allow-net=${config.supabaseProjectRef}.supabase.co,api.spotify.com,accounts.spotify.com`,
+    // rename reads its temporary source as well as writing both paths.
+    `--allow-read=${registryPath},${registryPath}.tmp`,
+    `--allow-write=${registryPath},${registryPath}.tmp`,
+    "scripts/live/spotify-proof.ts",
+  ];
+}
 async function runSpotifyProof(root, config, input) {
   return new Promise((done, fail) => {
     const child = spawn(
       "deno",
-      [
-        "run",
-        "--no-prompt",
-        `--allow-net=${config.supabaseProjectRef}.supabase.co,api.spotify.com,accounts.spotify.com`,
-        `--allow-read=${input.registryPath}`,
-        `--allow-write=${input.registryPath},${input.registryPath}.tmp`,
-        "scripts/live/spotify-proof.ts",
-      ],
+      spotifyProofArguments(config, input.registryPath),
       {
         cwd: root,
         env: { PATH: process.env.PATH },
@@ -283,17 +288,7 @@ export async function verifyStage(stage, root) {
       ),
     "production_pkce_contract_failed",
   );
-  const cookies = start.headers.getSetCookie();
-  requireCheck(
-    cookies.length > 0 &&
-      cookies.every(
-        (cookie) =>
-          /HttpOnly/i.test(cookie) &&
-          /Secure/i.test(cookie) &&
-          /SameSite=Lax/i.test(cookie),
-      ),
-    "secure_oauth_cookie_required",
-  );
+  const oauthCookie = oauthCallbackCookie(start.headers.getSetCookie());
   const callback = new URL(config.appUrl + "/auth/spotify/callback");
   callback.search = new URLSearchParams({
     state: authorization.searchParams.get("state"),
@@ -301,7 +296,7 @@ export async function verifyStage(stage, root) {
   }).toString();
   const denied = await privateFetch(callback, {
     headers: {
-      cookie: cookies.map((cookie) => cookie.split(";")[0]).join("; "),
+      cookie: oauthCookie,
     },
   });
   requireCheck(

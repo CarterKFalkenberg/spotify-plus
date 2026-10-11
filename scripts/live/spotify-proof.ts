@@ -40,7 +40,7 @@ const decoder = new TextDecoder();
 function check(value: unknown, code: string): asserts value {
   if (!value) throw new Error(code);
 }
-async function writeRegistry(path: string, registry: Registry) {
+export async function writeRegistry(path: string, registry: Registry) {
   const tmp = `${path}.tmp`;
   await Deno.writeTextFile(tmp, JSON.stringify(registry), { mode: 0o600 });
   await Deno.rename(tmp, path);
