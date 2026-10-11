@@ -29,13 +29,15 @@ Immediately before deploying, inspect the signed-in Supabase and Cloudflare dash
     "egressLimitBytes": 5000000000,
     "storageBytes": 0,
     "storageLimitBytes": 1000000000,
+    "functionInvocations": 0,
+    "functionInvocationLimit": 500000,
     "workerRequestsToday": 0,
     "workerDailyRequestLimit": 100000
   }
 }
 ```
 
-The numeric values above illustrate the shape; replace usage and limits with the actual observations. Never treat this example as evidence. Observations expire after 15 minutes and are bound to the targets and commit.
+The numeric values above illustrate the shape; replace usage and limits with the actual observations. `functionInvocations` and `functionInvocationLimit` are the current displayed Supabase Edge Function invocation usage and allowance, not configured or assumed values. Record the dashboard observation time; provider usage refresh latency means these observations prove displayed capacity at that time, not future capacity. Missing, invalid or exhausted function-invocation evidence blocks both preparation and live verification. Never treat this example as evidence. Observations expire after 15 minutes and are bound to the targets and commit.
 
 Run `npm run build`, then `node scripts/prepare-deployment.mjs`. It also freshly checks the configured project's identity/health through the Management API. It creates missing runtime keys without changing existing keys, and prepares `.local/deploy/<sha>/supabase.env`, `wrangler.json`, `worker-secrets.json` and `vault-input.json`. Preparation makes **no deployment, migration, Vault or hosting changes**. `.local` is a symlink to the primary private directory.
 
@@ -48,6 +50,10 @@ The orchestrator then performs these already-authorized steps, parsing vendor ou
 5. Run `node scripts/import-bootstrap.mjs` once. It verifies the direct operator route with both service secrets, refreshes an expired access grant privately if needed, and atomically saves any rotated refresh token **before** import while preserving `authorizedAt`. The API rechecks Spotify identity and stores the session hash with the encrypted grant in the same `app_connect` transaction. Only an accepted commit issues the secure HttpOnly cookie; the helper saves it in ignored `.local/owner-session.json`, mode 600. Only confirmed consumption produces the consumed receipt and removes the raw local grant. Before refresh dispatch, the helper atomically marks the ignored grant with `refreshAttemptedAt`. A timeout, lost/malformed response or interrupted process leaves that marker in place; every subsequent run rejects both refresh and import with `bootstrap_refresh_ambiguous_reconnect_required`, even if the old access token appears unexpired. Only safely saved validated credentials (including a positive integral `expires_in` of at most one day), or a definitive HTTP 400 `invalid_grant` refusal, clear the marker. A definitive refusal reports `bootstrap_refresh_rejected_reconnect_required`; it is not a transient retry instruction. Do not edit or delete the marker to retry. For ambiguity, run `node scripts/connect-spotify.mjs` and complete a fresh setup OAuth login; its new complete grant replaces the marked file. Then rerun the import helper. A definitive `invalid_grant` refusal also needs fresh consent rather than repeated attempts with a rejected grant. A committed import whose response was lost cannot issue a replacement cookie on retry; the consumed status is reconciled, but owner-session verification remains blocked until a normal PKCE login.
 
 Cloudflare's static asset routing and secret-file deployment are documented at [Worker routing](https://developers.cloudflare.com/workers/static-assets/routing/worker-script/) and [Secrets](https://developers.cloudflare.com/workers/configuration/secrets/). The database scheduler follows [Supabase scheduled functions](https://supabase.com/docs/guides/functions/schedule-functions).
+
+## Function routing boundary
+
+The proxy and cron call gateway URLs such as `/functions/v1/api/healthz` and `/functions/v1/jobs`. [Supabase routing documentation](https://supabase.com/docs/guides/functions/routing) specifies that the URL inside the function retains its function-name prefix: `/api/healthz` and `/jobs`. The shared resolver accepts both shapes and strips exactly one matching prefix. A product `/api/session` route is therefore `/api/api/session` inside the API function; bare `/api/session` is not a shorthand alias. Synthetic API helpers construct that actual runtime shape. Handler regressions cover both shapes, health/SHA results, anonymous session access, OAuth/bootstrap dispatch, wrong secrets and wrong/adjacent/repeated prefixes. The disposable vendor cron callback is not an Edge Runtime routing proof; freshly deployed handler checks remain required.
 
 ## Fresh deployed verification
 

@@ -25,7 +25,8 @@ const authenticated = {
   authorizationDeadline: "2099-01-01T00:00:00.000Z",
 };
 function request(path: string, init: RequestInit = {}): Request {
-  return new Request(config.origin + path, {
+  // Logical product route -> actual URL seen inside the api Edge Function.
+  return new Request(config.origin + "/api" + path, {
     ...init,
     headers: { "x-proxy-secret": config.proxySecret, ...init.headers },
   });
@@ -61,7 +62,7 @@ Deno.test("health includes deployment SHA and DB scheduler evidence", async () =
       lastJobAt: null,
     })),
   });
-  const body = await (await handler(request("/functions/v1/api/healthz")))
+  const body = await (await handler(request("/healthz")))
     .json();
   equal(body.apiSha, config.sha);
   equal(body.jobsSha, "b".repeat(40));

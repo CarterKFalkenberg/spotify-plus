@@ -38,6 +38,8 @@ const dashboard = () => ({
     egressLimitBytes: 5e9,
     storageBytes: 0,
     storageLimitBytes: 1e9,
+    functionInvocations: 0,
+    functionInvocationLimit: 500000,
     workerRequestsToday: 0,
     workerDailyRequestLimit: 100000,
   },
@@ -88,6 +90,34 @@ describe("deployment proof boundaries", () => {
       { authorization: { deployToConfiguredFreeHosting: false } },
     ])
       expect(() => validateTargets({ ...config, ...changed })).toThrow();
+  });
+  it("requires actual function invocation usage and capacity before preparing or verifying a deployment", () => {
+    const valid = dashboard();
+    expect(() =>
+      validateDashboardEvidence(valid, config, head, now),
+    ).not.toThrow();
+    for (const key of ["functionInvocations", "functionInvocationLimit"]) {
+      for (const value of [undefined, -1, NaN, Infinity, "0"]) {
+        const evidence = dashboard();
+        if (value === undefined) delete evidence.quotas[key];
+        else evidence.quotas[key] = value;
+        expect(() =>
+          validateDashboardEvidence(evidence, config, head, now),
+        ).toThrow("actual_quota_evidence_required");
+      }
+    }
+    for (const usage of [500000, 500001]) {
+      const evidence = dashboard();
+      evidence.quotas.functionInvocations = usage;
+      expect(() =>
+        validateDashboardEvidence(evidence, config, head, now),
+      ).toThrow("free_quota_capacity_required");
+    }
+    const exhausted = dashboard();
+    exhausted.quotas.functionInvocationLimit = 0;
+    expect(() =>
+      validateDashboardEvidence(exhausted, config, head, now),
+    ).toThrow("free_quota_capacity_required");
   });
   it("preserves existing keys and creates distinct service secrets without widening worker access", () => {
     const original = {

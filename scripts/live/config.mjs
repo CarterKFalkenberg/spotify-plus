@@ -130,6 +130,8 @@ export function validateDashboardEvidence(
         "egressLimitBytes",
         "storageBytes",
         "storageLimitBytes",
+        "functionInvocations",
+        "functionInvocationLimit",
         "workerRequestsToday",
         "workerDailyRequestLimit",
       ].every((k) => Number.isFinite(quotas[k]) && quotas[k] >= 0),
@@ -139,6 +141,7 @@ export function validateDashboardEvidence(
     quotas.databaseBytes < quotas.databaseLimitBytes &&
       quotas.egressBytes < quotas.egressLimitBytes &&
       quotas.storageBytes < quotas.storageLimitBytes &&
+      quotas.functionInvocations < quotas.functionInvocationLimit &&
       quotas.workerRequestsToday < quotas.workerDailyRequestLimit &&
       value.cloudflare.cpuLimitMs === 10,
     "free_quota_capacity_required",

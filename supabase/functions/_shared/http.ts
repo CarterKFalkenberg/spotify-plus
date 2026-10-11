@@ -78,11 +78,12 @@ export function pathFor(
   functionName: "api" | "jobs",
 ): string {
   const path = new URL(request.url).pathname;
-  // Hosted requests include the gateway prefix; direct synthetic requests use product paths.
-  const prefix = `/functions/v1/${functionName}`;
-  return path.startsWith(`${prefix}/`)
-    ? path.slice(prefix.length)
-    : path === prefix
-    ? "/"
-    : path;
+  // The gateway URL has /functions/v1; Edge Runtime retains only /<function>.
+  // Strip exactly one function prefix. Product /api/session therefore arrives
+  // inside the api function as /api/api/session, never shorthand /api/session.
+  for (const prefix of [`/functions/v1/${functionName}`, `/${functionName}`]) {
+    if (path === prefix) return "/";
+    if (path.startsWith(`${prefix}/`)) return path.slice(prefix.length);
+  }
+  return path;
 }
