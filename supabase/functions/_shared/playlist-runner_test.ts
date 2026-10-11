@@ -92,7 +92,8 @@ function harness(count = 250) {
       call("details");
       return Promise.resolve(metadata());
     },
-    getPlaylistItemsPage: (_id, { offset = 0, limit = 100 } = {}) => {
+    getPlaylistItemsPage: (_id, { offset = 0, limit = 50 } = {}) => {
+      assert(limit >= 1 && limit <= 50);
       call("items");
       return Promise.resolve({
         items: state.items.slice(offset, offset + limit).map((uri) => ({

@@ -266,7 +266,8 @@ export async function runPlaylistJob(
           const page = await remote(() =>
             spotify.getPlaylistItemsPage(id, {
               offset: scan.offset,
-              limit: 100,
+              // Spotify item reads cap at 50; write chunks below permit 100.
+              limit: 50,
             })
           );
           if (scan.total !== null && scan.total !== page.total) {
