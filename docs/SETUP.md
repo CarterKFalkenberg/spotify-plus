@@ -5,7 +5,7 @@ Updated October 11, 2026. The user's [product choices](DECISIONS.md) are accepte
 ## 1. Prepare the local machine
 
 ```sh
-cd /Users/carterfalkenberg/.codex/worktrees/planning-and-build-workflow/spotify-plus
+cd /Users/carterfalkenberg/Documents/ChatGPT/spotify-plus
 brew install node@24 gh deno supabase/tap/supabase
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm install -g wrangler
@@ -21,7 +21,7 @@ gh auth login --hostname github.com --git-protocol https --web --scopes repo,wor
 gh auth setup-git
 ```
 
-If already signed in, `codex login status` is sufficient. The runner uses existing Codex account access and its configured model; no OpenAI API key is needed. GitHub CLI needs repository, issue, PR-merge and workflow-file access to `CarterKFalkenberg/spotify-plus`; repository administration is needed to configure main protection once. The connected account has repository admin access, but `gh` is currently unauthenticated. Your autonomous-merge authorization is already recorded. The GitHub plugin does not automatically authenticate `gh`. [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [GitHub login](https://cli.github.com/manual/gh_auth_login).
+If already signed in, `codex login status` is sufficient. The runner uses existing Codex account access and its configured model; no OpenAI API key is needed. GitHub CLI needs repository, issue, PR-merge and workflow-file access to `CarterKFalkenberg/spotify-plus`; repository administration is needed to configure main protection once. GitHub CLI authentication was verified on October 11 as CarterKFalkenberg with `repo` and `workflow` scopes, repository admin access, and Git credential integration configured. Your autonomous-merge authorization is already recorded. The GitHub plugin does not automatically authenticate `gh`. [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [GitHub login](https://cli.github.com/manual/gh_auth_login).
 
 Start Docker Desktop for a disposable local Supabase stack and integration tests. Its executable is present; daemon readiness has not been established. No cloud Docker host or manually created local database is needed.
 

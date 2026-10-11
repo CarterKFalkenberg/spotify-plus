@@ -6,7 +6,7 @@ Updated October 11, 2026 for the user's [accepted decisions](DECISIONS.md) and s
 
 Build one private personal application whose first useful release can connect, sync, tag, preview a query, create a private Spotify playlist, and remove it automatically after its selected retention. The final acceptance is a real phone flow under a minute and familiar-song tagging at roughly 3–5 seconds per song. Local tests alone never establish that acceptance.
 
-Keep all five stages in the first useful release. The initial API/hosting proof is internal preparation, not a read-only browser advertised as a release. Preserve every MVP feature in the brief; use later stages to finish throughput, vocabulary gardening, mobile triage, and fault recovery. Deep-link-only audio and snapshot playlists are appropriate MVP boundaries.
+Keep the full MVP scope in the first useful release. The initial API/hosting proof is internal preparation, not a read-only browser advertised as a release. Preserve every MVP feature in the brief; use later stages to finish throughput, vocabulary gardening, mobile triage, and fault recovery. Deep-link-only audio and snapshot playlists are appropriate MVP boundaries.
 
 ## Accepted decisions
 

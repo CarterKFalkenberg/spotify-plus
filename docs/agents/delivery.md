@@ -4,7 +4,7 @@ The user explicitly authorized creating, reviewing and merging this project's PR
 
 ## Before the build goal
 
-Authenticate local `gh` as an account with repository write access; administrator access is needed once to configure Actions and branch rules. The connected GitHub app already reports admin/push access, but that does not sign the CLI in. On inspection October 11, main was unprotected, no rulesets existed, and `gh` was installed but unauthenticated.
+Authenticate local `gh` as an account with repository write access; administrator access is needed once to configure Actions and branch rules. The connected GitHub app already reports admin/push access, but that does not sign the CLI in. At initial inspection on October 11, main was unprotected and no rulesets existed. CLI login has since been verified as CarterKFalkenberg with repository admin access, `repo` and `workflow` scopes, and Git credential integration. Check actual branch settings before changing protections.
 
 Recommended CLI login: `gh auth login --hostname github.com --git-protocol https --web --scopes repo,workflow`, then `gh auth setup-git`. If already signed in, use `gh auth refresh --hostname github.com --scopes workflow` if workflow-file pushes lack scope. A fine-grained alternative needs Contents, Pull requests, Issues and Workflows write; Actions and Checks read; Administration write only for the initial repository-settings setup. Token scope never substitutes for the account's repository role.
 
