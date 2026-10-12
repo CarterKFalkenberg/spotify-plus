@@ -1,4 +1,5 @@
 import {
+  assertDisposableRenameAcknowledged,
   assertPreview,
   assertPreviewPage,
   assertProgress,
@@ -45,6 +46,66 @@ const track = (key: string, likedAt: string, playable = true): TrackDTO => ({
     removedAt: null,
     acknowledgedAt: null,
   },
+});
+Deno.test("operator rename acknowledges only supported success and emits fixed status classes without vendor bodies", async () => {
+  for (
+    const [status, code] of [
+      [200, null],
+      [204, null],
+      [400, "bad_request"],
+      [401, "unauthorized"],
+      [403, "forbidden"],
+      [500, "server_error"],
+      [202, "unexpected_status"],
+    ] as const
+  ) {
+    const response = new Response(
+      status === 204 ? null : "synthetic vendor body",
+      { status },
+    );
+    let failed: string | null = null;
+    try {
+      await assertDisposableRenameAcknowledged(response, () => {
+        throw new Error("unexpected defer");
+      });
+    } catch (error) {
+      equal(error instanceof ProofFailure, true);
+      failed = (error as Error).message;
+    }
+    equal(failed, code === null ? null : `core_disposable_rename_${code}`);
+    if (failed) equal(/^[a-z_]+$/.test(failed), true);
+  }
+});
+Deno.test("operator rename 429 persists shared Retry-After then fails without replay or raw cooldown errors", async () => {
+  const deferrals: unknown[] = [];
+  for (const rejects of [false, true]) {
+    const response = new Response("synthetic vendor body", {
+      status: 429,
+      headers: { "retry-after": "120" },
+    });
+    let code = "";
+    try {
+      await assertDisposableRenameAcknowledged(response, (input) => {
+        deferrals.push(input);
+        return rejects
+          ? Promise.reject(new Error("synthetic private failure"))
+          : Promise.resolve();
+      });
+    } catch (error) {
+      equal(error instanceof ProofFailure, true);
+      code = (error as Error).message;
+    }
+    equal(
+      code,
+      rejects
+        ? "core_disposable_rename_cooldown_unconfirmed"
+        : "core_disposable_rename_rate_limited",
+    );
+  }
+  equal(deferrals, [{ retryAfterMs: 120000, kind: "rate_limit" }, {
+    retryAfterMs: 120000,
+    kind: "rate_limit",
+  }]);
 });
 Deno.test("preview proof rejects stale count, unavailable duration, duplicate membership and wrong order", () => {
   const tracks = [

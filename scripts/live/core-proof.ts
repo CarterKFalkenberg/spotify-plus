@@ -31,6 +31,7 @@ import {
   type SpotifyPlaylistItem,
 } from "../../supabase/functions/_shared/spotify.ts";
 import { pacedRequests } from "./paced-request.ts";
+import { retryAfter } from "../../supabase/functions/_shared/retry-after.ts";
 import {
   check,
   cleanupFixturesSql,
@@ -80,6 +81,42 @@ export async function writeCoreRegistry(path: string, registry: CoreRegistry) {
   await Deno.rename(`${path}.tmp`, path);
 }
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+export async function assertDisposableRenameAcknowledged(
+  response: Response,
+  defer: (input: { retryAfterMs: number; kind: "rate_limit" }) => Promise<void>,
+) {
+  const status = response.status;
+  if (status === 200 || status === 204) {
+    await response.body?.cancel();
+    return;
+  }
+  if (status === 429) {
+    const delay = Math.max(
+      60000,
+      retryAfter(response.headers.get("retry-after"), Date.now()) ?? 60000,
+    );
+    try {
+      await defer({ retryAfterMs: delay, kind: "rate_limit" });
+    } catch {
+      await response.body?.cancel();
+      throw new ProofFailure("core_disposable_rename_cooldown_unconfirmed");
+    }
+  }
+  // Never read/emit a vendor error body or replay a dispatched write.
+  await response.body?.cancel();
+  const reason = status === 400
+    ? "bad_request"
+    : status === 401
+    ? "unauthorized"
+    : status === 403
+    ? "forbidden"
+    : status === 429
+    ? "rate_limited"
+    : status >= 500 && status <= 599
+    ? "server_error"
+    : "unexpected_status";
+  throw new ProofFailure(`core_disposable_rename_${reason}`);
+}
 export interface PlaylistReadinessWork {
   status: string;
   blockedBy: string | null;
@@ -938,7 +975,7 @@ export async function runCoreProof(input: Input) {
         note === `Synthetic outside note ${r.run}`,
       "core_rename_registry_required",
     );
-    const description = `${note}\n${current.description ?? ""}`;
+    const description = `${note} ${current.description ?? ""}`;
     check(description.length <= 300, "core_synthetic_description_too_long");
     const token = await tokens.getAccessToken();
     let granted = false;
@@ -980,10 +1017,7 @@ export async function runCoreProof(input: Input) {
         }),
       },
     );
-    check(
-      response.status === 200 || response.status === 204,
-      "core_disposable_rename_unconfirmed",
-    );
+    await assertDisposableRenameAcknowledged(response, pacing.defer);
   }
   async function ordered(r: CoreRegistry, expected: string[]) {
     const actual: (string | null)[] = [];
