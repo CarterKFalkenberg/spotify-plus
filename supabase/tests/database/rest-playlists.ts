@@ -31,15 +31,17 @@ export async function playlistRestProof(
     creates = 0,
     removals = 0,
     networkFailures = 0,
-    immediate = 0;
+    immediate = 0,
+    publicationCommands = 0;
+  let published = false, collaborative = false;
   let items: string[] = [], snapshot = 0;
   let description = "", name = "Synthetic managed playlist";
   const details = () => ({
     id,
     name,
     description,
-    public: false,
-    collaborative: false,
+    public: published,
+    collaborative,
     ownerId: "synthetic-owner",
     snapshotId: String(snapshot),
     total: items.length,
@@ -91,7 +93,23 @@ export async function playlistRestProof(
     },
     updatePlaylistDescription: (_id, text) => {
       description = text;
+      published = false;
+      collaborative = false;
       return Promise.resolve();
+    },
+    ensurePlaylistUnpublished: async (remoteId) => {
+      check(remoteId === id);
+      check(
+        await db.rpc("app_playlist_managed", {
+          p_epoch: 1,
+          p_spotify_id: remoteId,
+        }),
+      );
+      // Model only the fixed-false publication command: never touch name,
+      // description, items or their snapshot, and acknowledge after the guard.
+      published = false;
+      collaborative = false;
+      publicationCommands++;
     },
     removeManagedPlaylists: async (ids) => {
       check(ids.length === 1 && ids[0] === id);
@@ -191,6 +209,21 @@ export async function playlistRestProof(
   check(current.retention === "pinned" && current.expiresOn === null);
   await action("unpin", { retention: "week" });
   check(current.retention === "week" && current.expiresOn !== null);
+  const beforeReconcile = { name, description, items: [...items], snapshot };
+  published = true;
+  collaborative = true;
+  await fixture("reconcile_playlists");
+  await db.rpc("app_playlist_schedule");
+  await drain();
+  current = (await list()).playlists[0];
+  check(
+    current.status === "ready" && publicationCommands === 1 && !published &&
+      !collaborative,
+  );
+  check(
+    JSON.stringify({ name, description, items, snapshot }) ===
+      JSON.stringify(beforeReconcile),
+  );
   const stale = await call(`/playlists/${current.id}/actions`, {
     requestId: crypto.randomUUID(),
     expectedRevision: "0",
