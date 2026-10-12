@@ -81,7 +81,9 @@ export function playlistDescription(
   const to = from < 0 ? -1 : existing.indexOf(end, from + start.length);
   const prefix = from >= 0 && to >= 0 ? existing.slice(0, from) : existing;
   const suffix = from >= 0 && to >= 0 ? existing.slice(to + end.length) : "";
-  const separator = from >= 0 && to >= 0 || !prefix ? "" : "\n";
+  // Add only a space when framing notes without our block. Existing outside
+  // whitespace (including any owner-supplied newline) still survives exactly.
+  const separator = from >= 0 && to >= 0 || !prefix ? "" : " ";
   const expiry = expiresOn === null
     ? "Pinned; never expires."
     : `Valid through ${expiresOn} (New York); then removed from Your Library.`;

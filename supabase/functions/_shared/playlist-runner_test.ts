@@ -697,7 +697,7 @@ Deno.test("Pin updates only disclosure and preserves actual items and current na
   equal(h.state.appends, []);
   equal(h.state.replacements, 0);
   assert(
-    h.state.description.startsWith("User text\n") &&
+    h.state.description.startsWith("User text ") &&
       h.state.description.includes("Pinned; never expires"),
   );
 });

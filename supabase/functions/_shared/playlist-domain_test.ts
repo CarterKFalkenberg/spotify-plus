@@ -38,13 +38,13 @@ Deno.test("bounded disclosure retains marker, nested AST and exact user descript
   const first = playlistDescription(id, text, "2026-12-01", "My notes  ");
   assert(
     [...first].length <= 300 && first.includes("…") &&
-      first.startsWith("My notes  \n"),
+      first.startsWith("My notes   "),
   );
   assert(
     first.includes("2026-12-01") && first.includes("overwrites manual edits"),
   );
   const changed = playlistDescription(id, text, null, first + "  End notes");
-  assert(changed.startsWith("My notes  \n") && changed.endsWith("  End notes"));
+  assert(changed.startsWith("My notes   ") && changed.endsWith("  End notes"));
   assert(changed.includes("Pinned; never expires"));
   equal(JSON.stringify(query), original);
 });
@@ -71,7 +71,7 @@ Deno.test("tag framing text cannot inject a managed terminator across repeated l
   const queryText = renderQuery(query, { [id]: label });
   for (const expires of ["2026-02-28", "2026-03-31", null, "2026-05-31"]) {
     description = playlistDescription(id, queryText, expires, description);
-    assert(description.startsWith("Owner text  \n"));
+    assert(description.startsWith("Owner text   "));
     equal(description.split("[/Tagger]").length, 2);
     equal(description.split(`[Tagger:${id}]`).length, 2);
     if (expires) assert(description.includes(expires));
@@ -81,4 +81,23 @@ Deno.test("tag framing text cannot inject a managed terminator across repeated l
     !description.includes("2026-02-28") && !description.includes("2026-03-31"),
   );
   equal(JSON.stringify(query), before);
+});
+Deno.test("absent managed block uses one space while preserving exact outside notes across regeneration", () => {
+  const marker = `[Tagger:${id}]`;
+  for (
+    const notes of ["Outside notes", "Outside notes  ", "Owner\ntext\t &amp;"]
+  ) {
+    const first = playlistDescription(id, "Synthetic query", null, notes);
+    equal(first.slice(0, first.indexOf(marker)), notes + " ");
+    const second = playlistDescription(
+      id,
+      "Changed query",
+      "2026-12-01",
+      first,
+    );
+    equal(second.slice(0, second.indexOf(marker)), notes + " ");
+    equal(second.split(marker).length, 2);
+    equal(second.split("[/Tagger]").length, 2);
+    assert([...second].length <= 300);
+  }
 });

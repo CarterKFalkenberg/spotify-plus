@@ -665,6 +665,7 @@ export async function verifyStage(stage, root) {
       cpuSamples: operator.cpu.sampleCount,
     },
     pendingHumanAcceptance: [
+      "actual-profile-search-hiding",
       "actual-phone-query-under-one-minute",
       "familiar-song-tagging-three-to-five-seconds",
     ],
