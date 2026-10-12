@@ -107,6 +107,31 @@ Deno.test("operator rename 429 persists shared Retry-After then fails without re
     kind: "rate_limit",
   }]);
 });
+Deno.test("operator rename quota uses six-hour shared quota cooldown or longer Retry-After without leaking vendor fields", async () => {
+  for (
+    const [header, expected] of [["5", 21600000], ["86400", 86400000]] as const
+  ) {
+    const response = Response.json({
+      error: {
+        reason: "QUOTA_EXCEEDED",
+        message: "synthetic private vendor field",
+      },
+    }, { status: 429, headers: { "retry-after": header } });
+    const deferrals: unknown[] = [];
+    let code = "";
+    try {
+      await assertDisposableRenameAcknowledged(response, (input) => {
+        deferrals.push(input);
+        return Promise.resolve();
+      });
+    } catch (error) {
+      equal(error instanceof ProofFailure, true);
+      code = (error as Error).message;
+    }
+    equal(code, "core_disposable_rename_quota");
+    equal(deferrals, [{ retryAfterMs: expected, kind: "quota" }]);
+  }
+});
 Deno.test("preview proof rejects stale count, unavailable duration, duplicate membership and wrong order", () => {
   const tracks = [
     track("a", "2026-10-11T12:00:00Z"),

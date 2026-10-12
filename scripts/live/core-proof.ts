@@ -83,7 +83,9 @@ export async function writeCoreRegistry(path: string, registry: CoreRegistry) {
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 export async function assertDisposableRenameAcknowledged(
   response: Response,
-  defer: (input: { retryAfterMs: number; kind: "rate_limit" }) => Promise<void>,
+  defer: (
+    input: { retryAfterMs: number; kind: "rate_limit" | "quota" },
+  ) => Promise<void>,
 ) {
   const status = response.status;
   if (status === 200 || status === 204) {
@@ -91,18 +93,37 @@ export async function assertDisposableRenameAcknowledged(
     return;
   }
   if (status === 429) {
+    let quota = false;
+    try {
+      const data: unknown = await response.json();
+      const error =
+        data !== null && typeof data === "object" && !Array.isArray(data)
+          ? (data as Record<string, unknown>).error
+          : null;
+      quota = error !== null && typeof error === "object" &&
+        !Array.isArray(error) &&
+        (error as Record<string, unknown>).reason === "QUOTA_EXCEEDED";
+    } catch { /* Unreadable bodies still require rate-limit cooldown. */ }
     const delay = Math.max(
-      60000,
+      quota ? 6 * 60 * 60 * 1000 : 60000,
       retryAfter(response.headers.get("retry-after"), Date.now()) ?? 60000,
     );
     try {
-      await defer({ retryAfterMs: delay, kind: "rate_limit" });
+      await defer({
+        retryAfterMs: delay,
+        kind: quota ? "quota" : "rate_limit",
+      });
     } catch {
-      await response.body?.cancel();
+      if (!response.bodyUsed) await response.body?.cancel();
       throw new ProofFailure("core_disposable_rename_cooldown_unconfirmed");
     }
+    throw new ProofFailure(
+      quota
+        ? "core_disposable_rename_quota"
+        : "core_disposable_rename_rate_limited",
+    );
   }
-  // Never read/emit a vendor error body or replay a dispatched write.
+  // Never emit a vendor error body or replay a dispatched write.
   await response.body?.cancel();
   const reason = status === 400
     ? "bad_request"
