@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  committedBackupSnapshot,
+  validateIsolatedBackup,
+  validateSoftwareChecks,
+} from "./live/stage-evidence.mjs";
 import { oauthCallbackCookie } from "./live/oauth-cookie.mjs";
 import {
   currentHead,
@@ -96,6 +101,32 @@ export function coreProofArguments(config, registryPath) {
     "scripts/live/core-proof.ts",
   ];
 }
+export function fastProofArguments(config, registryPath) {
+  return [
+    "run",
+    "--no-prompt",
+    `--allow-net=${new URL(config.appUrl).hostname},api.supabase.com`,
+    `--allow-read=${registryPath},${registryPath}.tmp,${registryPath}.lock`,
+    `--allow-write=${registryPath},${registryPath}.tmp,${registryPath}.lock`,
+    "scripts/live/fast-proof.ts",
+  ];
+}
+export function redactedFastResult(value) {
+  requireCheck(
+    value?.passed === true &&
+      value.transactionalFastTagging === true &&
+      value.fixturesRolledBack === true &&
+      value.authenticatedFastReads === true &&
+      value.assertions === 20,
+    "fast_proof_receipt_invalid",
+  );
+  return {
+    transactionalFastTagging: true,
+    fixturesRolledBack: true,
+    authenticatedFastReads: true,
+    assertions: value.assertions,
+  };
+}
 export function redactedCoreResult(value) {
   const booleans = [
     "automaticImportComplete",
@@ -140,9 +171,11 @@ async function runSpotifyProof(root, config, input, core = false) {
   return new Promise((done, fail) => {
     const child = spawn(
       "deno",
-      core
-        ? coreProofArguments(config, input.registryPath)
-        : spotifyProofArguments(config, input.registryPath),
+      core === "fast"
+        ? fastProofArguments(config, input.registryPath)
+        : core
+          ? coreProofArguments(config, input.registryPath)
+          : spotifyProofArguments(config, input.registryPath),
       {
         cwd: root,
         env: { PATH: process.env.PATH },
@@ -173,7 +206,13 @@ async function runSpotifyProof(root, config, input, core = false) {
             ? result.blocker
             : "live_spotify_proof_failed",
         );
-        done(core ? redactedCoreResult(result) : result);
+        done(
+          core === "fast"
+            ? redactedFastResult(result)
+            : core
+              ? redactedCoreResult(result)
+              : result,
+        );
       } catch (error) {
         fail(
           Object.assign(new Error(), {
@@ -188,7 +227,12 @@ async function runSpotifyProof(root, config, input, core = false) {
 }
 export async function verifyStage(stage, root) {
   requireCheck(
-    ["api-proof", "core-loop"].includes(stage),
+    [
+      "api-proof",
+      "core-loop",
+      "fast-tagging",
+      "resilience-and-handoff",
+    ].includes(stage),
     "stage_live_verifier_not_implemented",
   );
   const local = resolve(root, ".local");
@@ -422,43 +466,79 @@ export async function verifyStage(stage, root) {
       rows[0].database_bytes < dashboard.quotas.databaseLimitBytes,
     "actual_database_capacity_exceeded",
   );
-  const spotify = await runSpotifyProof(root, config, {
-    origin: base,
-    serviceKey,
-    clientId: config.spotifyClientId,
-    encryptionKey: keys.tokenEncryptionKey,
-    bindingKey: keys.ownerBindingKey,
-    ownerFingerprint: rows[0].owner_fingerprint,
-    epoch: account.epoch,
-    registryPath: resolve(local, "api-proof-playlist.json"),
-    authorized: true,
-  });
-  const core =
-    stage === "core-loop"
-      ? await runSpotifyProof(
-          root,
-          config,
-          {
-            origin: base,
-            appUrl: config.appUrl,
-            projectRef: config.supabaseProjectRef,
-            managementToken,
-            serviceKey,
-            clientId: config.spotifyClientId,
-            encryptionKey: keys.tokenEncryptionKey,
-            bindingKey: keys.ownerBindingKey,
-            ownerFingerprint: rows[0].owner_fingerprint,
-            epoch: account.epoch,
-            cookie: owner.cookie,
-            head,
-            registryPath: resolve(local, "core-proof-registry.json"),
-            authorized: true,
-          },
-          true,
+  const software = ["fast-tagging", "resilience-and-handoff"].includes(stage)
+    ? validateSoftwareChecks(
+        readJson(resolve(local, "verification/software-checks.json")),
+        head,
+      )
+    : null;
+  const backup =
+    stage === "resilience-and-handoff"
+      ? validateIsolatedBackup(
+          readJson(resolve(local, "verification/isolated-backup.json")),
+          head,
+          committedBackupSnapshot(root, head),
         )
       : null;
+  const fast = ["fast-tagging", "resilience-and-handoff"].includes(stage)
+    ? await runSpotifyProof(
+        root,
+        config,
+        {
+          appUrl: config.appUrl,
+          projectRef: config.supabaseProjectRef,
+          managementToken,
+          epoch: account.epoch,
+          ownerFingerprint: rows[0].owner_fingerprint,
+          cookie: owner.cookie,
+          registryPath: resolve(local, "fast-proof-registry.json"),
+        },
+        "fast",
+      )
+    : null;
+  const spotify = ["api-proof", "core-loop"].includes(stage)
+    ? await runSpotifyProof(root, config, {
+        origin: base,
+        serviceKey,
+        clientId: config.spotifyClientId,
+        encryptionKey: keys.tokenEncryptionKey,
+        bindingKey: keys.ownerBindingKey,
+        ownerFingerprint: rows[0].owner_fingerprint,
+        epoch: account.epoch,
+        registryPath: resolve(local, "api-proof-playlist.json"),
+        authorized: true,
+      })
+    : null;
+  const core = ["core-loop", "resilience-and-handoff"].includes(stage)
+    ? await runSpotifyProof(
+        root,
+        config,
+        {
+          origin: base,
+          appUrl: config.appUrl,
+          projectRef: config.supabaseProjectRef,
+          managementToken,
+          serviceKey,
+          clientId: config.spotifyClientId,
+          encryptionKey: keys.tokenEncryptionKey,
+          bindingKey: keys.ownerBindingKey,
+          ownerFingerprint: rows[0].owner_fingerprint,
+          epoch: account.epoch,
+          cookie: owner.cookie,
+          head,
+          registryPath: resolve(local, "core-proof-registry.json"),
+          authorized: true,
+        },
+        true,
+      )
+    : null;
   let scheduled = core?.authenticatedScheduledExpiry === true;
   if (stage === "api-proof") {
+    scheduled = await schedulerProbe();
+  } else if (stage === "fast-tagging") {
+    scheduled = await schedulerProbe();
+  }
+  async function schedulerProbe() {
     // A background API drain can update lastJobAt. Correlate the natural scheduler's
     // recorded pg_net request with a successful authenticated jobs HTTP response too.
     // Enqueue actual bounded maintenance, but do not invoke the jobs endpoint or scheduler ourselves.
@@ -491,6 +571,7 @@ export async function verifyStage(stage, root) {
       }
     }
     requireCheck(scheduled, "closed_browser_scheduled_job_not_observed");
+    return scheduled;
   }
   requireCheck(currentHead(root) === head, "verification_head_changed");
   const finalHealth = await health();
@@ -511,6 +592,17 @@ export async function verifyStage(stage, root) {
     config,
     head,
   );
+  if (software)
+    validateSoftwareChecks(
+      readJson(resolve(local, "verification/software-checks.json")),
+      head,
+    );
+  if (backup)
+    validateIsolatedBackup(
+      readJson(resolve(local, "verification/isolated-backup.json")),
+      head,
+      committedBackupSnapshot(root, head),
+    );
   const receipt = {
     passed: true,
     live: true,
@@ -526,21 +618,55 @@ export async function verifyStage(stage, root) {
       `Owner session (${owner.source}), direct/proxy/jobs/bootstrap authentication and safe negative mutation checks passed.`,
       "Production PKCE, secure OAuth cookies and consent-denied callback passed.",
       "Bootstrap committed once; immutable owner and encrypted persisted credential path passed.",
-      "Live saved-track schema/paging, private ordered add/replace and playlist-only removal passed.",
-      "Both containment and current-user playlist collection confirm removal.",
+      ...(spotify
+        ? [
+            "Live saved-track schema/paging, private ordered add/replace and playlist-only removal passed.",
+          ]
+        : []),
+      ...(spotify || core
+        ? [
+            "Both containment and current-user playlist collection confirm removal.",
+          ]
+        : []),
+      ...(fast
+        ? [
+            "Installed transactional fast-tagging RPC assertions passed with mandatory rollback; authenticated facets/vocabulary HTTP reads passed.",
+            "Exact-head full synthetic checks include keyboard and mobile UI; human timing remains pending.",
+          ]
+        : []),
+      ...(backup
+        ? [
+            "Same-head committed-source isolated encrypted restore and actual Storage HTTP upload/delete fences passed.",
+          ]
+        : []),
       core
         ? "Natural maintenance discovered the accelerated disposable expiry; authenticated cron response and completed expiry operation were correlated with app browsers reported closed."
         : "Natural scheduler dispatch matched a successful authenticated jobs HTTP response and completed maintenance after enqueue; app browsers reported closed.",
       "Fresh Cloudflare request traces report successful proxy CPU below the Free ceiling.",
     ],
     assertions: {
-      ...spotify,
+      ...(spotify ?? {}),
+      ...(fast ? { fast, softwareChecks: software } : {}),
+      ...(backup ? { backup } : {}),
       ...(core ? { core } : {}),
       scheduledJob: true,
       databaseBytes: rows[0].database_bytes,
       cpuMaxMs: operator.cpu.maxCpuMs,
       cpuSamples: operator.cpu.sampleCount,
     },
+    pendingHumanAcceptance: [
+      "actual-phone-query-under-one-minute",
+      "familiar-song-tagging-three-to-five-seconds",
+    ],
+    ...(stage === "resilience-and-handoff"
+      ? {
+          softwareCompletion: false,
+          stageScope:
+            "Deployed feature and recovery proof; final independent architecture review and shutdown remain separate gates.",
+        }
+      : {}),
+    finalSoftwareGates:
+      "Independent architecture review, reviewed fixes, final deployed smoke and review-automation shutdown remain separately required.",
     observationSources: {
       ownerSession: owner.source,
       plans: dashboard.source,

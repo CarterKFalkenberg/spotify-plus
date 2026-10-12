@@ -143,3 +143,7 @@ Deno.test("operator SQL rejects malformed registry inputs before rendering a sta
   }
   fails(() => duePlaylistSql(registry));
 });
+
+// scripts/check runs this entrypoint explicitly; retain the fast proof boundary
+// checks alongside the shared registry checks without changing the orchestrator.
+import "./fast-proof_test.ts";

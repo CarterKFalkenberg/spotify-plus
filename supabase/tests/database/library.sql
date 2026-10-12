@@ -207,6 +207,22 @@ select pg_temp.assert((select count(*)=1 from app.jobs where kind='library_probe
 update app.track_metadata set removed_at=now()-interval '91 days' where track_key=lpad('1',64,'0');
 select app.library_maintenance();
 select pg_temp.assert(not exists(select 1 from app.track_metadata where track_key=lpad('1',64,'0')) and exists(select 1 from app.annotations where track_key=lpad('1',64,'0')) and exists(select 1 from app.track_tags where track_key=lpad('1',64,'0') and present),'90-day metadata purge preserves annotated identity');
+-- A metadata-free annotated song reappears through ordinary verified sync,
+-- without creating a replacement annotation identity or requiring re-tagging.
+savepoint relike_after_metadata_purge;
+update app.jobs set state='done' where id is not null;
+select public.app_library_sync(2,'manual');
+update library_snapshots set value=public.app_job_claim() where name='job';
+select public.app_library_job_state(2,(select (value->>'id')::uuid from library_snapshots where name='job'),(select (value->>'leaseToken')::uuid from library_snapshots where name='job'),'unused-candidate');
+select pg_temp.sync_page(array[1,2,4],3,null);
+select pg_temp.assert(exists(select 1 from app.track_metadata where track_key=lpad('1',64,'0') and removed_at is null) and exists(select 1 from app.track_tags where track_key=lpad('1',64,'0') and present),'re-like restores metadata against surviving assignments on page arrival');
+-- Lose the lease between verification walks, as on a paused/killed worker.
+update app.jobs set lease_until=now()-interval '1 second' where id=(select (value->>'id')::uuid from library_snapshots where name='job');
+update library_snapshots set value=public.app_job_claim() where name='job';
+select public.app_library_job_state(2,(select (value->>'id')::uuid from library_snapshots where name='job'),(select (value->>'leaseToken')::uuid from library_snapshots where name='job'),'unused-candidate');
+select pg_temp.sync_page(array[1,2,4],3,null);
+select pg_temp.assert((select completed_at is not null from app.sync_runs where id=(select latest_run_id from app.library_state where singleton)) and exists(select 1 from app.track_tags where track_key=lpad('1',64,'0') and present),'resumed stable verification preserves annotations after cache purge');
+rollback to relike_after_metadata_purge;
 -- Reconnect keeps annotation editing; paused Spotify work does not invent progress.
 update app.account set state='reconnect' where singleton;
 select pg_temp.assert(public.app_library_status(2)->>'blockedBy'='reconnect','reconnect is visible');
