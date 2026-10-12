@@ -48,3 +48,11 @@ model and effort, set to Astra/Medium through the supported tool. This records t
 configuration change, not proof that a particular review ran; inspect actual
 schedule state and the independent ledger when resuming. Ownership, privacy,
 review gates and final automation shutdown requirements remain in force.
+
+## Playlist publication requirement — October 11, 2026
+
+The user resolved the access-privacy question with: **“Hidden from profile/search is sufficient.”** Manual Spotify “Make private” is not required. This amends the original brief's private-playlist wording: generated playlists must actually be hidden from the profile and search and remain noncollaborative; this does not promise link-access restrictions.
+
+The human accepted the hidden outcome, not command acknowledgement as a substitute, and did not waive actual hiding. Actual profile/search hiding is **UNVERIFIED product acceptance** until independently established or expressly waived by the user.
+
+Our software verification method uses acknowledged explicit `public:false` updates. Spotify acknowledges explicit publication updates, but deployed observations show contradictory `public` readback after population even when a fixed-false metadata PUT succeeds. Delivery evidence must distinguish an acknowledged publication command from independently verified hidden state. The runtime and live proofs retain ownership, noncollaboration, metadata, ordered membership, snapshot, ambiguous-write and expiry checks; they must not relabel a true/null readback as false or claim hidden state was verified. See [the publication contract](SPOTIFY-API.md#publication-command-contract--october-11-2026) and [issue #44](https://github.com/CarterKFalkenberg/spotify-plus/issues/44#issuecomment-6115988774).

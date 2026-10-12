@@ -256,6 +256,8 @@ export interface ManagedPlaylistDTO {
   readonly createdAt: string;
   readonly expiresOn: string | null;
   readonly trackCount: number;
+  // Ready verifies content/disclosure plus an acknowledged publication command;
+  // it does not independently verify hiding via Spotify's public readback.
   readonly status: "pending" | "ready" | "incomplete" | "removing";
   readonly blockedBy: WorkBlock | null;
 }

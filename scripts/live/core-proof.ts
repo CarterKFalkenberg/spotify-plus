@@ -484,12 +484,13 @@ export async function runCoreProof(input: Input) {
       );
       await ordered(r, expected);
       check(
-        remote.public === false && remote.collaborative === false &&
+        remote.collaborative === false &&
           remote.name === fixtureName(r) &&
           remote.description?.includes("Tagger") &&
           remote.description.includes(p.expiresOn!),
-        "core_private_disclosure_failed",
+        "core_disclosure_failed",
       );
+      await publicationAcknowledged(r, "create");
       p = await action(r, p, "pin");
       check(
         p.retention === "pinned" && p.expiresOn === null,
@@ -515,9 +516,10 @@ export async function runCoreProof(input: Input) {
       check(
         regenerated.name === fixtureName(r) + " renamed" &&
           regenerated.description?.includes(note) &&
-          regenerated.public === false && regenerated.collaborative === false,
+          regenerated.collaborative === false,
         "core_regenerate_preservation_failed",
       );
+      await publicationAcknowledged(r, "regenerate");
       await ordered(
         r,
         regeneratedPreview.tracks.flatMap((t) =>
@@ -568,7 +570,11 @@ export async function runCoreProof(input: Input) {
         previewExcluded: preview.page.excludedCount,
         previewDurationMs: preview.page.durationMs,
         previewPacingCredentialObservationUnchanged: true,
-        privateSnapshot: true,
+        publicationWriteAcknowledged: true,
+        publicationReadbackVerified: false,
+        publicReadback: remote.public,
+        regeneratedPublicReadback: regenerated.public,
+        noncollaborativeSnapshot: true,
         orderedSnapshot: true,
         requestIntentDeduplicated: true,
         pinUnpinExtend: true,
@@ -906,6 +912,18 @@ export async function runCoreProof(input: Input) {
     );
     return p;
   }
+  async function publicationAcknowledged(
+    r: CoreRegistry,
+    kind: "create" | "regenerate",
+  ) {
+    validateRegistry(r);
+    const rows = await sql<{ completed: boolean }>(
+      `select exists(select 1 from app.playlist_operations o where o.playlist_id='${r.playlistId}' and o.epoch=${r.epoch} and o.kind='${kind}' and o.state='done') as completed;`,
+    );
+    // Exact-head worker completion follows a successful fixed-false PUT. This
+    // proves acknowledgement under that implementation, not profile/search state.
+    check(rows[0]?.completed === true, "core_publication_not_acknowledged");
+  }
   async function renameDisposable(
     r: CoreRegistry,
     current: SpotifyPlaylist,
@@ -914,7 +932,7 @@ export async function runCoreProof(input: Input) {
     validateRegistry(r);
     check(
       r.phase === "playlist" && r.playlistId && r.spotifyPlaylistId &&
-        current.id === r.spotifyPlaylistId && current.public === false &&
+        current.id === r.spotifyPlaylistId &&
         current.collaborative === false &&
         current.name === fixtureName(r) &&
         note === `Synthetic outside note ${r.run}`,

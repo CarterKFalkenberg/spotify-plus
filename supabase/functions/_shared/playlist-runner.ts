@@ -49,6 +49,7 @@ export type PlaylistSpotify = Pick<
   | "replacePlaylistItems"
   | "appendPlaylistItems"
   | "updatePlaylistDescription"
+  | "ensurePlaylistUnpublished"
   | "containsPlaylists"
   | "removeManagedPlaylists"
 >;
@@ -206,7 +207,7 @@ export async function runPlaylistJob(
         const current = await remote(() => spotify.getCurrentUser());
         const candidate = await remote(() => spotify.getPlaylist(found));
         if (
-          candidate.ownerId !== current.id || candidate.public !== false ||
+          candidate.ownerId !== current.id ||
           candidate.collaborative ||
           !candidate.description?.includes(creationMarker(work.id))
         ) throw new PlaylistError("creation_unknown");
@@ -245,23 +246,19 @@ export async function runPlaylistJob(
       throw new PlaylistError("removal_unconfirmed");
     }
     let details = await remote(() => spotify.getPlaylist(id));
+    const owner = await remote(() => spotify.getCurrentUser());
+    if (details.ownerId !== owner.id) throw new PlaylistError("invalid_work");
     if (work.action === "reconcile") {
       // Completed operations scrub query labels. Reconciliation must preserve
       // the current disclosure/outside notes rather than render from that state.
-      if (details.public !== false || details.collaborative !== false) {
-        const description = details.description;
-        if (description === null) {
-          throw new PlaylistError("remote_changed");
-        }
-        await remote(() => spotify.updatePlaylistDescription(id, description));
-        const confirmed = await remote(() => spotify.getPlaylist(id));
-        if (
-          confirmed.public !== false || confirmed.collaborative !== false ||
-          confirmed.description !== details.description ||
-          confirmed.snapshotId !== details.snapshotId
-        ) throw new PlaylistError("remote_changed");
-        details = confirmed;
-      }
+      await remote(() => spotify.ensurePlaylistUnpublished(id));
+      const confirmed = await remote(() => spotify.getPlaylist(id));
+      if (
+        confirmed.ownerId !== owner.id || confirmed.collaborative !== false ||
+        confirmed.description !== details.description ||
+        confirmed.snapshotId !== details.snapshotId
+      ) throw new PlaylistError("remote_changed");
+      details = confirmed;
       await complete(null, details.name);
       return { done: true };
     }
@@ -334,6 +331,7 @@ export async function runPlaylistJob(
     }
     // Re-read just before updating: never send a name and never reuse old user text.
     const current = await remote(() => spotify.getPlaylist(id));
+    if (current.ownerId !== owner.id) throw new PlaylistError("invalid_work");
     if (contents && current.snapshotId !== details.snapshotId) {
       throw new PlaylistError("remote_changed");
     }
@@ -344,16 +342,13 @@ export async function runPlaylistJob(
       expiresOn,
       current.description,
     );
-    if (
-      current.description !== description || current.public !== false ||
-      current.collaborative !== false
-    ) {
-      await remote(() => spotify.updatePlaylistDescription(id, description));
-    }
+    // Ready records an acknowledged fixed-false publication command, not proof
+    // that Spotify's contradictory public readback verifies profile visibility.
+    await remote(() => spotify.updatePlaylistDescription(id, description));
     const confirmed = await remote(() => spotify.getPlaylist(id));
     if (
       confirmed.description !== description ||
-      confirmed.public !== false || confirmed.collaborative !== false ||
+      confirmed.ownerId !== owner.id || confirmed.collaborative !== false ||
       (contents && confirmed.snapshotId !== current.snapshotId)
     ) {
       throw new PlaylistError("remote_changed");

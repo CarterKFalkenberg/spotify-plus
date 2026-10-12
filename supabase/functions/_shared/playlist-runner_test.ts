@@ -59,6 +59,7 @@ function harness(count = 250) {
     name: "Synthetic snapshot",
     public: false as boolean | null,
     collaborative: false,
+    ownerId: "synthetic-owner",
     onCall: (_name: string) => {},
   };
   const metadata = (): SpotifyPlaylist => ({
@@ -67,7 +68,7 @@ function harness(count = 250) {
     description: state.description,
     public: state.public,
     collaborative: state.collaborative,
-    ownerId: "synthetic-owner",
+    ownerId: state.ownerId,
     total: state.items.length,
     snapshotId: String(state.snapshot),
   });
@@ -145,7 +146,19 @@ function harness(count = 250) {
     },
     updatePlaylistDescription: (_id, value) => {
       call("description");
+      if (state.fault === "description") {
+        return Promise.reject(new SpotifyError("network", null, null, true));
+      }
       state.description = value;
+      state.public = false;
+      state.collaborative = false;
+      return Promise.resolve();
+    },
+    ensurePlaylistUnpublished: () => {
+      call("publication");
+      if (state.fault === "publication") {
+        return Promise.reject(new SpotifyError("http", 500, null, true));
+      }
       state.public = false;
       state.collaborative = false;
       return Promise.resolve();
@@ -219,6 +232,7 @@ Deno.test("create writes 100-item chunks and verifies actual ordered contents be
 async function realAdapterRoundTrip(
   escaped = false,
   corruption: "description" | "snapshot" | null = null,
+  publicationReadback: boolean | null = false,
 ) {
   const h = harness(125);
   if (escaped) {
@@ -264,6 +278,11 @@ async function realAdapterRoundTrip(
       const url = new URL(String(input));
       const method = init?.method ?? "GET";
       calls.push(`${method} ${url.pathname}`);
+      if (method === "GET" && url.pathname === "/v1/me") {
+        return Promise.resolve(
+          json({ account_id: "synthetic-account", id: "synthetic-owner" }),
+        );
+      }
       if (method === "POST" && url.pathname === "/v1/me/playlists") {
         const body = JSON.parse(String(init?.body));
         equal(body.public, false);
@@ -280,6 +299,7 @@ async function realAdapterRoundTrip(
       if (method === "GET" && url.pathname === `/v1/playlists/${spotifyId}`) {
         responseCount++;
         const value = metadata();
+        value.public = publicationReadback;
         if (corrupt && corruption === "description") {
           value.description += " changed";
         }
@@ -293,7 +313,7 @@ async function realAdapterRoundTrip(
         h.state.public = body.public ?? true;
         h.state.collaborative = body.collaborative ?? true;
         h.state.description = body.description;
-        corrupt = corruption !== null;
+        corrupt = corruption !== null && h.state.work.action === "regenerate";
         return Promise.resolve(new Response(null, { status: 200 }));
       }
       if (
@@ -394,6 +414,44 @@ Deno.test("real runner and adapter populate a newly created playlist with a zero
   realAdapterRoundTrip());
 Deno.test("real adapter metadata writes preserve escaped notes and visibility despite omitted-field reset", () =>
   realAdapterRoundTrip(true));
+Deno.test("real adapter acknowledges fixed-false publication while preserving contradictory true/null GET observations", async () => {
+  await realAdapterRoundTrip(true, null, true);
+  await realAdapterRoundTrip(true, null, null);
+});
+Deno.test("unacknowledged publication writes cannot complete normal work or reconciliation", async () => {
+  for (const action of ["create", "reconcile"] as const) {
+    const h = harness(2);
+    equal(await h.run(), { done: true });
+    h.state.work.action = action;
+    h.state.complete = false;
+    h.state.fault = action === "reconcile" ? "publication" : "description";
+    equal((await h.run())?.done, false);
+    equal(h.state.complete, false);
+    equal(h.state.creates, 1);
+    h.state.fault = "";
+    equal(await h.run(), { done: true });
+    equal(h.state.creates, 1);
+  }
+});
+Deno.test("normal work and reconciliation refuse a mismatched owner before managed writes", async () => {
+  for (const action of ["regenerate", "reconcile"] as const) {
+    const h = harness(2);
+    equal(await h.run(), { done: true });
+    h.state.work.action = action;
+    h.state.complete = false;
+    h.state.ownerId = "different-synthetic-owner";
+    let writes = 0;
+    h.state.onCall = (name) => {
+      if (["description", "publication", "replace", "append"].includes(name)) {
+        writes++;
+      }
+    };
+    equal((await h.run())?.done, false);
+    equal(h.state.complete, false);
+    equal(writes, 0);
+    equal(h.state.errors, ["invalid_work"]);
+  }
+});
 
 Deno.test("matching disclosure still repairs public/null/collaborative visibility before ready", async () => {
   for (
@@ -430,7 +488,7 @@ Deno.test("matching disclosure still repairs public/null/collaborative visibilit
     }, before);
   }
 });
-Deno.test("persistent public/null/collaborative confirmation never reaches ready despite exact disclosure/items", async () => {
+Deno.test("public/null readback does not verify publication; acknowledged command completes but collaborative readback fails", async () => {
   for (
     const visibility of [
       { public: true, collaborative: false },
@@ -446,16 +504,19 @@ Deno.test("persistent public/null/collaborative confirmation never reaches ready
       if (name === "details") Object.assign(h.state, visibility);
     };
     for (let attempt = 0; attempt < 2; attempt++) {
-      equal((await h.run())?.done, false);
-      equal(h.state.complete, false);
+      equal((await h.run())?.done, !visibility.collaborative);
+      equal(h.state.complete, !visibility.collaborative);
       equal(h.state.description, description);
       equal(h.state.items, h.state.work.target);
     }
-    equal(h.state.errors, ["remote_changed", "remote_changed"]);
+    equal(
+      h.state.errors,
+      visibility.collaborative ? ["remote_changed", "remote_changed"] : [],
+    );
     equal(h.state.creates, 1);
   }
 });
-Deno.test("reconcile repairs visibility with exact current notes and scrubbed labels, refusing changed snapshots or persistent visibility", async () => {
+Deno.test("reconcile acknowledges publication with exact current notes and scrubbed labels, refusing changed snapshots or descriptions", async () => {
   for (const fault of ["", "public", "null", "snapshot", "description"]) {
     const h = harness(2);
     equal(await h.run(), { done: true });
@@ -469,7 +530,7 @@ Deno.test("reconcile repairs visibility with exact current notes and scrubbed la
     h.state.complete = false;
     let updated = false;
     h.state.onCall = (name) => {
-      if (name === "description") updated = true;
+      if (name === "publication") updated = true;
       if (name === "details" && updated) {
         if (fault === "public") h.state.public = true;
         if (fault === "null") h.state.public = null;
@@ -477,9 +538,10 @@ Deno.test("reconcile repairs visibility with exact current notes and scrubbed la
         if (fault === "description") h.state.description += " changed";
       }
     };
-    equal((await h.run())?.done, fault === "");
-    equal(h.state.complete, fault === "");
-    equal(h.state.errors, fault ? ["remote_changed"] : []);
+    const fails = fault === "snapshot" || fault === "description";
+    equal((await h.run())?.done, !fails);
+    equal(h.state.complete, !fails);
+    equal(h.state.errors, fails ? ["remote_changed"] : []);
     equal(h.state.name, "Owner renamed synthetic");
     if (fault !== "description") equal(h.state.description, before);
     equal(h.state.items, [uri(0), uri(1)]);
@@ -502,6 +564,17 @@ Deno.test("ambiguous create resolves durable marker without repeating POST", asy
   equal((await h.run())?.done, true);
   equal(h.state.creates, 1);
   equal(h.state.items, h.state.work.target);
+});
+Deno.test("ambiguous-create marker recovery retains owner/noncollaboration while public readback can be true/null", async () => {
+  for (const publicReadback of [true, null]) {
+    const h = harness(2);
+    h.state.fault = "create";
+    equal((await h.run())?.done, false);
+    h.state.public = publicReadback;
+    equal(await h.run(), { done: true });
+    equal(h.state.creates, 1);
+    equal(h.state.items, h.state.work.target);
+  }
 });
 Deno.test("unresolved marker remains incomplete on repeated Retry, never duplicates create", async () => {
   const h = harness(2);

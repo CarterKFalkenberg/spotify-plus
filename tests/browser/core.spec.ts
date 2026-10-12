@@ -395,7 +395,7 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
     page.getByText("0h 6m · from your cached library"),
   ).toBeVisible();
   await expect(page.getByText(/1 unavailable song is excluded/)).toBeVisible();
-  await page.getByRole("button", { name: "Create private playlist →" }).click();
+  await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(page.getByText(/Playlist request accepted/)).toBeVisible();
   const body = calls.find(
     (call) => call.path === "/api/playlists" && call.body,
@@ -433,9 +433,7 @@ for (const rejection of [401, 403])
     await page.goto("/");
     await builder(page);
     await choose(page);
-    await page
-      .getByRole("button", { name: "Create private playlist →" })
-      .click();
+    await page.getByRole("button", { name: "Create playlist →" }).click();
     await page
       .getByRole("button", { name: "Retry saved create request" })
       .click();
@@ -510,7 +508,7 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
   await page.goto("/");
   await builder(page);
   await choose(page);
-  await page.getByRole("button", { name: "Create private playlist →" }).click();
+  await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(
     page.getByRole("button", { name: "Retry saved create request" }),
   ).toHaveCount(0);
@@ -518,7 +516,7 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
     .getByRole("button", { name: "Remove Synthetic tag 1 from all" })
     .click();
   await expect(
-    page.getByRole("button", { name: "Create private playlist →" }),
+    page.getByRole("button", { name: "Create playlist →" }),
   ).toBeDisabled();
   await expect(
     page.getByText("Add at least one tag to see the songs that fit."),
@@ -545,7 +543,7 @@ test("import browsing stays available while create is gated; manual sync and new
   await builder(page);
   await choose(page);
   await expect(
-    page.getByRole("button", { name: "Create private playlist →" }),
+    page.getByRole("button", { name: "Create playlist →" }),
   ).toBeDisabled();
   await expect(page.getByText(/2 of 3 imported/)).toBeVisible();
   await page.getByRole("button", { name: "Sync now" }).click();
@@ -711,7 +709,7 @@ for (const zero of [true, false])
       ),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Create private playlist →" }),
+      page.getByRole("button", { name: "Create playlist →" }),
     ).toBeDisabled();
   });
 test("late preview from an earlier bucket cannot unlock creation for the new query", async ({
@@ -776,7 +774,7 @@ test("late preview from an earlier bucket cannot unlock creation for the new que
     ),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Create private playlist →" }),
+    page.getByRole("button", { name: "Create playlist →" }),
   ).toBeDisabled();
 });
 test("synthetic desktop/mobile visual acceptance", async ({
@@ -1150,16 +1148,16 @@ for (const paged of [false, true])
     if (paged)
       await page.getByRole("button", { name: "More preview songs" }).click();
     await expect(
-      page.getByRole("button", { name: "Create private playlist →" }),
+      page.getByRole("button", { name: "Create playlist →" }),
     ).toBeDisabled();
     await page
       .getByRole("button", { name: "Retry preview", exact: true })
       .click();
     await expect(
-      page.getByRole("button", { name: "Create private playlist →" }),
+      page.getByRole("button", { name: "Create playlist →" }),
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "Create private playlist →" }),
+      page.getByRole("button", { name: "Create playlist →" }),
     ).toBeEnabled();
     const requests = calls
       .filter((call) => call.path === "/api/query/preview")

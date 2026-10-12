@@ -78,7 +78,8 @@ it("only validated counts and fixed booleans can escape core child output", () =
     "changedOnlyUndo",
     "filterRevisionGuard",
     "previewPacingCredentialObservationUnchanged",
-    "privateSnapshot",
+    "publicationWriteAcknowledged",
+    "noncollaborativeSnapshot",
     "orderedSnapshot",
     "requestIntentDeduplicated",
     "pinUnpinExtend",
@@ -90,6 +91,9 @@ it("only validated counts and fixed booleans can escape core child output", () =
     "fixturesCleaned",
   ])
     value[key] = true;
+  value.publicationReadbackVerified = false;
+  value.publicReadback = true;
+  value.regeneratedPublicReadback = null;
   for (const key of [
     "progressObservations",
     "activeTracks",
@@ -115,6 +119,12 @@ it("only validated counts and fixed booleans can escape core child output", () =
   ).not.toHaveProperty("token");
   for (const patch of [
     { passed: false },
+    { publicationWriteAcknowledged: false },
+    { publicationWriteAcknowledged: undefined },
+    { publicationReadbackVerified: true },
+    { publicationReadbackVerified: undefined },
+    { publicReadback: "true" },
+    { regeneratedPublicReadback: undefined },
     { fixturesCleaned: false },
     { previewPlayable: -1 },
     { previewDurationMs: "synthetic data" },
@@ -122,6 +132,16 @@ it("only validated counts and fixed booleans can escape core child output", () =
     expect(() => redactedCoreResult({ ...value, ...patch })).toThrow(
       "core_proof_receipt_invalid",
     );
+  for (const observed of [true, false, null]) {
+    const result = redactedCoreResult({
+      ...value,
+      publicReadback: observed,
+      regeneratedPublicReadback: observed,
+    });
+    expect(result.publicReadback).toBe(observed);
+    expect(result.regeneratedPublicReadback).toBe(observed);
+    expect(result.publicationReadbackVerified).toBe(false);
+  }
 });
 
 it("core expiry waits natural maintenance without proof-side scheduler enqueue or invocation", () => {

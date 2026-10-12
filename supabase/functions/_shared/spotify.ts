@@ -267,11 +267,12 @@ function prepare(input: SpotifyRequest): Prepared {
       requireGuard(method === "PUT");
       operation = "description";
       keys(body, ["description"]);
-      requireGuard(text(body.description));
+      const describing = Object.hasOwn(body, "description");
+      requireGuard(!describing || text(body.description));
       // Callers can only supply description text. Always retain the app's
       // unpublished/noncollaborative policy on the provider metadata write.
       serialized = JSON.stringify({
-        description: body.description,
+        ...(describing ? { description: body.description } : {}),
         public: false,
         collaborative: false,
       });
@@ -553,6 +554,15 @@ export class SpotifyClient {
       method: "PUT",
       path: `/playlists/${id}`,
       body: { description },
+    }) as Promise<void>;
+  }
+  ensurePlaylistUnpublished(id: string) {
+    // Publication-only command: omit description so even null text survives.
+    // prepare() adds only fixed false fields after managed ownership checks.
+    return this.request({
+      method: "PUT",
+      path: `/playlists/${id}`,
+      body: {},
     }) as Promise<void>;
   }
   containsPlaylists(ids: readonly string[]) {

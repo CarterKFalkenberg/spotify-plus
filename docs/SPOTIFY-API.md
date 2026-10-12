@@ -18,7 +18,7 @@ All API paths below are relative to `https://api.spotify.com/v1`.
 | --- | --- | --- | --- |
 | Owner identity | `GET /me` | Require returned `account_id`; do not depend on email/country/product | [Profile](https://developer.spotify.com/documentation/web-api/reference/get-current-users-profile) |
 | Liked Songs | `GET /me/tracks` | ≤50/page, offset pagination, `total`, `added_at`, track metadata | [Saved tracks](https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks) |
-| Create private playlist | `POST /me/playlists` | Explicit `public:false`; do not use `/users/{id}/playlists` | [Create](https://developer.spotify.com/documentation/web-api/reference/create-playlist) |
+| Request hidden publication | `POST /me/playlists` | Explicit `public:false`; do not use `/users/{id}/playlists` | [Create](https://developer.spotify.com/documentation/web-api/reference/create-playlist) |
 | Add playlist items | `POST /playlists/{id}/items` | ≤100 per request, ordered; POST is not idempotent | [Add](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist) |
 | Replace playlist items | `PUT /playlists/{id}/items` | ≤100; clear/replace, then append remaining chunks | [Replace](https://developer.spotify.com/documentation/web-api/reference/reorder-or-replace-playlists-items) |
 | Read ordered playlist | `GET /playlists/{id}/items` | ≤50/page; current response uses item naming, verify actual wrapper | [Read](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items) |
@@ -72,44 +72,17 @@ decodes again or truncates outside notes. Confirmation still compares exact
 canonical descriptions and unchanged item snapshots. Managed-write ownership
 and the saved-library write prohibition are unchanged.
 
-### Visibility verification — October 11, 2026
+### Publication command contract — October 11, 2026
 
-For [issue #44](https://github.com/CarterKFalkenberg/spotify-plus/issues/44),
-the orchestrator observed `public:true` and `collaborative:false` for the same
-registered disposable in both the playlist GET and current-user collection after
-creation and ordered population. The create serializer sends explicit
-`public:false` and `collaborative:false`. This evidence does not identify when
-visibility changed or prove that omitting visibility on a metadata PUT caused it.
-The current [create reference](https://developer.spotify.com/documentation/web-api/reference/create-playlist)
-documents a true default; the [change-details reference](https://developer.spotify.com/documentation/web-api/reference/change-playlist-details)
-accepts explicit visibility fields but specifies no omission-reset guarantee.
+The user accepted **“Hidden from profile/search is sufficient”**; manual client “Make private” is not required. See [the decision](DECISIONS.md#playlist-publication-requirement--october-11-2026). The current [playlist concepts](https://developer.spotify.com/documentation/web-api/concepts/playlists) defines `public:false` as hiding profile/search publication, while link-access privacy cannot be set through the Web API. The [change-details reference](https://developer.spotify.com/documentation/web-api/reference/change-playlist-details), reread October 11, documents explicit publication fields and an empty successful update response. Neither establishes a separate publication verification endpoint.
 
-Managed metadata writes now serialize fixed `public:false` and
-`collaborative:false` alongside the canonical description. Callers still supply
-only description text; arbitrary visibility values and name changes remain
-forbidden. Before ready, the worker repairs a mismatched description or visibility
-and rereads both fields, requiring exact false values as well as the existing
-description and item-snapshot checks. Persistent true/null or collaborative
-responses remain incomplete through the existing bounded retry policy. The live
-proof retains strict false checks, including after item writes and regeneration;
-its isolated outside-rename helper also sends fixed false values.
-Reconciliation repairs visibility using the exact current description instead of
-scrubbed operation labels, then verifies unchanged description and item snapshot.
-If required repair has a null description, it fails closed without inventing text.
-After the retention deadline, maintenance can supersede an incomplete
-reconciliation with expiry once its job has no live lease. It cancels and fences
-the old operation before queuing removal, so a permanent visibility mismatch
-cannot prevent scheduled cleanup. An actively leased reconciliation remains
-protected; disconnected-owner and playlist-only removal guards still apply.
+At revision `62729ba45c113fcd656e35f26a95a6aee803f868`, the orchestrator observed a false create response but true playlist GET and current-user collection readbacks after population, despite an accepted metadata PUT with literal `public:false`. All disposable fixtures were cleaned. This does not prove the playlist was hidden, explain the contradiction, or justify converting readback to false.
 
-The [playlist concepts documentation](https://developer.spotify.com/documentation/web-api/concepts/playlists),
-read October 11, distinguishes profile/search publication from link-access
-control: `public:false` hides publication, while the Web API cannot make a
-playlist inaccessible to someone holding its link. Synthetic tests establish
-the explicit-write and readiness boundaries, not provider behavior or full
-access privacy. Whether that platform limitation meets the brief's private
-playlist requirement remains a pending human decision; this note does not
-redefine the brief, accepted decisions, or UI promise.
+Each managed operation issues a fixed `public:false`/`collaborative:false` metadata PUT after verifying ownership and ordered contents. Even an identical disclosure requires a new successful command acknowledgement before completion. The adapter accepts only the expected success statuses; rejected, malformed-success-status and ambiguous writes remain failures and cannot make the operation ready. A later durable retry may repeat this idempotent PUT after rechecking the lease, ownership and remote state; it never replays ambiguous create/append writes blindly. Ready means content/disclosure verified and publication command acknowledged, **not independently verified profile/search hiding**. Exact canonical description, item-snapshot and strict noncollaboration confirmation remain required.
+
+The normal metadata caller supplies only description text; the adapter adds fixed false fields and forbids arbitrary visibility or name changes. Reconciliation uses a separate publication-only fixed-false command, omitting description so current text, including null, survives without rendering scrubbed query labels. It verifies unchanged description/snapshot and owner/noncollaboration before completion. Expired incomplete reconciliation can be superseded safely after its job has no live lease; active leases, disconnected-owner checks and playlist-only removal remain protected.
+
+Live receipts replace `privatePlaylist`/`privateSnapshot` claims with `publicationWriteAcknowledged:true`, `publicationReadbackVerified:false` and raw boolean/null `publicReadback` observations. The core receipt also reports `regeneratedPublicReadback`; these fields contain no metadata. Its acknowledgement follows exact-head worker operation completion; the API proof separately issues and acknowledges a publication-only PUT after ordered population. The isolated outside-rename helper sends fixed false fields, and regenerated contents, outside notes and name remain verified. Neither software receipts nor synthetic tests claim actual hidden state from contradictory provider responses. The user accepted actual profile/search hiding, not acknowledgement in place of that outcome. Actual hiding remains **UNVERIFIED product acceptance** until independently established or expressly waived by the user; this software contract does not narrow the requirement. Final human acceptance includes inspecting the generated playlist in Spotify for absence from the profile and search after creation/regeneration, with search absence alone recognized as nonexhaustive evidence.
 
 ## OAuth and scopes
 

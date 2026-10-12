@@ -382,13 +382,16 @@ export function Builder({
             </label>
             <RetentionPicker value={retention} onChange={setRetention} />
             <button className="primary" disabled={!canCreate || busy}>
-              {busy ? "Requesting…" : "Create private playlist →"}
+              {busy ? "Requesting…" : "Create playlist →"}
             </button>
           </form>
           <p className="disclosure">
-            The query and expiry date appear in Spotify’s description. Playlists
-            are snapshots. Regenerate replaces manual track edits; expiry
-            removes the playlist from Your Library. Pin it to keep it.
+            We ask Spotify to hide the playlist from your profile and search.
+            Anyone with its link can still access it. Spotify acknowledges the
+            request; hiding cannot be independently verified. The query and
+            expiry date appear in Spotify’s description. Playlists are
+            snapshots. Regenerate replaces manual track edits; expiry removes
+            the playlist from Your Library. Pin it to keep it.
           </p>
         </>
       )}

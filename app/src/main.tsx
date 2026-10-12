@@ -434,10 +434,13 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
           <h2>Playlist behavior</h2>
           <p>
-            The playlist workflow creates private snapshots. Regenerate replaces
-            playlist contents while preserving your Spotify name and other
-            description text. Retention removes an app-managed playlist from
-            Your Library after the displayed expiry date unless you pin or
+            The playlist workflow creates noncollaborative snapshots and asks
+            Spotify to hide them from your profile and search. Spotify
+            acknowledges this request; hiding cannot be independently verified.
+            Anyone with the link can still access a playlist. Regenerate
+            replaces playlist contents while preserving your Spotify name and
+            other description text. Retention removes an app-managed playlist
+            from Your Library after the displayed expiry date unless you pin or
             extend it.
           </p>
           <h2>Availability and limits</h2>
