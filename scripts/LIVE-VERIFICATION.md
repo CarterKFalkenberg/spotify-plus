@@ -270,6 +270,6 @@ durable catch-up; cron does not prevent pausing. Quota failure remains a blocker
 never upgrade permission. Architecture review, reviewed corrections, final
 same-head smoke and temporary review automation shutdown remain independent
 software gates. Actual phone under-one-minute and familiar-song 3–5-second
-acceptance remain pending human checks even when stage receipts pass.
+acceptance remain pending human checks even when stage receipts pass. Actual profile/search hiding also remains **UNVERIFIED product acceptance** until independent evidence establishes it or the user expressly waives it. Include Spotify profile/search inspection after creation/regeneration in final acceptance; absence from search alone is nonexhaustive evidence.
 
 Publication receipts follow the [accepted command contract](../docs/SPOTIFY-API.md#publication-command-contract--october-11-2026): a successful explicit fixed-false PUT is `publicationWriteAcknowledged:true`, while `publicationReadbackVerified:false` is mandatory. Raw true/false/null public observations remain observations, not verified profile/search hiding or link-access privacy. A failed or ambiguous write never satisfies acknowledgement. Core proof checks completed create/regenerate operations from the exact deployed worker; API proof independently sends a publication-only PUT after content writes.
