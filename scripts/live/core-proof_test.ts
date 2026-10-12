@@ -341,3 +341,7 @@ Deno.test("persistent retryable failure and pending work exhaust the bounded rea
     );
   }
 });
+
+// scripts/check runs this entrypoint explicitly; retain the fast proof boundary
+// checks alongside the shared registry checks without changing the orchestrator.
+import "./fast-proof_test.ts";
