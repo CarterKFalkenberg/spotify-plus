@@ -341,6 +341,8 @@ Deno.test("create is explicitly private and existing names cannot be rewritten",
   });
   deepStrictEqual(JSON.parse(String(calls[1].init.body)), {
     description: "Synthetic new description",
+    public: false,
+    collaborative: false,
   });
   strictEqual(calls[0].url.pathname, "/v1/me/playlists");
   for (
@@ -374,6 +376,22 @@ Deno.test("create is explicitly private and existing names cannot be rewritten",
       }),
     "guard",
   );
+  for (
+    const visibility of [
+      { public: true },
+      { public: false },
+      { public: null },
+      { collaborative: true },
+      { collaborative: false },
+    ]
+  ) {
+    await fails(() =>
+      client.request({
+        method: "PUT",
+        path: `/playlists/${PLAYLIST}`,
+        body: { description: "Synthetic", ...visibility },
+      }), "guard");
+  }
   strictEqual(calls.length, 2);
 });
 

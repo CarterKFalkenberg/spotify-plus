@@ -57,14 +57,16 @@ function harness(count = 250) {
     snapshot: 1,
     description: "",
     name: "Synthetic snapshot",
+    public: false as boolean | null,
+    collaborative: false,
     onCall: (_name: string) => {},
   };
   const metadata = (): SpotifyPlaylist => ({
     id: spotifyId,
     name: state.name,
     description: state.description,
-    public: false,
-    collaborative: false,
+    public: state.public,
+    collaborative: state.collaborative,
     ownerId: "synthetic-owner",
     total: state.items.length,
     snapshotId: String(state.snapshot),
@@ -144,6 +146,8 @@ function harness(count = 250) {
     updatePlaylistDescription: (_id, value) => {
       call("description");
       state.description = value;
+      state.public = false;
+      state.collaborative = false;
       return Promise.resolve();
     },
     containsPlaylists: () => {
@@ -235,8 +239,8 @@ async function realAdapterRoundTrip(
     id: spotifyId,
     name: h.state.name,
     description: escaped ? encode(h.state.description) : h.state.description,
-    public: false,
-    collaborative: false,
+    public: h.state.public,
+    collaborative: h.state.collaborative,
     owner: { id: "synthetic-owner" },
     snapshot_id: String(
       h.state.snapshot + (corrupt && corruption === "snapshot" ? 1 : 0),
@@ -283,7 +287,11 @@ async function realAdapterRoundTrip(
       }
       if (method === "PUT" && url.pathname === `/v1/playlists/${spotifyId}`) {
         const body = JSON.parse(String(init?.body));
-        equal(Object.keys(body), ["description"]);
+        equal(Object.keys(body), ["description", "public", "collaborative"]);
+        // Model a provider that resets omitted metadata visibility. The adapter
+        // must send fixed values, not rely on omission preserving state.
+        h.state.public = body.public ?? true;
+        h.state.collaborative = body.collaborative ?? true;
         h.state.description = body.description;
         corrupt = corruption !== null;
         return Promise.resolve(new Response(null, { status: 200 }));
@@ -384,8 +392,101 @@ async function realAdapterRoundTrip(
 }
 Deno.test("real runner and adapter populate a newly created playlist with a zero-limit empty page", () =>
   realAdapterRoundTrip());
-Deno.test("real adapter escaped description round-trip creates, regenerates and preserves literal owner notes", () =>
+Deno.test("real adapter metadata writes preserve escaped notes and visibility despite omitted-field reset", () =>
   realAdapterRoundTrip(true));
+
+Deno.test("matching disclosure still repairs public/null/collaborative visibility before ready", async () => {
+  for (
+    const visibility of [
+      { public: true, collaborative: false },
+      { public: null, collaborative: false },
+      { public: false, collaborative: true },
+    ]
+  ) {
+    const h = harness(2);
+    equal(await h.run(), { done: true });
+    const before = {
+      name: h.state.name,
+      description: h.state.description,
+      items: [...h.state.items],
+      snapshot: h.state.snapshot,
+    };
+    Object.assign(h.state, visibility);
+    h.state.complete = false;
+    let updates = 0;
+    h.state.onCall = (name) => {
+      if (name === "description") updates++;
+    };
+    equal(await h.run(), { done: true });
+    equal(updates, 1);
+    equal(h.state.public, false);
+    equal(h.state.collaborative, false);
+    equal(h.state.complete, true);
+    equal({
+      name: h.state.name,
+      description: h.state.description,
+      items: h.state.items,
+      snapshot: h.state.snapshot,
+    }, before);
+  }
+});
+Deno.test("persistent public/null/collaborative confirmation never reaches ready despite exact disclosure/items", async () => {
+  for (
+    const visibility of [
+      { public: true, collaborative: false },
+      { public: null, collaborative: false },
+      { public: false, collaborative: true },
+    ]
+  ) {
+    const h = harness(2);
+    equal(await h.run(), { done: true });
+    const description = h.state.description;
+    h.state.complete = false;
+    h.state.onCall = (name) => {
+      if (name === "details") Object.assign(h.state, visibility);
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      equal((await h.run())?.done, false);
+      equal(h.state.complete, false);
+      equal(h.state.description, description);
+      equal(h.state.items, h.state.work.target);
+    }
+    equal(h.state.errors, ["remote_changed", "remote_changed"]);
+    equal(h.state.creates, 1);
+  }
+});
+Deno.test("reconcile repairs visibility with exact current notes and scrubbed labels, refusing changed snapshots or persistent visibility", async () => {
+  for (const fault of ["", "public", "null", "snapshot", "description"]) {
+    const h = harness(2);
+    equal(await h.run(), { done: true });
+    h.state.work.action = "reconcile";
+    h.state.work.labels = {};
+    h.state.work.target = [];
+    h.state.name = "Owner renamed synthetic";
+    h.state.description = "Outside notes &amp;  \n" + h.state.description;
+    const before = h.state.description;
+    h.state.public = true;
+    h.state.complete = false;
+    let updated = false;
+    h.state.onCall = (name) => {
+      if (name === "description") updated = true;
+      if (name === "details" && updated) {
+        if (fault === "public") h.state.public = true;
+        if (fault === "null") h.state.public = null;
+        if (fault === "snapshot") h.state.snapshot++;
+        if (fault === "description") h.state.description += " changed";
+      }
+    };
+    equal((await h.run())?.done, fault === "");
+    equal(h.state.complete, fault === "");
+    equal(h.state.errors, fault ? ["remote_changed"] : []);
+    equal(h.state.name, "Owner renamed synthetic");
+    if (fault !== "description") equal(h.state.description, before);
+    equal(h.state.items, [uri(0), uri(1)]);
+    equal(h.state.creates, 1);
+    equal(updated, true);
+  }
+});
 Deno.test("escaped confirmation still rejects actual description edits", () =>
   realAdapterRoundTrip(true, "description"));
 Deno.test("escaped confirmation still rejects actual snapshot changes", () =>

@@ -144,6 +144,54 @@ do $$
   end loop;
  end;
 $$;
+-- Permanent reconciliation mismatches cannot strand an expired playlist. A live
+-- lease remains fenced until release/expiry; takeover then creates one removal.
+do $$
+ declare mode text; req jsonb; v jsonb; pid uuid; old_op uuid; old_job jsonb; removal jsonb; i integer;
+ begin
+  for mode in select unnest(array['queued','expired-lease','parked']) loop
+   select value||jsonb_build_object('requestId',gen_random_uuid(),'previewRevision',app.library_revision()) into req from test_data where key='request';
+   v:=public.app_playlist_create(1,req); pid:=(v#>>'{playlist,id}')::uuid;
+   old_job:=public.app_job_claim();
+   perform public.app_playlist_checkpoint((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,
+    jsonb_build_object('spotifyId',case mode when 'queued' then repeat('s',22) when 'expired-lease' then repeat('t',22) else repeat('u',22) end));
+   perform public.app_playlist_complete((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,app.playlist_expiry(now(),'month'),'Synthetic');
+   perform public.app_job_finish((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,'done');
+   update app.playlists set last_checked_at=now()-interval '2 days' where id=pid;
+   perform public.app_playlist_schedule();
+   select active_operation into old_op from app.playlists where id=pid;
+   perform pg_temp.check((select kind='reconcile' from app.playlist_operations where id=old_op),'stale playlist starts reconciliation');
+   old_job:=public.app_job_claim();
+   for i in 1..6 loop
+    perform public.app_playlist_failed((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,'remote_changed',1000);
+    perform public.app_job_finish((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,'queued');
+    old_job:=public.app_job_claim();
+   end loop;
+   perform pg_temp.check((select state='active' and failures=6 from app.playlist_operations where id=old_op),'reconciliation remains retryable after repeated mismatch');
+   update app.playlists set expires_on=(now() at time zone 'America/New_York')::date-1 where id=pid;
+   perform public.app_playlist_schedule();
+   perform pg_temp.check((select active_operation=old_op from app.playlists where id=pid),'expiry cannot supersede live reconciliation lease');
+   perform pg_temp.check(public.app_playlist_fence((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid),'live reconciliation fence remains valid');
+   if mode='expired-lease' then
+    update app.jobs set lease_until=now()-interval '1 second' where id=(old_job->>'id')::uuid;
+   else
+    perform public.app_job_finish((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,mode);
+   end if;
+   perform public.app_playlist_schedule();
+   perform pg_temp.check((select status='removing' and active_operation<>old_op from app.playlists where id=pid),'expired failed reconciliation becomes removal');
+   perform pg_temp.check((select state='cancelled' and lease_token is null and lease_until is null from app.jobs where id=(old_job->>'id')::uuid),'takeover cancels old reconciliation job');
+   perform pg_temp.check((select state='done' from app.playlist_operations where id=old_op),'takeover retires old operation');
+   perform pg_temp.check(not public.app_playlist_checkpoint((old_job->>'id')::uuid,(old_job->>'leaseToken')::uuid,'{"scan":null}'),'old reconciliation lease cannot checkpoint');
+   perform public.app_playlist_schedule();
+   perform pg_temp.check((select count(*)=1 from app.playlist_operations where playlist_id=pid and kind='expire'),'repeated maintenance does not duplicate expiry');
+   removal:=public.app_job_claim();
+   perform pg_temp.check((select playlist_id=pid and kind='expire' from app.playlist_operations where job_id=(removal->>'id')::uuid),'new worker receives playlist-only expiry intent');
+   perform public.app_playlist_complete((removal->>'id')::uuid,(removal->>'leaseToken')::uuid,null,'Synthetic',true);
+   perform public.app_job_finish((removal->>'id')::uuid,(removal->>'leaseToken')::uuid,'done');
+   perform pg_temp.check((select status='removed' from app.playlists where id=pid),'expiry recovers despite permanent reconciliation mismatch');
+  end loop;
+ end;
+$$;
 -- The collection uses its own opaque stable cursors, unaffected by library edits.
 do $$
  declare req jsonb; first_page jsonb; token text; v jsonb;
@@ -164,6 +212,7 @@ $$;
 insert into test_data values('new',public.app_playlist_create(1,(select value||jsonb_build_object('requestId',gen_random_uuid(),'previewRevision',app.library_revision()) from test_data where key='request')));
 update test_data set value=public.app_job_claim() where key='claim';
 select public.app_disconnect(1);
+select pg_temp.check(not public.app_playlist_schedule(),'disconnected owner cannot schedule expiry');
 select pg_temp.check(not public.app_playlist_fence((select (value->>'id')::uuid from test_data where key='claim'),(select (value->>'leaseToken')::uuid from test_data where key='claim')),'disconnect fences remote work');
 select pg_temp.check(not public.app_playlist_complete((select (value->>'id')::uuid from test_data where key='claim'),(select (value->>'leaseToken')::uuid from test_data where key='claim'),null,'Late name'),'late response cannot restore data');
 select pg_temp.check(not exists(select 1 from app.playlists) and not exists(select 1 from app.playlist_operations) and not exists(select 1 from app.playlist_requests) and not exists(select 1 from app.annotations),'product purge includes playlists and annotations');

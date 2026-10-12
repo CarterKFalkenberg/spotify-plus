@@ -247,7 +247,9 @@ for (const action of ["create", "regenerate"] as const) {
         if (method === "GET") return Promise.resolve(Response.json(details()));
         equal(method, "PUT");
         const body = JSON.parse(String(init?.body));
-        equal(Object.keys(body), ["description"]);
+        equal(Object.keys(body), ["description", "public", "collaborative"]);
+        equal(body.public, false);
+        equal(body.collaborative, false);
         description = body.description;
         return Promise.resolve(new Response(null, { status: 200 }));
       }

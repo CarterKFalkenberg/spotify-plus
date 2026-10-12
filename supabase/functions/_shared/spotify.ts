@@ -268,7 +268,13 @@ function prepare(input: SpotifyRequest): Prepared {
       operation = "description";
       keys(body, ["description"]);
       requireGuard(text(body.description));
-      serialized = JSON.stringify({ description: body.description });
+      // Callers can only supply description text. Always retain the app's
+      // unpublished/noncollaborative policy on the provider metadata write.
+      serialized = JSON.stringify({
+        description: body.description,
+        public: false,
+        collaborative: false,
+      });
     }
   } else if (method === "DELETE" && path === "/me/library") {
     operation = "remove";
