@@ -91,6 +91,7 @@ try {
     const migration of [
       "20261011000400_library_annotations.sql",
       "20261011000500_managed_playlists.sql",
+      "20261011000800_expire_failed_reconciliation.sql",
     ]
   ) {
     await sql(

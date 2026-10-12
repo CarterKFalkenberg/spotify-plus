@@ -98,6 +98,7 @@ try {
       "20261011000400_library_annotations.sql",
       "20261011000500_managed_playlists.sql",
       "20261011000600_fast_tagging.sql",
+      "20261011000800_expire_failed_reconciliation.sql",
     ]
   ) {
     await sql(

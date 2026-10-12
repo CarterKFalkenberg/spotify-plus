@@ -159,6 +159,15 @@ try {
       "utf8",
     ),
   );
+  await sql(
+    await readFile(
+      new URL(
+        "../../migrations/20261011000800_expire_failed_reconciliation.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
   await sql(fixtureAssertionsSql());
   console.log(
     "Synthetic PostgreSQL foundation, role-denial, leases, refresh, pacing, disconnect, and isolated live-fixture checks passed.",

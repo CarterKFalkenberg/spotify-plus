@@ -96,6 +96,11 @@ its isolated outside-rename helper also sends fixed false values.
 Reconciliation repairs visibility using the exact current description instead of
 scrubbed operation labels, then verifies unchanged description and item snapshot.
 If required repair has a null description, it fails closed without inventing text.
+After the retention deadline, maintenance can supersede an incomplete
+reconciliation with expiry once its job has no live lease. It cancels and fences
+the old operation before queuing removal, so a permanent visibility mismatch
+cannot prevent scheduled cleanup. An actively leased reconciliation remains
+protected; disconnected-owner and playlist-only removal guards still apply.
 
 The [playlist concepts documentation](https://developer.spotify.com/documentation/web-api/concepts/playlists),
 read October 11, distinguishes profile/search publication from link-access
