@@ -484,7 +484,8 @@ export async function runCoreProof(input: Input) {
       );
       await ordered(r, expected);
       check(
-        remote.public === false && remote.name === fixtureName(r) &&
+        remote.public === false && remote.collaborative === false &&
+          remote.name === fixtureName(r) &&
           remote.description?.includes("Tagger") &&
           remote.description.includes(p.expiresOn!),
         "core_private_disclosure_failed",
@@ -514,7 +515,7 @@ export async function runCoreProof(input: Input) {
       check(
         regenerated.name === fixtureName(r) + " renamed" &&
           regenerated.description?.includes(note) &&
-          regenerated.public === false,
+          regenerated.public === false && regenerated.collaborative === false,
         "core_regenerate_preservation_failed",
       );
       await ordered(
@@ -914,6 +915,7 @@ export async function runCoreProof(input: Input) {
     check(
       r.phase === "playlist" && r.playlistId && r.spotifyPlaylistId &&
         current.id === r.spotifyPlaylistId && current.public === false &&
+        current.collaborative === false &&
         current.name === fixtureName(r) &&
         note === `Synthetic outside note ${r.run}`,
       "core_rename_registry_required",
@@ -955,6 +957,8 @@ export async function runCoreProof(input: Input) {
         body: JSON.stringify({
           name: fixtureName(r) + " renamed",
           description,
+          public: false,
+          collaborative: false,
         }),
       },
     );

@@ -150,7 +150,7 @@ async function run(input: Input) {
       );
       check(
         matches.length === 1 && matches[0]!.ownerId === identity.id &&
-          matches[0]!.public === false,
+          matches[0]!.public === false && matches[0]!.collaborative === false,
         "ambiguous_creation_requires_reconciliation",
       );
       registry.playlistId = matches[0]!.id;
@@ -208,7 +208,8 @@ async function run(input: Input) {
       },
     }) as SpotifyPlaylist;
     check(
-      created.public === false && created.ownerId === identity.id,
+      created.public === false && created.collaborative === false &&
+        created.ownerId === identity.id,
       "private_owned_creation_required",
     );
     registry.playlistId = created.id;
@@ -260,6 +261,15 @@ async function run(input: Input) {
       });
     }
     await ordered(reversed);
+    const confirmed = await request({
+      method: "GET",
+      path: `/playlists/${created.id}`,
+    }) as SpotifyPlaylist;
+    check(
+      confirmed.public === false && confirmed.collaborative === false &&
+        confirmed.ownerId === identity.id,
+      "private_owned_creation_required",
+    );
     cleanupAttempted = true;
     await removeTracked();
     return {

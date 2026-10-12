@@ -246,6 +246,22 @@ export async function runPlaylistJob(
     }
     let details = await remote(() => spotify.getPlaylist(id));
     if (work.action === "reconcile") {
+      // Completed operations scrub query labels. Reconciliation must preserve
+      // the current disclosure/outside notes rather than render from that state.
+      if (details.public !== false || details.collaborative !== false) {
+        const description = details.description;
+        if (description === null) {
+          throw new PlaylistError("remote_changed");
+        }
+        await remote(() => spotify.updatePlaylistDescription(id, description));
+        const confirmed = await remote(() => spotify.getPlaylist(id));
+        if (
+          confirmed.public !== false || confirmed.collaborative !== false ||
+          confirmed.description !== details.description ||
+          confirmed.snapshotId !== details.snapshotId
+        ) throw new PlaylistError("remote_changed");
+        details = confirmed;
+      }
       await complete(null, details.name);
       return { done: true };
     }
@@ -328,12 +344,16 @@ export async function runPlaylistJob(
       expiresOn,
       current.description,
     );
-    if (current.description !== description) {
+    if (
+      current.description !== description || current.public !== false ||
+      current.collaborative !== false
+    ) {
       await remote(() => spotify.updatePlaylistDescription(id, description));
     }
     const confirmed = await remote(() => spotify.getPlaylist(id));
     if (
       confirmed.description !== description ||
+      confirmed.public !== false || confirmed.collaborative !== false ||
       (contents && confirmed.snapshotId !== current.snapshotId)
     ) {
       throw new PlaylistError("remote_changed");

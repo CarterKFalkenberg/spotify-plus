@@ -72,6 +72,40 @@ decodes again or truncates outside notes. Confirmation still compares exact
 canonical descriptions and unchanged item snapshots. Managed-write ownership
 and the saved-library write prohibition are unchanged.
 
+### Visibility verification — October 11, 2026
+
+For [issue #44](https://github.com/CarterKFalkenberg/spotify-plus/issues/44),
+the orchestrator observed `public:true` and `collaborative:false` for the same
+registered disposable in both the playlist GET and current-user collection after
+creation and ordered population. The create serializer sends explicit
+`public:false` and `collaborative:false`. This evidence does not identify when
+visibility changed or prove that omitting visibility on a metadata PUT caused it.
+The current [create reference](https://developer.spotify.com/documentation/web-api/reference/create-playlist)
+documents a true default; the [change-details reference](https://developer.spotify.com/documentation/web-api/reference/change-playlist-details)
+accepts explicit visibility fields but specifies no omission-reset guarantee.
+
+Managed metadata writes now serialize fixed `public:false` and
+`collaborative:false` alongside the canonical description. Callers still supply
+only description text; arbitrary visibility values and name changes remain
+forbidden. Before ready, the worker repairs a mismatched description or visibility
+and rereads both fields, requiring exact false values as well as the existing
+description and item-snapshot checks. Persistent true/null or collaborative
+responses remain incomplete through the existing bounded retry policy. The live
+proof retains strict false checks, including after item writes and regeneration;
+its isolated outside-rename helper also sends fixed false values.
+Reconciliation repairs visibility using the exact current description instead of
+scrubbed operation labels, then verifies unchanged description and item snapshot.
+If required repair has a null description, it fails closed without inventing text.
+
+The [playlist concepts documentation](https://developer.spotify.com/documentation/web-api/concepts/playlists),
+read October 11, distinguishes profile/search publication from link-access
+control: `public:false` hides publication, while the Web API cannot make a
+playlist inaccessible to someone holding its link. Synthetic tests establish
+the explicit-write and readiness boundaries, not provider behavior or full
+access privacy. Whether that platform limitation meets the brief's private
+playlist requirement remains a pending human decision; this note does not
+redefine the brief, accepted decisions, or UI promise.
+
 ## OAuth and scopes
 
 Setup and initial implementation request exactly:
