@@ -14,8 +14,8 @@ These live/deployment gates apply to application milestones. Bounded implementat
 
 ## Required coverage across the stages
 
-- **API proof:** authenticated owner-only access, prohibited Liked Songs writes, real private playlist creation/removal semantics, refresh-grant handling, disconnect purge, scheduled execution and deployment identity.
-- **Core loop:** reliable complete library sync, immediate durable tagging, All/Any/None query truth tables and nested stored queries, zero-request previews, private snapshot generation, partial-write recovery and unattended expiry.
+- **API proof:** authenticated owner-only access, prohibited Liked Songs writes, real acknowledged fixed-false publication commands, strict noncollaboration and playlist removal semantics, refresh-grant handling, disconnect purge, scheduled execution and deployment identity.
+- **Core loop:** reliable complete library sync, immediate durable tagging, All/Any/None query truth tables and nested stored queries, zero-request previews, snapshot generation with acknowledged profile/search-hiding requests (publication readback is explicitly unverified), partial-write recovery and unattended expiry.
 - **Fast tagging:** queue and bulk selection/undo semantics; tag normalization, rename/merge/query identity; safe input/IME shortcuts; first-run and returning-session routing; desktop and mobile layouts, including deep links.
 - **Resilience:** ambiguous writes, pagination changes, retry limits, disconnect races, expiry/DST/month-end math, 90-day metadata purge with persistent assignments, recovery from free-tier pausing, encrypted annotation restore and quota checks.
 

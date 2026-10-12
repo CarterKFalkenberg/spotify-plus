@@ -88,7 +88,7 @@ Measure successful Worker CPU from at least 20 actual request traces covering he
 
 Run `node scripts/verify-stage.mjs api-proof`. It makes fresh public/direct auth and revision probes, checks the owner session and PKCE denial flow, uses persisted encrypted credentials and shared database pacing for a real Spotify contract probe, and queues a maintenance job for actual cron execution. It never calls the jobs endpoint itself to manufacture scheduler evidence. It waits up to 95 seconds for a new deployed scheduler/job heartbeat. Auth/origin negative tests always use an **invalid deletion confirmation**, so even a guard regression cannot authorize a real owner purge. Disconnect purge and wrong-account recovery are tested with isolated synthetic data by `scripts/check`.
 
-The Spotify probe outputs only counts and schema/status booleans. It creates one private tracked “Tagger API test …” playlist, adds and replaces 101 usable distinct tracks when available, verifies ordered membership, and removes it using the guarded `DELETE /me/library` route. It checks both containment and current-user playlist absence. The probe’s Deno file permissions permit read/write only for `api-proof-playlist.json` and its `.tmp` sibling; read access to the temporary source is required for atomic rename. Synthetic subprocess tests exercise the actual writer and deny unrelated sibling-file access. The ignored `api-proof-playlist.json` registry is persisted before creation; a lost create response is reconciled by its unique description marker, never blindly replayed. If cleanup is unconfirmed, the registry remains and the next run resolves that tracked playlist before another proof. No Liked Songs writes occur. A rate-limit/quota error stops rather than retrying aggressively.
+The Spotify probe outputs only counts and schema/status booleans. It creates one noncollaborative tracked “Tagger API test …” playlist, adds and replaces 101 usable distinct tracks when available, verifies ordered membership, and removes it using the guarded `DELETE /me/library` route. It checks both containment and current-user playlist absence. The probe’s Deno file permissions permit read/write only for `api-proof-playlist.json` and its `.tmp` sibling; read access to the temporary source is required for atomic rename. Synthetic subprocess tests exercise the actual writer and deny unrelated sibling-file access. The ignored `api-proof-playlist.json` registry is persisted before creation; a lost create response is reconciled by its unique description marker, never blindly replayed. If cleanup is unconfirmed, the registry remains and the next run resolves that tracked playlist before another proof. No Liked Songs writes occur. A rate-limit/quota error stops rather than retrying aggressively.
 
 A successful receipt is saved privately under `.local/verification/` and tied to exact frontend/API/jobs SHAs. A previous live-stage receipt never substitutes for a new run. Plan/CPU/browser observations are explicitly labelled operator evidence; live requests run again. The fast-tagging and resilience verifiers are implemented with the scoped assertions and fresh isolated-check evidence described below. Resilience additionally requires the encrypted-backup implementation from [issue #27](https://github.com/CarterKFalkenberg/spotify-plus/issues/27) integrated into the exact checked and deployed head. These verifier changes alone do not complete either stage: full checks, database/browser coverage, dependency integration and fresh deployed proofs remain required. The API proof is internal feasibility setup, not a complete library browser or MVP release.
 
@@ -136,11 +136,11 @@ The library/query handler's deny-transport synthetic invariant separately proves
 its code path does not call Spotify.
 
 Creation uses the product's durable intent route and recorded request UUID, then
-waits for confirmed ready state and verifies private ordered remote contents with
+waits for confirmed ready state and verifies noncollaborative ordered remote contents and exact-head worker publication-command acknowledgement with
 50-item read pages. Writes remain the product worker's 100-item chunks. It checks
 request dedupe, Pin/Unpin/Extend and Regenerate. The narrow operator-only rename
 helper sends one exact `PUT /playlists/{registered-id}` after immutable owner,
-private playlist, registered intent, epoch and app-managed-row checks using owner
+noncollaborative playlist, registered intent, epoch and app-managed-row checks using owner
 tokens and shared pacing. Only the fixed synthetic name and outside note are sent;
 regeneration must preserve both. The runtime adapter still permits description
 updates only. Official [details](https://developer.spotify.com/documentation/web-api/reference/change-playlist-details)
@@ -271,3 +271,5 @@ never upgrade permission. Architecture review, reviewed corrections, final
 same-head smoke and temporary review automation shutdown remain independent
 software gates. Actual phone under-one-minute and familiar-song 3–5-second
 acceptance remain pending human checks even when stage receipts pass.
+
+Publication receipts follow the [accepted command contract](../docs/SPOTIFY-API.md#publication-command-contract--october-11-2026): a successful explicit fixed-false PUT is `publicationWriteAcknowledged:true`, while `publicationReadbackVerified:false` is mandatory. Raw true/false/null public observations remain observations, not verified profile/search hiding or link-access privacy. A failed or ambiguous write never satisfies acknowledgement. Core proof checks completed create/regenerate operations from the exact deployed worker; API proof independently sends a publication-only PUT after content writes.

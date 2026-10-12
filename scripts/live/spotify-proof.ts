@@ -150,7 +150,7 @@ async function run(input: Input) {
       );
       check(
         matches.length === 1 && matches[0]!.ownerId === identity.id &&
-          matches[0]!.public === false && matches[0]!.collaborative === false,
+          matches[0]!.collaborative === false,
         "ambiguous_creation_requires_reconciliation",
       );
       registry.playlistId = matches[0]!.id;
@@ -266,9 +266,27 @@ async function run(input: Input) {
       path: `/playlists/${created.id}`,
     }) as SpotifyPlaylist;
     check(
-      confirmed.public === false && confirmed.collaborative === false &&
+      confirmed.collaborative === false &&
         confirmed.ownerId === identity.id,
       "private_owned_creation_required",
+    );
+    // A successful fixed-false publication PUT is command acknowledgement.
+    // The provider's public readback is contradictory, so it is not visibility proof.
+    await request({
+      method: "PUT",
+      path: `/playlists/${created.id}`,
+      body: {},
+    });
+    const publication = await request({
+      method: "GET",
+      path: `/playlists/${created.id}`,
+    }) as SpotifyPlaylist;
+    check(
+      publication.ownerId === identity.id &&
+        publication.collaborative === false &&
+        publication.description === confirmed.description &&
+        publication.snapshotId === confirmed.snapshotId,
+      "publication_confirmation_failed",
     );
     cleanupAttempted = true;
     await removeTracked();
@@ -281,7 +299,10 @@ async function run(input: Input) {
       playlistItems: target.length,
       multiChunk: target.length > 100,
       fewerAvailable: uris.length <= 100,
-      privatePlaylist: true,
+      publicationWriteAcknowledged: true,
+      publicationReadbackVerified: false,
+      publicReadback: publication.public,
+      noncollaborativePlaylist: true,
       orderedAdd: true,
       orderedReplace: true,
       removedByContains: true,
@@ -316,6 +337,7 @@ if (import.meta.main) {
       "saved_paging_unbounded",
       "no_playable_tracks_for_live_playlist_proof",
       "private_owned_creation_required",
+      "publication_confirmation_failed",
       "unexpected_playlist_size",
       "ordered_membership_mismatch",
     ];

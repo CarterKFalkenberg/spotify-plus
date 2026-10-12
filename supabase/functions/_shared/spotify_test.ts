@@ -415,6 +415,43 @@ Deno.test("all existing-playlist writes require managed ownership; dependency fa
   );
   deepStrictEqual(broken.events, []);
 });
+Deno.test("publication-only command preserves null text and only acknowledges accepted managed writes", async () => {
+  for (const status of [200, 204]) {
+    const h = harness([
+      json(playlist({ description: null })),
+      new Response(null, { status }),
+      json(playlist({ description: null, public: true })),
+    ]);
+    strictEqual((await h.client.getPlaylist(PLAYLIST)).description, null);
+    await h.client.ensurePlaylistUnpublished(PLAYLIST);
+    deepStrictEqual(JSON.parse(String(h.calls[1].init.body)), {
+      public: false,
+      collaborative: false,
+    });
+    const observed = await h.client.getPlaylist(PLAYLIST);
+    strictEqual(observed.description, null);
+    strictEqual(observed.public, true);
+    await fails(() => h.client.ensurePlaylistUnpublished(OTHER), "guard");
+    strictEqual(h.calls.length, 3);
+  }
+  for (
+    const [status, kind, ambiguous] of [
+      [202, "response", true],
+      [302, "http", true],
+      [401, "authentication", false],
+      [403, "forbidden", false],
+      [500, "http", true],
+    ] as const
+  ) {
+    const h = harness([new Response(null, { status })]);
+    await fails(
+      () => h.client.ensurePlaylistUnpublished(PLAYLIST),
+      kind,
+      ambiguous,
+    );
+    strictEqual(h.calls.length, 1);
+  }
+});
 
 Deno.test("playlist writes preserve ordered chunks and enforce track-only 100-item limit", async () => {
   const { client, calls } = harness([

@@ -225,6 +225,14 @@ for (const action of ["create", "regenerate"] as const) {
         "Bearer synthetic-access",
       );
       const method = init?.method;
+      if (url.pathname === "/v1/me" && method === "GET") {
+        return Promise.resolve(
+          Response.json({
+            account_id: "synthetic-account",
+            id: "synthetic-owner",
+          }),
+        );
+      }
       if (url.pathname === "/v1/me/playlists" && method === "POST") {
         equal(action, "create");
         const body = JSON.parse(String(init?.body));

@@ -136,7 +136,8 @@ export function redactedCoreResult(value) {
     "changedOnlyUndo",
     "filterRevisionGuard",
     "previewPacingCredentialObservationUnchanged",
-    "privateSnapshot",
+    "publicationWriteAcknowledged",
+    "noncollaborativeSnapshot",
     "orderedSnapshot",
     "requestIntentDeduplicated",
     "pinUnpinExtend",
@@ -158,13 +159,22 @@ export function redactedCoreResult(value) {
   requireCheck(
     value?.passed === true &&
       booleans.every((key) => value[key] === true) &&
+      value.publicationReadbackVerified === false &&
+      [null, true, false].includes(value.publicReadback) &&
+      [null, true, false].includes(value.regeneratedPublicReadback) &&
       counts.every(
         (key) => Number.isSafeInteger(value[key]) && value[key] >= 0,
       ),
     "core_proof_receipt_invalid",
   );
   return Object.fromEntries(
-    [...booleans, ...counts].map((key) => [key, value[key]]),
+    [
+      ...booleans,
+      ...counts,
+      "publicationReadbackVerified",
+      "publicReadback",
+      "regeneratedPublicReadback",
+    ].map((key) => [key, value[key]]),
   );
 }
 async function runSpotifyProof(root, config, input, core = false) {
@@ -620,7 +630,7 @@ export async function verifyStage(stage, root) {
       "Bootstrap committed once; immutable owner and encrypted persisted credential path passed.",
       ...(spotify
         ? [
-            "Live saved-track schema/paging, private ordered add/replace and playlist-only removal passed.",
+            "Live saved-track schema/paging, ordered add/replace, publication command acknowledgement and playlist-only removal passed; publication readback remains unverified.",
           ]
         : []),
       ...(spotify || core
