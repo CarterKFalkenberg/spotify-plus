@@ -2,6 +2,8 @@ import {
   assertPreview,
   assertPreviewPage,
   assertProgress,
+  type PlaylistReadinessWork,
+  waitForPlaylistReady,
 } from "./core-proof.ts";
 import {
   cleanupFixturesSql,
@@ -12,6 +14,7 @@ import {
 } from "./core-fixtures.ts";
 import type {
   LibraryStatusDTO,
+  ManagedPlaylistDTO,
   QueryPreviewResponse,
   TrackDTO,
 } from "../../supabase/functions/_shared/contracts.ts";
@@ -142,6 +145,201 @@ Deno.test("operator SQL rejects malformed registry inputs before rendering a sta
     fails(() => cleanupFixturesSql({ ...registry, ...patch }, true));
   }
   fails(() => duePlaylistSql(registry));
+});
+
+const readyPlaylist: ManagedPlaylistDTO = {
+  id: "00000000-0000-4000-8000-000000000001",
+  revision: "3",
+  name: "Synthetic playlist",
+  spotifyUrl: null,
+  query: { version: 1, root: { op: "tag", tagId: crypto.randomUUID() } },
+  retention: "month",
+  createdAt: "2026-10-11T12:00:00Z",
+  expiresOn: "2026-11-11",
+  trackCount: 1,
+  status: "ready",
+  blockedBy: null,
+};
+const retryWork: PlaylistReadinessWork = {
+  status: "incomplete",
+  blockedBy: "unavailable",
+  operationState: "active",
+  jobState: "queued",
+};
+async function readinessFailure(
+  read: () => Promise<ManagedPlaylistDTO | null>,
+  work: PlaylistReadinessWork | null,
+  code: string,
+  attempts = 120,
+) {
+  let reads = 0, pauses = 0;
+  try {
+    await waitForPlaylistReady(
+      async () => {
+        reads++;
+        return await read();
+      },
+      () => Promise.resolve(work),
+      (ms) => {
+        equal(ms, 5000);
+        pauses++;
+        return Promise.resolve();
+      },
+      attempts,
+    );
+    throw new Error("expected readiness failure");
+  } catch (error) {
+    equal(error instanceof ProofFailure, true);
+    equal((error as Error).message, code);
+  }
+  return { reads, pauses };
+}
+Deno.test("readiness waits through natural queued/running retries and returns only the ready DTO", async () => {
+  for (const blockedBy of ["unavailable", "rateLimited"] as const) {
+    let reads = 0, workReads = 0, pauses = 0;
+    const result = await waitForPlaylistReady(
+      () =>
+        Promise.resolve(
+          ++reads <= 2
+            ? { ...readyPlaylist, status: "incomplete", blockedBy }
+            : readyPlaylist,
+        ),
+      () =>
+        Promise.resolve({
+          ...retryWork,
+          blockedBy,
+          jobState: ++workReads === 1 ? "queued" : "running",
+        }),
+      (ms) => {
+        equal(ms, 5000);
+        pauses++;
+        return Promise.resolve();
+      },
+    );
+    equal(result, readyPlaylist);
+    equal({ reads, workReads, pauses }, { reads: 3, workReads: 2, pauses: 2 });
+  }
+});
+Deno.test("readiness fails immediately on permanent blocks, stalled/parked work and missing playlists", async () => {
+  for (const blockedBy of ["reconnect", "quota"] as const) {
+    equal(
+      await readinessFailure(
+        () =>
+          Promise.resolve({
+            ...readyPlaylist,
+            status: "incomplete",
+            blockedBy,
+          }),
+        retryWork,
+        "core_playlist_work_blocked",
+      ),
+      { reads: 1, pauses: 0 },
+    );
+  }
+  for (
+    const work of [
+      null,
+      { ...retryWork, operationState: "stalled" },
+      { ...retryWork, jobState: "parked" },
+      { ...retryWork, jobState: "done" },
+      { ...retryWork, jobState: "cancelled" },
+      { ...retryWork, blockedBy: "quota" },
+      { ...retryWork, status: "removing" },
+    ]
+  ) {
+    equal(
+      await readinessFailure(
+        () =>
+          Promise.resolve({
+            ...readyPlaylist,
+            status: "incomplete",
+            blockedBy: "unavailable",
+          }),
+        work,
+        "core_playlist_incomplete_requires_operator",
+      ),
+      { reads: 1, pauses: 0 },
+    );
+  }
+  equal(
+    await readinessFailure(
+      () => Promise.resolve(null),
+      retryWork,
+      "core_playlist_work_blocked",
+    ),
+    { reads: 1, pauses: 0 },
+  );
+  equal(
+    await readinessFailure(
+      () =>
+        Promise.resolve({
+          ...readyPlaylist,
+          status: "incomplete",
+          blockedBy: null,
+        }),
+      { ...retryWork, blockedBy: null, operationState: "stalled" },
+      "core_playlist_incomplete_requires_operator",
+    ),
+    { reads: 1, pauses: 0 },
+  );
+});
+Deno.test("readiness re-polls completion racing the DTO and does not accept SQL as ready proof", async () => {
+  let reads = 0;
+  const completedWork = {
+    status: "ready",
+    blockedBy: null,
+    operationState: null,
+    jobState: null,
+  };
+  equal(
+    await waitForPlaylistReady(
+      () =>
+        Promise.resolve(
+          ++reads === 1
+            ? {
+              ...readyPlaylist,
+              status: "incomplete",
+              blockedBy: "unavailable",
+            }
+            : readyPlaylist,
+        ),
+      () => Promise.resolve(completedWork),
+      () => Promise.resolve(),
+    ),
+    readyPlaylist,
+  );
+  equal(reads, 2);
+  equal(
+    await readinessFailure(
+      () =>
+        Promise.resolve({
+          ...readyPlaylist,
+          status: "incomplete",
+          blockedBy: "unavailable",
+        }),
+      completedWork,
+      "core_playlist_not_ready",
+      3,
+    ),
+    { reads: 3, pauses: 3 },
+  );
+});
+Deno.test("persistent retryable failure and pending work exhaust the bounded readiness wait", async () => {
+  for (const status of ["incomplete", "pending"] as const) {
+    equal(
+      await readinessFailure(
+        () =>
+          Promise.resolve({
+            ...readyPlaylist,
+            status,
+            blockedBy: status === "incomplete" ? "unavailable" : null,
+          }),
+        retryWork,
+        "core_playlist_not_ready",
+      ),
+      { reads: 120, pauses: 120 },
+    );
+  }
 });
 
 // scripts/check runs this entrypoint explicitly; retain the fast proof boundary

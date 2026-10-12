@@ -80,6 +80,56 @@ export async function writeCoreRegistry(path: string, registry: CoreRegistry) {
   await Deno.rename(`${path}.tmp`, path);
 }
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+export interface PlaylistReadinessWork {
+  status: string;
+  blockedBy: string | null;
+  operationState: string | null;
+  jobState: string | null;
+}
+export function playlistWorkCanProgress(work: PlaylistReadinessWork) {
+  if (![null, "unavailable", "rateLimited"].includes(work.blockedBy)) {
+    return false;
+  }
+  // Completion can race the earlier product DTO read. Re-poll the product
+  // endpoint rather than treating the database observation as readiness proof.
+  if (
+    work.status === "ready" && work.blockedBy === null &&
+    work.operationState === null && work.jobState === null
+  ) return true;
+  return ["pending", "incomplete"].includes(work.status) &&
+    work.operationState === "active" &&
+    ["queued", "running"].includes(work.jobState ?? "");
+}
+export async function waitForPlaylistReady(
+  read: () => Promise<ManagedPlaylistDTO | null>,
+  readWork: () => Promise<PlaylistReadinessWork | null>,
+  pause: (ms: number) => Promise<void> = sleep,
+  attempts = 120,
+): Promise<ManagedPlaylistDTO> {
+  for (let i = 0; i < attempts; i++) {
+    const p = await read();
+    check(p !== null, "core_playlist_work_blocked");
+    check(
+      [null, "unavailable", "rateLimited"].includes(p.blockedBy),
+      "core_playlist_work_blocked",
+    );
+    if (p.status === "ready" && p.blockedBy === null) return p;
+    check(
+      ["pending", "incomplete"].includes(p.status),
+      "core_playlist_incomplete_requires_operator",
+    );
+    if (p.status === "incomplete" || p.blockedBy !== null) {
+      const work = await readWork();
+      check(
+        work !== null && playlistWorkCanProgress(work),
+        "core_playlist_incomplete_requires_operator",
+      );
+    }
+    // Observe the durable worker's own backoff; never submit Retry here.
+    await pause(5000);
+  }
+  throw new ProofFailure("core_playlist_not_ready");
+}
 async function privateFetch(url: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(url, {
@@ -795,23 +845,17 @@ export async function runCoreProof(input: Input) {
     return null;
   }
   async function waitReady(r: CoreRegistry) {
-    let retried = false;
-    for (let i = 0; i < 120; i++) {
-      const p = await findPlaylist(r.playlistId!);
-      check(p && p.blockedBy === null, "core_playlist_work_blocked");
-      if (p.status === "ready") return p;
-      if (p.status === "incomplete") {
-        check(!retried, "core_playlist_incomplete_requires_operator");
-        await api(`/playlists/${r.playlistId}/actions`, {
-          requestId: crypto.randomUUID(),
-          expectedRevision: p.revision,
-          action: "retry",
-        }, 202);
-        retried = true;
-      }
-      await sleep(5000);
-    }
-    throw new ProofFailure("core_playlist_not_ready");
+    validateRegistry(r);
+    return await waitForPlaylistReady(
+      () => findPlaylist(r.playlistId!),
+      async () => {
+        const rows = await sql<PlaylistReadinessWork>(
+          `select p.status,p.blocked_by as "blockedBy",o.state as "operationState",j.state as "jobState" from app.playlists p left join app.playlist_operations o on o.id=p.active_operation and o.epoch=p.epoch left join app.jobs j on j.id=o.job_id and j.epoch=p.epoch where p.id='${r.playlistId}' and p.epoch=${r.epoch};`,
+        );
+        check(rows.length <= 1, "core_operator_schema_failed");
+        return rows[0] ?? null;
+      },
+    );
   }
   async function action(
     r: CoreRegistry,
