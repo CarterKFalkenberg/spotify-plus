@@ -1162,7 +1162,29 @@ test("prefix groups retain keyboard identities, exact Enter choice and tri-state
     )
     .toBe(id(11));
   await expect(input).toBeEditable();
+  // The rejected mutation toggles disabled and reloads suggestions. Editing
+  // resumes before that debounced lookup has completed; navigate only when its
+  // inspected options are ready again.
+  const firstOption = picker.getByRole("option", {
+    name: "Mood:chill none · 0 of 3 selected",
+    exact: true,
+  });
+  await expect(firstOption).toBeEnabled();
+  await expect(firstOption).toHaveAttribute("aria-selected", "true");
+  await expect(input).toHaveAttribute(
+    "aria-activedescendant",
+    (await firstOption.getAttribute("id"))!,
+  );
   await input.press("ArrowDown");
+  const calmOption = picker.getByRole("option", {
+    name: "mood:calm some · 2 of 3 selected",
+    exact: true,
+  });
+  await expect(calmOption).toHaveAttribute("aria-selected", "true");
+  await expect(input).toHaveAttribute(
+    "aria-activedescendant",
+    (await calmOption.getAttribute("id"))!,
+  );
   let activeId = await input.getAttribute("aria-activedescendant");
   await expect(page.locator(`[id="${activeId}"]`)).toHaveText(
     "mood:calmsome · 2 of 3 selected",
