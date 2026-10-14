@@ -198,3 +198,54 @@ it("uses physical modified-letter codes for real macOS Option characters while p
     queueShortcut({ ...key("Dead", { altKey: true }), code: "KeyE" }, true, ""),
   ).toBeNull();
 });
+
+it("queue undo restores only its changed edge and preserves unrelated later tags", async () => {
+  const { restoredQueueTags } = await import("../../app/src/tagging");
+  const add = { tagId: "a", kind: "add" as const, changed: true };
+  const restored = { restoredCount: 1, skippedCount: 0 };
+  expect(restoredQueueTags(["a", "b"], add, restored)).toEqual(["b"]);
+  expect(restoredQueueTags(["a"], add, restored)).toEqual([]);
+  expect(
+    restoredQueueTags(["b"], { ...add, kind: "remove" }, restored),
+  ).toEqual(["b", "a"]);
+  const current = ["a", "b"];
+  expect(
+    restoredQueueTags(current, add, { restoredCount: 0, skippedCount: 1 }),
+  ).toBe(current);
+  expect(
+    restoredQueueTags(current, add, { restoredCount: 0, skippedCount: 0 }),
+  ).toBe(current);
+  expect(restoredQueueTags(current, { ...add, changed: false }, restored)).toBe(
+    current,
+  );
+});
+
+it("autocomplete groups normalized prefixes stably without changing relevance inside a group", async () => {
+  const { groupedTagOptions } = await import("../../app/src/tagging");
+  const ranked = [
+    { id: "a", name: "Mood:chill" },
+    { id: "b", name: "sit:drive" },
+    { id: "c", name: "mood:calm" },
+    { id: "d", name: "SIT:walk" },
+    { id: "e", name: "plain" },
+    { id: "f", name: "single:tag" },
+  ];
+  const grouped = groupedTagOptions(ranked);
+  expect(grouped.map((item) => item.tag.id)).toEqual([
+    "a",
+    "c",
+    "b",
+    "d",
+    "e",
+    "f",
+  ]);
+  expect(grouped.map((item) => item.heading)).toEqual([
+    "Mood:",
+    null,
+    "sit:",
+    null,
+    null,
+    null,
+  ]);
+  expect(ranked.map((item) => item.id)).toEqual(["a", "b", "c", "d", "e", "f"]);
+});

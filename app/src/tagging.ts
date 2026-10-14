@@ -108,3 +108,48 @@ export function ownedPatchRevision(
     ? result
     : previous;
 }
+
+/** Undo restores one changed edge, never a stale snapshot of the song's tags. */
+export function restoredQueueTags(
+  current: readonly string[],
+  action: { tagId: string; kind: "add" | "remove"; changed: boolean },
+  result: { restoredCount: number; skippedCount: number },
+): readonly string[] {
+  if (
+    !action.changed ||
+    result.restoredCount !== 1 ||
+    result.skippedCount !== 0
+  )
+    return current;
+  return action.kind === "add"
+    ? current.filter((id) => id !== action.tagId)
+    : [...new Set([...current, action.tagId])];
+}
+
+export function normalizedTagName(name: string): string {
+  return name.normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+/** Groups follow first appearance in ranked results; rank within each is retained.
+ * Prefixes are display conventions only, with no effect on tag identity. */
+export function groupedTagOptions<T extends { id: string; name: string }>(
+  ranked: readonly T[],
+): { tag: T; heading: string | null }[] {
+  const groups = new Map<string, { label: string | null; tags: T[] }>();
+  for (const tag of ranked) {
+    const colon = tag.name.indexOf(":");
+    const label = colon >= 0 ? tag.name.slice(0, colon) : null;
+    const key =
+      label === null ? `tag:${tag.id}` : `prefix:${normalizedTagName(label)}`;
+    const group = groups.get(key);
+    if (group) group.tags.push(tag);
+    else groups.set(key, { label, tags: [tag] });
+  }
+  return [...groups.values()].flatMap(({ label, tags }) =>
+    tags.map((tag, index) => ({
+      tag,
+      heading:
+        label !== null && tags.length > 1 && index === 0 ? `${label}:` : null,
+    })),
+  );
+}

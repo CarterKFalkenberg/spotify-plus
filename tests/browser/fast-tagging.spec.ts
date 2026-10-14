@@ -975,3 +975,214 @@ test("global rename updates a pinned quick slot without losing its identity", as
       .getByRole("button", { name: "1 Evening", exact: true }),
   ).toBeVisible();
 });
+
+for (const scenario of ["restored", "empty", "skipped", "noop"] as const)
+  test(`queue ${scenario} undo preserves concurrent tags and session count`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "Desktop queue undo");
+    let added = false,
+      concurrent = false;
+    const changed = scenario !== "noop";
+    const hasLaterTag = scenario !== "empty";
+    await mock(page, {
+      intercept: async (route, path, body) => {
+        if (path === "/api/tag-actions") {
+          added = true;
+          await route.fulfill({
+            json: {
+              actionId: id(50),
+              tag: tags[0],
+              changedCount: changed ? 1 : 0,
+              selectedCount: 1,
+              revision: { library: "1", annotations: "2" },
+            },
+          });
+          return true;
+        }
+        if (path === "/api/library/sync" && body.reason === "manual")
+          concurrent = true;
+        if (
+          added &&
+          (path === "/api/library/status" || path === "/api/library/sync")
+        ) {
+          await route.fulfill({
+            json: {
+              revision: { library: "1", annotations: concurrent ? "3" : "2" },
+              initialSyncComplete: true,
+              syncPhase: "idle",
+              importedCount: 3,
+              reportedTotal: 3,
+              activeCount: 3,
+              untaggedCount: 2,
+              newCount: 0,
+              lastCompletedAt: "2026-10-11T12:00:00Z",
+              blockedBy: null,
+            },
+          });
+          return true;
+        }
+        if (
+          concurrent &&
+          path === "/api/library/search" &&
+          body.groupBy === null
+        ) {
+          const track = makeTrack(1);
+          track.tagIds = hasLaterTag ? [id(1), id(3)] : [id(1)];
+          await route.fulfill({
+            json: {
+              revision: { library: "1", annotations: "3" },
+              groupBy: null,
+              totalTracks: 3,
+              nextCursor: null,
+              tracks: [track, makeTrack(2), makeTrack(3)],
+            },
+          });
+          return true;
+        }
+        if (path === `/api/tag-actions/${id(50)}/undo`) {
+          await route.fulfill({
+            json: {
+              actionId: id(50),
+              restoredCount:
+                scenario === "restored" || scenario === "empty" ? 1 : 0,
+              skippedCount: scenario === "skipped" ? 1 : 0,
+              revision: { library: "1", annotations: "4" },
+            },
+          });
+          return true;
+        }
+        return false;
+      },
+    });
+    await page.goto("/");
+    await queue(page);
+    await page.getByLabel("Tag current song", { exact: true }).press("1");
+    await expect(
+      page.locator(".section-heading").filter({ hasText: "Tagging queue" }),
+    ).toContainText(`${changed ? 1 : 0} tagged this session`);
+    await page.getByRole("button", { name: "Sync now" }).click();
+    if (hasLaterTag)
+      await expect(
+        page.getByRole("button", {
+          name: "Remove mood:soft from current song",
+        }),
+      ).toBeVisible();
+    await page.getByLabel("Tag current song", { exact: true }).press("Alt+z");
+    const keepsA = scenario === "skipped" || scenario === "noop";
+    await expect(
+      page.getByRole("button", {
+        name: "Remove Chill from current song",
+        exact: true,
+      }),
+    ).toHaveCount(keepsA ? 1 : 0);
+    if (hasLaterTag)
+      await expect(
+        page.getByRole("button", {
+          name: "Remove mood:soft from current song",
+        }),
+      ).toBeVisible();
+    await expect(
+      page.locator(".section-heading").filter({ hasText: "Tagging queue" }),
+    ).toContainText(
+      `${scenario === "empty" || scenario === "noop" ? 0 : 1} tagged this session`,
+    );
+  });
+
+test("prefix groups retain keyboard identities, exact Enter choice and tri-state inspection", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop bulk picker");
+  const ranked = [
+    makeTag(11, "Mood:chill"),
+    makeTag(12, "sit:drive"),
+    makeTag(13, "mood:calm"),
+    makeTag(14, "SIT:walk"),
+  ];
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/tags") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "1" },
+            hasMore: false,
+            tags: ranked,
+          },
+        });
+        return true;
+      }
+      if (path === "/api/tags/selection" && body.tagIds.includes(id(11))) {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "1" },
+            selectedCount: 3,
+            tags: body.tagIds.map((tagId: string) => ({
+              tag: ranked.find((t) => t.id === tagId),
+              state: tagId === id(13) ? "some" : "none",
+              assignedCount: tagId === id(13) ? 2 : 0,
+            })),
+          },
+        });
+        return true;
+      }
+      if (
+        path === "/api/tag-actions" &&
+        ranked.some((tag) => tag.id === body.tagId)
+      ) {
+        await route.fulfill({ status: 409, json: { error: "stale_revision" } });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Select all 3 matching", exact: true })
+    .click();
+  const input = page.getByLabel("Add tag to selection", { exact: true });
+  await input.fill("m");
+  const picker = page.locator(".tag-picker").filter({ has: input });
+  await expect(picker.getByRole("option")).toHaveText([
+    "Mood:chillnone · 0 of 3 selected",
+    "mood:calmsome · 2 of 3 selected",
+    "sit:drivenone · 0 of 3 selected",
+    "SIT:walknone · 0 of 3 selected",
+  ]);
+  await expect(picker.locator(".suggestion-prefix")).toHaveText([
+    "Mood:",
+    "sit:",
+  ]);
+  await input.press("Enter");
+  await expect
+    .poll(
+      () =>
+        calls.filter((c) => c.path === "/api/tag-actions").at(-1)?.body.tagId,
+    )
+    .toBe(id(11));
+  await expect(input).toBeEditable();
+  await input.press("ArrowDown");
+  let activeId = await input.getAttribute("aria-activedescendant");
+  await expect(page.locator(`[id="${activeId}"]`)).toHaveText(
+    "mood:calmsome · 2 of 3 selected",
+  );
+  await input.fill("MOOD:CALM");
+  await expect(picker.getByRole("option", { selected: true })).toContainText(
+    "mood:calm",
+  );
+  activeId = await input.getAttribute("aria-activedescendant");
+  await expect(page.locator(`[id="${activeId}"]`)).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(picker.locator(".create-tag")).toHaveCount(0);
+  await expect(picker.getByRole("option", { selected: true })).toBeEnabled();
+  await input.press("Enter");
+  await expect
+    .poll(
+      () =>
+        calls.filter((c) => c.path === "/api/tag-actions").at(-1)?.body.tagId,
+    )
+    .toBe(id(13));
+});
