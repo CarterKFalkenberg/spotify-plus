@@ -29,6 +29,7 @@ import {
   quickSlots,
   preserveCurrent,
   ownedPatchRevision,
+  restoredQueueTags,
 } from "./tagging";
 export function Queue({
   refresh,
@@ -62,7 +63,8 @@ export function Queue({
       id: string;
       key: string;
       tagId: string;
-      before: readonly string[];
+      kind: "add" | "remove";
+      changed: boolean;
       message: string;
     }[]
   >([]);
@@ -328,7 +330,8 @@ export function Queue({
           id: v.actionId,
           key,
           tagId: v.tag.id,
-          before,
+          kind,
+          changed: v.changedCount > 0,
           message: `${kind === "add" ? "Added" : "Removed"} “${v.tag.name}” · ${v.changedCount} changed`,
         },
       ]);
@@ -352,14 +355,20 @@ export function Queue({
           ? `Restored ${v.restoredCount}; ${v.skippedCount} later edits were preserved.`
           : "",
       );
-      if (!v.skippedCount) {
-        setRows((old) =>
-          old.map((t) =>
-            t.trackKey === a.key ? { ...t, tagIds: a.before } : t,
-          ),
-        );
-        if (a.before.length === 0)
-          setTagged((old) => new Set([...old].filter((k) => k !== a.key)));
+      const live = rowsRef.current.find((t) => t.trackKey === a.key);
+      if (live) {
+        const tagIds = restoredQueueTags(live.tagIds, a, v);
+        if (tagIds !== live.tagIds) {
+          setRows((old) =>
+            old.map((t) =>
+              t.trackKey === a.key
+                ? { ...t, tagIds: restoredQueueTags(t.tagIds, a, v) }
+                : t,
+            ),
+          );
+          if (tagIds.length === 0)
+            setTagged((old) => new Set([...old].filter((k) => k !== a.key)));
+        }
       }
       onChanged();
     } catch (e) {
