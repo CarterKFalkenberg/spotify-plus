@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { api, tags, errorMessage } from "./api";
 import { inspectTagOptions } from "./selection-tags";
+import { groupedTagOptions, normalizedTagName } from "./tagging";
 import type {
   TagDTO,
   Selection,
@@ -81,6 +82,12 @@ export function TagPicker({
           setInspection(states);
           setSearching(false);
           setOptions(value.tags);
+          const grouped = groupedTagOptions(value.tags);
+          const exact = grouped.findIndex(
+            ({ tag }) =>
+              normalizedTagName(tag.name) === normalizedTagName(text),
+          );
+          setHighlight(exact >= 0 ? exact : 0);
           setError("");
         })
         .catch((error) => {
@@ -104,6 +111,10 @@ export function TagPicker({
     selection,
     selectionRevision,
   ]);
+  const displayed = groupedTagOptions(options);
+  const inspectionById = new Map(
+    inspection?.tags.map((item) => [item.tag.id, item]),
+  );
   async function choose(item?: TagDTO) {
     if (
       busy ||
@@ -144,8 +155,8 @@ export function TagPicker({
         onSubmit={(event) => {
           event.preventDefault();
           if (composing.current) return;
-          if (options[highlight] ?? options[0])
-            void choose(options[highlight] ?? options[0]);
+          if (displayed[highlight] ?? displayed[0])
+            void choose((displayed[highlight] ?? displayed[0])?.tag);
           else if (allowCreate) void choose();
         }}
       >
@@ -159,7 +170,7 @@ export function TagPicker({
             aria-controls={optionsId}
             aria-autocomplete="list"
             aria-activedescendant={
-              focused && options[highlight]
+              focused && displayed[highlight]
                 ? `${optionsId}-${highlight}`
                 : undefined
             }
@@ -248,18 +259,13 @@ export function TagPicker({
             role="listbox"
             aria-label={`${label} tag suggestions`}
           >
-            {options.map((item, index) => (
+            {displayed.map(({ tag: item, heading }, index) => (
               <Fragment key={item.id}>
-                {item.name.includes(":") &&
-                  options.filter(
-                    (t) => t.name.split(":")[0] === item.name.split(":")[0],
-                  ).length > 1 &&
-                  options[index - 1]?.name.split(":")[0] !==
-                    item.name.split(":")[0] && (
-                    <div className="suggestion-prefix" role="presentation">
-                      {item.name.split(":")[0]}:
-                    </div>
-                  )}
+                {heading && (
+                  <div className="suggestion-prefix" role="presentation">
+                    {heading}
+                  </div>
+                )}
                 <button
                   type="button"
                   id={`${optionsId}-${index}`}
@@ -272,7 +278,7 @@ export function TagPicker({
                   <span>{item.name}</span>
                   <small>
                     {inspection
-                      ? `${inspection.tags[index]?.state} · ${inspection.tags[index]?.assignedCount} of ${inspection.selectedCount} selected`
+                      ? `${inspectionById.get(item.id)?.state} · ${inspectionById.get(item.id)?.assignedCount} of ${inspection.selectedCount} selected`
                       : `${item.activeTrackCount} songs`}
                   </small>
                 </button>
@@ -283,12 +289,7 @@ export function TagPicker({
             text.trim() &&
             !options.some(
               (item) =>
-                item.name.normalize("NFC").toLocaleLowerCase() ===
-                text
-                  .normalize("NFC")
-                  .trim()
-                  .replace(/\s+/g, " ")
-                  .toLocaleLowerCase(),
+                normalizedTagName(item.name) === normalizedTagName(text),
             ) && (
               <button
                 type="button"
