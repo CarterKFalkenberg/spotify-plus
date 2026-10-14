@@ -14,6 +14,21 @@ Supabase Free includes a 500 MB database, 5 GB egress, 1 GB object storage and t
 
 Supabase includes 500,000 Edge Function invocations/month. A job tick every minute is at most 44,640 calls in a 31-day month, under 9% before interactive traffic. Schedule SQL to invoke the jobs function only when work is due where practical. Free functions have a 150-second lifetime and 2 seconds of CPU; process bounded batches with durable checkpoints, targeting at most 90 seconds per drain. [Function pricing](https://supabase.com/docs/guides/functions/pricing), [runtime limits](https://supabase.com/docs/guides/functions/limits).
 
+The browser reads library status and the active playlists view once per minute
+while idle. Visible import and playlist work refresh every five seconds for the
+first minute, then every fifteen seconds; blocked work uses the idle cadence.
+Document-hidden polling and internal-hidden playlist polling stop, with immediate
+refresh on return/focus and after playlist actions. Views stay mounted after their
+first visit, preserving drafts and selection while deferring hidden revision
+refreshes. Two continuously visible idle loops over eight hours consume 962 reads
+including their initial reads, or 29,822 over 31 days, before interactive actions,
+tag lookups and other clients. This is a synthetic cadence estimate, not measured
+account usage or a quota guarantee. Query labels reuse unchanged ID/revision
+results; local vocabulary edits, observed annotation revisions, manual refresh and
+page reactivation invalidate them. Missing-tag display isolation adds at most 32
+lookup calls beyond the normal 200-ID batches, caches its result, and never changes
+the stored query or mistakes an unresolved leaf for a proven deletion.
+
 Cloudflare serves the compiled frontend as static assets, which are free and unlimited. A small Worker proxies same-origin API/OAuth requests to Supabase; keep response bodies streaming and do no SSR, library processing or database work there. Workers Free permits 100,000 dynamic requests/day and 10 ms CPU per request. This app's interactive traffic should be far below that request limit; verify proxy CPU during the live proof. [Pricing](https://developers.cloudflare.com/workers/platform/pricing/), [limits](https://developers.cloudflare.com/workers/platform/limits/).
 
 D1's free daily allowances are 5 million rows read and 100,000 rows written, with 500 MB per database. Those are plausible for this library, but a full backend there would need smaller execution steps. Its always-enabled recovery history also needs separate deletion handling. Retaining PostgreSQL and running the work in Supabase functions is simpler for this project. [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [D1 limits](https://developers.cloudflare.com/d1/platform/limits/), [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/).

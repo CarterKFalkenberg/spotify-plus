@@ -202,7 +202,7 @@ export function Builder({
           <div className="eyebrow">SOMETHING FOR RIGHT NOW</div>
           <h2 id="builder-title">Make a playlist</h2>
         </div>
-        <span className="pill">Private by default</span>
+        <span className="pill">Request hidden from profile &amp; search</span>
       </div>
       <p className="section-intro">
         Start with a feeling. Add your tags, see what fits, and take it to

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   PlaylistListResponse,
   ManagedPlaylistDTO,
@@ -12,13 +12,18 @@ import {
   api,
   playlists,
   playlistMutation,
-  lookupTags,
   blockMessage,
   errorMessage,
   rejectsIntent,
   ApiError,
 } from "./api";
 import { RetentionPicker } from "./Builder";
+import { useVisiblePolling } from "./useVisiblePolling";
+import {
+  expiryDays,
+  queryTagIds,
+  resolvePlaylistLabels,
+} from "./playlist-labels";
 function date(value: string) {
   return new Date(
     value.length === 10 ? `${value}T12:00:00Z` : value,
@@ -26,6 +31,16 @@ function date(value: string) {
     dateStyle: "medium",
     timeZone: "America/New_York",
   });
+}
+function expiryText(value: string | null) {
+  if (value === null) return "Pinned · never expires";
+  const days = expiryDays(value);
+  if (days < 0) return "Expired — will be removed";
+  const countdown =
+    days === 0
+      ? "Expires today"
+      : `Expires in ${days} ${days === 1 ? "day" : "days"}`;
+  return `${countdown} · Keep through ${date(value)}`;
 }
 import { playlistIntentKey as intentKey } from "./intents";
 function readIntents(): Map<string, PlaylistActionRequest> {
@@ -43,7 +58,15 @@ function readIntents(): Map<string, PlaylistActionRequest> {
     return new Map();
   }
 }
-export function Playlists({ refresh }: { refresh: number }) {
+export function Playlists({
+  refresh,
+  active = true,
+  vocabularyRefresh = "0",
+}: {
+  refresh: number;
+  active?: boolean;
+  vocabularyRefresh?: string;
+}) {
   const [data, setData] = useState<PlaylistListResponse | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [reconnect, setReconnect] = useState(false);
@@ -53,7 +76,12 @@ export function Playlists({ refresh }: { refresh: number }) {
   const [confirm, setConfirm] = useState<ManagedPlaylistDTO | null>(null);
   const [period, setPeriod] = useState<Retention>("month");
   const lookupConflict = useRef<string | null>(null);
+  const resolvedTags = useRef<string | null>(null);
+  const activeLookup = useRef<AbortController | null>(null);
   const [tagError, setTagError] = useState("");
+  const [tagRetry, setTagRetry] = useState(0);
+  const [missingTags, setMissingTags] = useState<string[]>([]);
+  const [unavailableTags, setUnavailableTags] = useState<string[]>([]);
   const [tagNames, setTagNames] = useState<Record<string, string>>({});
   const intents = useRef(readIntents());
   const dialog = useRef<HTMLDialogElement>(null);
@@ -61,80 +89,102 @@ export function Playlists({ refresh }: { refresh: number }) {
     if (confirm) dialog.current?.showModal();
     else dialog.current?.close();
   }, [confirm]);
+  const tagIdsKey = JSON.stringify(
+    [
+      ...new Set(
+        data?.playlists.flatMap((item) => queryTagIds(item.query.root)) ?? [],
+      ),
+    ].sort(),
+  );
   useEffect(() => {
+    if (!active) return;
     const controller = new AbortController();
-    function ids(node: QueryNode): string[] {
-      return node.op === "tag"
-        ? [node.tagId]
-        : node.op === "not"
-          ? ids(node.child)
-          : node.children.flatMap(ids);
-    }
-    void lookupTags(
-      data?.playlists.flatMap((item) => ids(item.query.root)) ?? [],
-      controller.signal,
-    )
+    const tagIds: string[] = JSON.parse(tagIdsKey);
+    const key = JSON.stringify([tagIds, vocabularyRefresh]);
+    if (resolvedTags.current === key) return;
+    activeLookup.current = controller;
+    void resolvePlaylistLabels(tagIds, controller.signal)
       .then((resolved) => {
         if (!controller.signal.aborted) {
+          resolvedTags.current = key;
           setTagError("");
+          setMissingTags(resolved.missing);
+          setUnavailableTags(resolved.unavailable);
           setTagNames(
-            Object.fromEntries(resolved.map((tag) => [tag.id, tag.name])),
+            Object.fromEntries(resolved.tags.map((tag) => [tag.id, tag.name])),
           );
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          setTagNames({});
-          setTagError(errorMessage(error));
-          if (error instanceof ApiError && error.code === "unknown_tag") {
-            const key = JSON.stringify(
-              data?.playlists.map((item) => item.query),
-            );
-            if (lookupConflict.current !== key) {
-              lookupConflict.current = key;
-              setCursor(null);
+          if (resolved.missing.length || resolved.unavailable.length) {
+            const queryKey = tagIdsKey;
+            if (lookupConflict.current !== queryKey) {
+              lookupConflict.current = queryKey;
               setAttempt((value) => value + 1);
             }
           }
         }
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setTagError(errorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (activeLookup.current === controller) activeLookup.current = null;
       });
-    return () => controller.abort();
-  }, [data]);
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function load() {
-      try {
-        const next = await api(
-          `/playlists?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-          playlists,
-          undefined,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        setData(next);
-        setError("");
-        timer = setTimeout(() => void load(), 5000);
-      } catch (error) {
-        if (!controller.signal.aborted) setError(errorMessage(error));
-      }
-    }
-    void load();
     return () => {
       controller.abort();
-      clearTimeout(timer);
+      if (activeLookup.current === controller) activeLookup.current = null;
     };
-  }, [refresh, cursor, attempt]);
-  function renderQuery(node: QueryNode): string | null {
-    if (node.op === "tag") return tagNames[node.tagId] ?? null;
-    if (node.op === "not") {
-      const child = renderQuery(node.child);
-      return child === null ? null : `NOT ${child}`;
-    }
-    const children = node.children.map(renderQuery);
-    return children.some((child) => child === null)
-      ? null
-      : `(${children.join(node.op === "and" ? " + " : " OR ")})`;
+  }, [tagIdsKey, active, vocabularyRefresh, attempt, tagRetry]);
+  useVisiblePolling({
+    enabled: active,
+    refreshKey: JSON.stringify([refresh, cursor, attempt]),
+    load: (signal) =>
+      api(
+        `/playlists?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        playlists,
+        undefined,
+        signal,
+      ),
+    receive: (next) => {
+      setData(next);
+      setError("");
+      // An error stays visible until recovery succeeds. Progress responses must
+      // not use that old error to abort and restart a retry already in flight.
+      if (tagError && !activeLookup.current) setTagRetry((value) => value + 1);
+    },
+    working: (next) =>
+      next.playlists.some(
+        (item) =>
+          !item.blockedBy &&
+          (item.status === "pending" || item.status === "removing"),
+      ),
+    onError: (error) => setError(errorMessage(error)),
+  });
+  function renderQuery(node: QueryNode): ReactNode {
+    if (node.op === "tag")
+      return (
+        <span className="chip">
+          {missingTags.includes(node.tagId)
+            ? "Deleted tag"
+            : unavailableTags.includes(node.tagId)
+              ? "Unavailable tag"
+              : (tagNames[node.tagId] ??
+                (tagError ? "Unavailable tag" : "Resolving query tags…"))}
+        </span>
+      );
+    if (node.op === "not") return <>NOT {renderQuery(node.child)}</>;
+    return (
+      <>
+        (
+        {node.children.map((child, index) => (
+          <Fragment key={index}>
+            {index > 0 && (node.op === "and" ? " + " : " OR ")}
+            {renderQuery(child)}
+          </Fragment>
+        ))}
+        )
+      </>
+    );
   }
   async function act(
     item: ManagedPlaylistDTO,
@@ -183,12 +233,6 @@ export function Playlists({ refresh }: { refresh: number }) {
       setBusy(null);
     }
   }
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
   const stale =
     !data?.lastCleanupAt ||
     Date.now() - Date.parse(data.lastCleanupAt) > 86400000;
@@ -202,6 +246,7 @@ export function Playlists({ refresh }: { refresh: number }) {
         <button
           className="compact"
           onClick={() => {
+            resolvedTags.current = null;
             setCursor(null);
             setAttempt((v) => v + 1);
           }}
@@ -256,16 +301,17 @@ export function Playlists({ refresh }: { refresh: number }) {
               </span>
             </div>
             <h3>{item.name}</h3>
-            <p className="query-summary">
-              {renderQuery(item.query.root) || "Resolving query tags…"}
-            </p>
-            <p className="expiry">
-              {item.expiresOn === null
-                ? "Pinned · never expires"
-                : item.expiresOn < today
-                  ? "Expired — will be removed"
-                  : `Keep through ${date(item.expiresOn)}`}
-            </p>
+            <p className="query-summary">{renderQuery(item.query.root)}</p>
+            {queryTagIds(item.query.root).some(
+              (id) => missingTags.includes(id) || unavailableTags.includes(id),
+            ) && (
+              <p className="notice">
+                A query tag is deleted or its label is unavailable. Refresh
+                playlists to retry label lookup. Deleted tags must be replaced
+                before regeneration.
+              </p>
+            )}
+            <p className="expiry">{expiryText(item.expiresOn)}</p>
             <p className="muted">Created {date(item.createdAt)}</p>
             {item.blockedBy && (
               <p className="notice">{blockMessage[item.blockedBy]}</p>
@@ -322,7 +368,12 @@ export function Playlists({ refresh }: { refresh: number }) {
                         </button>
                       )}
                       <button
-                        disabled={!!busy}
+                        disabled={
+                          !!busy ||
+                          queryTagIds(item.query.root).some((id) =>
+                            missingTags.includes(id),
+                          )
+                        }
                         onClick={() => void act(item, "regenerate")}
                       >
                         Regenerate
