@@ -77,6 +77,7 @@ export function Playlists({
   const [period, setPeriod] = useState<Retention>("month");
   const lookupConflict = useRef<string | null>(null);
   const resolvedTags = useRef<string | null>(null);
+  const activeLookup = useRef<AbortController | null>(null);
   const [tagError, setTagError] = useState("");
   const [tagRetry, setTagRetry] = useState(0);
   const [missingTags, setMissingTags] = useState<string[]>([]);
@@ -101,6 +102,7 @@ export function Playlists({
     const tagIds: string[] = JSON.parse(tagIdsKey);
     const key = JSON.stringify([tagIds, vocabularyRefresh]);
     if (resolvedTags.current === key) return;
+    activeLookup.current = controller;
     void resolvePlaylistLabels(tagIds, controller.signal)
       .then((resolved) => {
         if (!controller.signal.aborted) {
@@ -124,8 +126,14 @@ export function Playlists({
         if (!controller.signal.aborted) {
           setTagError(errorMessage(error));
         }
+      })
+      .finally(() => {
+        if (activeLookup.current === controller) activeLookup.current = null;
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (activeLookup.current === controller) activeLookup.current = null;
+    };
   }, [tagIdsKey, active, vocabularyRefresh, attempt, tagRetry]);
   useVisiblePolling({
     enabled: active,
@@ -140,7 +148,9 @@ export function Playlists({
     receive: (next) => {
       setData(next);
       setError("");
-      if (tagError) setTagRetry((value) => value + 1);
+      // An error stays visible until recovery succeeds. Progress responses must
+      // not use that old error to abort and restart a retry already in flight.
+      if (tagError && !activeLookup.current) setTagRetry((value) => value + 1);
     },
     working: (next) =>
       next.playlists.some(

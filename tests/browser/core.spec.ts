@@ -376,7 +376,10 @@ test("assigned names beyond the first hundred resolve in bounded lookup batches"
       .filter((call) => call.path === "/api/tags/lookup")
       .map((call) => call.body.tagIds.length)
       .sort((a, b) => a - b),
-  ).toEqual([1, 1, 200]);
+  ).toEqual([1, 200]);
+  expect(calls.filter((call) => call.path === "/api/playlists")).toHaveLength(
+    0,
+  );
 });
 test("mobile builder shows cached counts, exclusions, visible month default and explicit publication intent", async ({
   page,
@@ -1135,12 +1138,14 @@ test("background refresh never silently renews a frozen filter selection", async
     },
     { revision: () => currentRevision },
   );
+  await page.clock.install();
   await page.goto("/");
   await page.getByRole("button", { name: "Select all 3 matching" }).click();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("Frozen filter draft");
   const before = searches;
   currentRevision = { library: "2", annotations: "2" };
+  await page.clock.runFor(61_000);
   await expect.poll(() => searches, { timeout: 10000 }).toBeGreaterThan(before);
   await expect(input).toHaveValue("Frozen filter draft");
   await expect(input).toBeFocused();
@@ -1265,7 +1270,9 @@ test("idle polling is bounded, hidden views stay quiet, and returning to the pag
   await page.clock.runFor(55_000);
   expect(count("/api/playlists")).toBe(listReads);
   await page.clock.runFor(10_000);
-  expect(count("/api/playlists")).toBe(listReads + 1);
+  // The timer runs in the page; request interception is delivered asynchronously
+  // to the test process after the clock command returns.
+  await expect.poll(() => count("/api/playlists")).toBe(listReads + 1);
   expect(count("/api/tags/lookup")).toBe(lookups);
   await builder(page);
   const hiddenLists = count("/api/playlists");
@@ -1517,4 +1524,61 @@ test("identical progress responses do not abort and repeat an in-flight label lo
   await expect(page.locator(".query-summary .chip")).toHaveText(
     "Synthetic tag 1",
   );
+});
+
+test("a slow successful label retry survives progress polls after its initial failure", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let lookups = 0,
+    playlistReads = 0;
+  await mock(page, async (route, path) => {
+    if (path === "/api/playlists" && route.request().method() === "GET") {
+      playlistReads++;
+      await route.fulfill({
+        json: {
+          playlists: [{ ...playlist(), status: "pending" }],
+          nextCursor: null,
+          lastCleanupAt: new Date().toISOString(),
+          cleanupBlockedBy: null,
+        },
+      });
+      return true;
+    }
+    if (path === "/api/tags/lookup") {
+      lookups++;
+      if (lookups === 1) {
+        await route.fulfill({ status: 503, json: { error: "unavailable" } });
+      } else {
+        await waiting;
+        await route
+          .fulfill({ json: { revision, tags: [tag()] } })
+          .catch(() => {});
+      }
+      return true;
+    }
+    return false;
+  });
+  await page.clock.install();
+  await page.goto("/");
+  await lists(page);
+  await expect(page.locator(".query-summary .chip")).toHaveText(
+    "Unavailable tag",
+  );
+  await page.clock.runFor(6_000);
+  await expect.poll(() => lookups).toBe(2);
+  const before = playlistReads;
+  await page.clock.runFor(11_000);
+  await expect.poll(() => playlistReads).toBeGreaterThan(before);
+  expect(lookups).toBe(2);
+  release();
+  await expect(page.locator(".query-summary .chip")).toHaveText(
+    "Synthetic tag 1",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.clock.runFor(6_000);
+  expect(lookups).toBe(2);
 });
