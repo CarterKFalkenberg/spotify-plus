@@ -378,7 +378,7 @@ test("assigned names beyond the first hundred resolve in bounded lookup batches"
       .sort((a, b) => a - b),
   ).toEqual([1, 1, 200]);
 });
-test("mobile builder shows cached counts, exclusions, visible month default and explicit private intent", async ({
+test("mobile builder shows cached counts, exclusions, visible month default and explicit publication intent", async ({
   page,
 }) => {
   const calls = await mock(page);
@@ -387,6 +387,12 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
   await expect(
     page.getByLabel("Keep this playlist", { exact: true }),
   ).toHaveValue("month");
+  await expect(
+    page.getByText("Request hidden from profile & search", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Private by default", { exact: true }),
+  ).toHaveCount(0);
   await choose(page);
   await expect(
     page.locator(".preview-heading").getByText("2 songs", { exact: true }),
@@ -434,6 +440,8 @@ for (const rejection of [401, 403])
     await builder(page);
     await choose(page);
     await page.getByRole("button", { name: "Create playlist →" }).click();
+    await lists(page);
+    await builder(page);
     await page
       .getByRole("button", { name: "Retry saved create request" })
       .click();
@@ -471,6 +479,8 @@ for (const rejection of [401, 403])
     await page.goto("/");
     await lists(page);
     await page.getByRole("button", { name: "Extend", exact: true }).click();
+    await builder(page);
+    await lists(page);
     await page
       .getByRole("button", { name: "Retry unconfirmed action" })
       .click();
@@ -661,19 +671,89 @@ test("stored query names beyond 100 are resolved by ID without placeholder names
     "Resolving query tags…",
   ]);
 });
-test("deleted stored tag rejects query name batch and offers explicit refresh feedback", async ({
+test("one deleted stored leaf preserves unrelated query chips and keeps regeneration fail-closed", async ({
   page,
 }) => {
+  const calls = await mock(page, async (route, path) => {
+    if (path === "/api/playlists" && route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          playlists: [
+            {
+              ...playlist(),
+              query: {
+                version: 1,
+                root: {
+                  op: "and",
+                  children: [
+                    { op: "tag", tagId: id(1) },
+                    { op: "not", child: { op: "tag", tagId: id(2) } },
+                  ],
+                },
+              },
+            },
+            {
+              ...playlist(2),
+              query: { version: 1, root: { op: "tag", tagId: id(2) } },
+            },
+          ],
+          nextCursor: null,
+          lastCleanupAt: new Date().toISOString(),
+          cleanupBlockedBy: null,
+        },
+      });
+      return true;
+    }
+    if (
+      path === "/api/tags/lookup" &&
+      route.request().postDataJSON().tagIds.includes(id(1))
+    ) {
+      await route.fulfill({ status: 409, json: { error: "unknown_tag" } });
+      return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  await lists(page);
+  const cards = page.locator(".playlist-card");
+  await expect(cards.first().locator(".query-summary")).toHaveText(
+    "(Deleted tag + NOT Synthetic tag 2)",
+  );
+  await expect(cards.last().locator(".query-summary .chip")).toHaveText(
+    "Synthetic tag 2",
+  );
+  await expect(
+    cards.first().getByRole("button", { name: "Regenerate" }),
+  ).toBeDisabled();
+  await expect(
+    cards.last().getByRole("button", { name: "Regenerate" }),
+  ).toBeEnabled();
+  expect(calls.filter((call) => call.path.endsWith("/actions"))).toHaveLength(
+    0,
+  );
+});
+test("transient query-label failure remains retryable and does not disable a valid stored query", async ({
+  page,
+}) => {
+  let offline = true;
   await mock(page, async (route, path) => {
-    if (path !== "/api/tags/lookup") return false;
-    await route.fulfill({ status: 409, json: { error: "unknown_tag" } });
+    if (path !== "/api/tags/lookup" || !offline) return false;
+    await route.fulfill({ status: 503, json: { error: "unavailable" } });
     return true;
   });
   await page.goto("/");
   await lists(page);
-  await expect(page.getByRole("alert")).toContainText("no longer exists");
-  await expect(page.locator(".query-summary")).toHaveText(
-    "Resolving query tags…",
+  await expect(page.locator(".query-summary")).toHaveText("Unavailable tag");
+  await expect(
+    page.getByRole("button", { name: "Regenerate", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByRole("alert")).toContainText("Refresh playlists");
+  offline = false;
+  await page
+    .getByRole("button", { name: "Refresh playlists", exact: true })
+    .click();
+  await expect(page.locator(".query-summary .chip")).toHaveText(
+    "Synthetic tag 1",
   );
 });
 for (const zero of [true, false])
@@ -1168,3 +1248,273 @@ for (const paged of [false, true])
       page.getByRole("button", { name: "Retry saved create request" }),
     ).toHaveCount(0);
   });
+
+test("idle polling is bounded, hidden views stay quiet, and returning to the page refreshes immediately", async ({
+  page,
+}) => {
+  const calls = await mock(page);
+  await page.clock.install();
+  await page.goto("/");
+  await lists(page);
+  await expect(page.locator(".query-summary")).toHaveText("Synthetic tag 1");
+  await page.clock.runFor(1000);
+  const count = (path: string) =>
+    calls.filter((call) => call.path === path).length;
+  const listReads = count("/api/playlists"),
+    lookups = count("/api/tags/lookup");
+  await page.clock.runFor(55_000);
+  expect(count("/api/playlists")).toBe(listReads);
+  await page.clock.runFor(10_000);
+  expect(count("/api/playlists")).toBe(listReads + 1);
+  expect(count("/api/tags/lookup")).toBe(lookups);
+  await builder(page);
+  const hiddenLists = count("/api/playlists");
+  await page.clock.runFor(120_000);
+  expect(count("/api/playlists")).toBe(hiddenLists);
+  await lists(page);
+  await expect.poll(() => count("/api/playlists")).toBe(hiddenLists + 1);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenCalls = calls.length;
+  await page.clock.runFor(120_000);
+  expect(calls).toHaveLength(hiddenCalls);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect.poll(() => count("/api/playlists")).toBe(hiddenLists + 2);
+  await expect.poll(() => count("/api/tags/lookup")).toBeGreaterThan(lookups);
+});
+
+test("internal navigation preserves builder and playlist retention drafts and preview scroll", async ({
+  page,
+}) => {
+  await mock(page);
+  await page.goto("/");
+  await builder(page);
+  await choose(page);
+  await expect(page.locator(".preview-heading")).toContainText("2 songs");
+  await page
+    .getByLabel("Playlist name", { exact: true })
+    .fill("My synthetic draft");
+  await page
+    .getByLabel("Keep this playlist", { exact: true })
+    .selectOption("week");
+  const scroll = await page.locator(".preview-tracks").evaluate((element) => {
+    const html = element as HTMLElement;
+    html.style.height = "30px";
+    html.style.overflow = "auto";
+    html.scrollTop = 10;
+    return html.scrollTop;
+  });
+  expect(scroll).toBeGreaterThan(0);
+  await lists(page);
+  await page
+    .getByLabel("Extend / Unpin for", { exact: true })
+    .selectOption("threeMonths");
+  await builder(page);
+  await expect(page.getByLabel("Playlist name", { exact: true })).toHaveValue(
+    "My synthetic draft",
+  );
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toHaveValue("week");
+  await expect(
+    page.getByRole("button", { name: "Remove Synthetic tag 1 from all" }),
+  ).toBeVisible();
+  expect(
+    await page
+      .locator(".preview-tracks")
+      .evaluate((element) => element.scrollTop),
+  ).toBe(scroll);
+  await lists(page);
+  await expect(
+    page.getByLabel("Extend / Unpin for", { exact: true }),
+  ).toHaveValue("threeMonths");
+});
+
+test("vocabulary rename invalidates cached playlist labels with unchanged IDs", async ({
+  page,
+}) => {
+  let name = "Synthetic tag 1";
+  await mock(page, async (route, path) => {
+    if (path === "/api/tags/lookup") {
+      await route.fulfill({ json: { revision, tags: [{ ...tag(), name }] } });
+      return true;
+    }
+    if (path === "/api/tags/manage-preview" || path === "/api/tags/manage") {
+      if (path === "/api/tags/manage")
+        name = route.request().postDataJSON().name;
+      await route.fulfill({
+        json: {
+          revision,
+          assignmentCount: 3,
+          activeTrackCount: 3,
+          unionCount: 3,
+          collisionTag: null,
+          ...(path === "/api/tags/manage"
+            ? { actionId: id(400), changedCount: 3, tag: { ...tag(), name } }
+            : {}),
+        },
+      });
+      return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  await lists(page);
+  await expect(page.locator(".query-summary .chip")).toHaveText(name);
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Tags", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Manage Synthetic tag 1", exact: true })
+    .click();
+  await page
+    .getByLabel("New tag name", { exact: true })
+    .fill("Synthetic renamed tag");
+  await page
+    .getByRole("button", { name: "Preview rename", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm change", exact: true })
+    .click();
+  await lists(page);
+  await expect(page.locator(".query-summary .chip")).toHaveText(
+    "Synthetic renamed tag",
+  );
+});
+
+test("playlist expiry countdown uses dates and preserves pinned and overdue states", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-10-14T16:00:00Z") });
+  await mock(page, async (route, path) => {
+    if (path !== "/api/playlists" || route.request().method() !== "GET")
+      return false;
+    await route.fulfill({
+      json: {
+        playlists: [
+          { ...playlist(), expiresOn: "2026-10-15" },
+          { ...playlist(2), expiresOn: "2026-10-14" },
+          { ...playlist(3), expiresOn: "2026-10-13" },
+          { ...playlist(4), expiresOn: null, retention: "pinned" },
+        ],
+        nextCursor: null,
+        lastCleanupAt: new Date().toISOString(),
+        cleanupBlockedBy: null,
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await lists(page);
+  await expect(page.locator(".expiry")).toHaveText([
+    "Expires in 1 day · Keep through Oct 15, 2026",
+    "Expires today · Keep through Oct 14, 2026",
+    "Expired — will be removed",
+    "Pinned · never expires",
+  ]);
+});
+
+test("foreground status revisions invalidate second-client rename and deletion without focus or local edits", async ({
+  page,
+}) => {
+  let annotations = "1",
+    name = "Synthetic tag 1",
+    deleted = false;
+  const calls = await mock(
+    page,
+    async (route, path) => {
+      if (path === "/api/tags/lookup") {
+        await route.fulfill(
+          deleted
+            ? { status: 409, json: { error: "unknown_tag" } }
+            : {
+                json: {
+                  revision: { library: "1", annotations },
+                  tags: [{ ...tag(), name }],
+                },
+              },
+        );
+        return true;
+      }
+      return false;
+    },
+    { revision: () => ({ library: "1", annotations }) },
+  );
+  await page.clock.install();
+  await page.goto("/");
+  await lists(page);
+  await expect(page.locator(".query-summary .chip")).toHaveText(name);
+  await page.clock.runFor(1000);
+  const before = calls.filter(
+    (call) => call.path === "/api/tags/lookup",
+  ).length;
+  name = "Synthetic second-client rename";
+  annotations = "2";
+  await page.clock.runFor(61_000);
+  await expect(page.locator(".query-summary .chip")).toHaveText(name);
+  expect(
+    calls.filter((call) => call.path === "/api/tags/lookup").length,
+  ).toBeGreaterThan(before);
+  deleted = true;
+  annotations = "3";
+  await page.clock.runFor(61_000);
+  await expect(page.locator(".query-summary .chip")).toHaveText("Deleted tag");
+  await expect(
+    page.getByRole("button", { name: "Regenerate", exact: true }),
+  ).toBeDisabled();
+});
+
+test("identical progress responses do not abort and repeat an in-flight label lookup", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let lookups = 0;
+  await mock(page, async (route, path) => {
+    if (path === "/api/playlists" && route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          playlists: [{ ...playlist(), status: "pending" }],
+          nextCursor: null,
+          lastCleanupAt: new Date().toISOString(),
+          cleanupBlockedBy: null,
+        },
+      });
+      return true;
+    }
+    if (path === "/api/tags/lookup") {
+      lookups++;
+      await waiting;
+      await route
+        .fulfill({ json: { revision, tags: [tag()] } })
+        .catch(() => {});
+      return true;
+    }
+    return false;
+  });
+  await page.clock.install();
+  await page.goto("/");
+  await lists(page);
+  await expect.poll(() => lookups).toBe(1);
+  await page.clock.runFor(11_000);
+  expect(lookups).toBe(1);
+  release();
+  await expect(page.locator(".query-summary .chip")).toHaveText(
+    "Synthetic tag 1",
+  );
+});

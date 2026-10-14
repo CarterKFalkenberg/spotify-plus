@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   LibraryStatusDTO,
   Selection,
@@ -10,6 +10,7 @@ import { Playlists } from "./Playlists";
 import { Queue } from "./Queue";
 import { Vocabulary } from "./Vocabulary";
 import type { FastFilter } from "./fast-api";
+import { usePageActivity, useVisiblePolling } from "./useVisiblePolling";
 export function Workspace() {
   const [tab, setTab] = useState<
     "queue" | "library" | "builder" | "playlists" | "vocabulary"
@@ -26,6 +27,11 @@ export function Workspace() {
           }
         })(),
   );
+  const { visible, focusVersion } = usePageActivity();
+  const [vocabularyRefresh, setVocabularyRefresh] = useState(0);
+  const [statusAttempt, setStatusAttempt] = useState(0);
+  const opened = useRef(false);
+  const viewRefresh = useRef<Record<string, number>>({});
   const [status, setStatus] = useState<LibraryStatusDTO | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -36,11 +42,12 @@ export function Workspace() {
   );
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
   useEffect(() => {
-    setVisited((old) => new Set([...old, tab]));
-  }, [tab]);
+    if (visible) setVisited((old) => new Set([...old, tab]));
+  }, [tab, visible]);
   const [artistId, setArtistId] = useState<string | null>(null);
   const [artistJump, setArtistJump] = useState(0);
   useEffect(() => {
+    if (!visible || opened.current) return;
     const controller = new AbortController();
     // The owner API coalesces app-open probes across reloads/tabs for 15 minutes.
     void api(
@@ -49,47 +56,40 @@ export function Workspace() {
       { reason: "app-open" },
       controller.signal,
     )
-      .then(setStatus)
+      .then(() => {
+        if (!controller.signal.aborted) {
+          opened.current = true;
+          setStatusAttempt((v) => v + 1);
+        }
+      })
       .catch((error) => {
         if (!controller.signal.aborted) setError(errorMessage(error));
       });
     return () => controller.abort();
-  }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function load() {
-      try {
-        const next = await api(
-          "/library/status",
-          libraryStatus,
-          undefined,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        setStatus((previous) => {
-          if (
-            previous &&
-            JSON.stringify(previous.revision) !== JSON.stringify(next.revision)
-          )
-            setRefresh((v) => v + 1);
-          return next;
-        });
-        setError("");
-        timer = setTimeout(() => void load(), 5000);
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setError(errorMessage(error));
-          timer = setTimeout(() => void load(), 15000);
-        }
-      }
-    }
-    void load();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, []);
+  }, [visible]);
+  useVisiblePolling({
+    refreshKey: statusAttempt,
+    load: (signal) => api("/library/status", libraryStatus, undefined, signal),
+    receive: (next) => {
+      setStatus((previous) => {
+        if (
+          previous &&
+          JSON.stringify(previous.revision) !== JSON.stringify(next.revision)
+        )
+          setRefresh((v) => v + 1);
+        return next;
+      });
+      setError("");
+    },
+    working: (next) =>
+      !next.blockedBy &&
+      (!next.initialSyncComplete || next.syncPhase !== "idle"),
+    onError: (error) => setError(errorMessage(error)),
+  });
+  // Hidden views stay mounted, preserving drafts, selection, scroll and saved
+  // intents. They consume revision invalidation when they become visible again.
+  if (visible) viewRefresh.current[tab] = refresh;
+  const refreshFor = (view: string) => viewRefresh.current[view] ?? 0;
   return (
     <div className="workspace">
       <div className="workspace-heading">
@@ -125,6 +125,7 @@ export function Workspace() {
                   }),
                 );
                 setRefresh((v) => v + 1);
+                setStatusAttempt((v) => v + 1);
               } catch (error) {
                 setError(errorMessage(error));
               } finally {
@@ -210,10 +211,10 @@ export function Workspace() {
         </button>
       </nav>
       <div hidden={tab !== "queue"}>
-        {(visited.has("queue") || tab === "queue") && (
+        {(visited.has("queue") || (visible && tab === "queue")) && (
           <Queue
-            active={tab === "queue"}
-            refresh={refresh}
+            active={visible && tab === "queue"}
+            refresh={refreshFor("queue")}
             status={status}
             source={queueSource}
             onChanged={() => setRefresh((v) => v + 1)}
@@ -226,35 +227,48 @@ export function Workspace() {
         )}
       </div>
       <div hidden={tab !== "vocabulary"}>
-        {(visited.has("vocabulary") || tab === "vocabulary") && (
+        {(visited.has("vocabulary") || (visible && tab === "vocabulary")) && (
           <Vocabulary
-            refresh={refresh}
-            onChanged={() => setRefresh((v) => v + 1)}
+            refresh={refreshFor("vocabulary")}
+            onChanged={() => {
+              setVocabularyRefresh((v) => v + 1);
+              setRefresh((v) => v + 1);
+            }}
           />
         )}
       </div>
       <div hidden={tab !== "library"}>
-        <Library
-          refresh={refresh}
-          newOnly={newOnly}
-          artistId={artistId}
-          artistJump={artistJump}
-          onQueue={(filter) => {
-            setQueueSource(filter);
-            setTab("queue");
-          }}
-          onChanged={() => setRefresh((v) => v + 1)}
-        />
+        {(visited.has("library") || (visible && tab === "library")) && (
+          <Library
+            refresh={refreshFor("library")}
+            newOnly={newOnly}
+            artistId={artistId}
+            artistJump={artistJump}
+            onQueue={(filter) => {
+              setQueueSource(filter);
+              setTab("queue");
+            }}
+            onChanged={() => setRefresh((v) => v + 1)}
+          />
+        )}
       </div>
       <div hidden={tab !== "builder"}>
-        <Builder
-          initialComplete={status?.initialSyncComplete ?? false}
-          refresh={refresh}
-          onCreated={() => setRefresh((v) => v + 1)}
-        />
+        {(visited.has("builder") || (visible && tab === "builder")) && (
+          <Builder
+            initialComplete={status?.initialSyncComplete ?? false}
+            refresh={refreshFor("builder")}
+            onCreated={() => setRefresh((v) => v + 1)}
+          />
+        )}
       </div>
       <div hidden={tab !== "playlists"}>
-        <Playlists refresh={refresh} />
+        {(visited.has("playlists") || (visible && tab === "playlists")) && (
+          <Playlists
+            active={visible && tab === "playlists"}
+            refresh={refreshFor("playlists")}
+            vocabularyRefresh={`${vocabularyRefresh}:${focusVersion}:${status?.revision.annotations ?? ""}`}
+          />
+        )}
       </div>
     </div>
   );

@@ -824,6 +824,13 @@ input[type="checkbox"] {
   color: #6c7c65;
   overflow-wrap: anywhere;
 }
+.playlist-card .query-summary .chip {
+  display: inline-block;
+  min-height: 0;
+  line-height: 1.5;
+  margin: 3px 0;
+  vertical-align: middle;
+}
 .playlist-card .expiry {
   font-weight: 650;
   font-size: 14px;
