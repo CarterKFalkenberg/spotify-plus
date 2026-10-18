@@ -2,8 +2,9 @@
 
 Personal tags for Spotify Liked Songs, with boolean queries that create disposable private playlists.
 
-The product is currently in planning/setup. No live account or deployment has been verified yet.
+The application is available on its configured hosting. Actual phone timing, tagging speed, and Spotify profile/search hiding remain pending human product acceptance.
 
+- [Everyday UX flows and software acceptance](docs/UX-FLOWS.md)
 - [Architecture handbook, diagrams and request walkthrough](docs/architecture/README.md)
 - [Product brief](docs/PRODUCT-BRIEF.md)
 - [Build plan](docs/PLAN.md)

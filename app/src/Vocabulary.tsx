@@ -275,9 +275,10 @@ export function Vocabulary({
       <dialog
         ref={dialog}
         className="dialog"
+        aria-labelledby="manage-tag-title"
         onCancel={() => setSelected(null)}
       >
-        <h3>Manage “{selected?.name}”</h3>
+        <h3 id="manage-tag-title">Manage “{selected?.name}”</h3>
         <p>
           {selected?.activeTrackCount} active songs. Changes apply globally;
           playlist snapshots stay as created.
@@ -340,9 +341,10 @@ export function Vocabulary({
       <dialog
         ref={previewDialog}
         className="dialog"
+        aria-labelledby="tag-preview-title"
         onCancel={() => setPreview(null)}
       >
-        <h3>
+        <h3 id="tag-preview-title">
           {preview?.intent.action === "delete"
             ? "Delete this tag?"
             : preview?.result.collisionTag

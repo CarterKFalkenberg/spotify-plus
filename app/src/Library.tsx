@@ -91,6 +91,7 @@ export function Library({
   const [grouped, setGrouped] = useState(
     !newOnly && !matchMedia("(max-width:640px)").matches,
   );
+  const [editingTrack, setEditingTrack] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<Facet>("artist");
   const [sort, setSort] = useState<Sort>("newest");
   const anchor = useRef<string | null>(null);
@@ -289,23 +290,7 @@ export function Library({
           />
           Untagged
         </label>
-        <label className="check-label desktop-bulk">
-          <input
-            type="checkbox"
-            checked={grouped}
-            onChange={(e) => {
-              setData(null);
-              setSelection(null);
-              setGrouped(e.target.checked);
-              setCursor(null);
-            }}
-          />
-          Group by artist
-        </label>
-      </div>
-      <Facets filter={filter} refresh={refresh} onChange={changeFilter} />
-      <div className="library-filters desktop-bulk">
-        <label>
+        <label className="desktop-bulk">
           Sort songs
           <select
             value={sort}
@@ -324,7 +309,7 @@ export function Library({
             ))}
           </select>
         </label>
-        <label>
+        <label className="desktop-bulk">
           Group rows
           <select
             value={grouped ? groupBy : "none"}
@@ -343,12 +328,19 @@ export function Library({
           </select>
         </label>
         <button
+          className="desktop-bulk"
           disabled={filter.membership === "removed"}
           onClick={() => onQueue(filter)}
         >
           Send this filter to queue
         </button>
       </div>
+      <details className="filter-disclosure">
+        <summary>
+          More filters <span>Artist, album & decade</span>
+        </summary>
+        <Facets filter={filter} refresh={refresh} onChange={changeFilter} />
+      </details>
       {filter.newOnly && (
         <p className="muted">
           Showing new additions.{" "}
@@ -391,7 +383,9 @@ export function Library({
           <div className="result-toolbar">
             <span>
               {data.totalTracks} songs
-              {data.groupBy !== null ? ` · ${data.totalGroups} artists` : ""}
+              {data.groupBy !== null
+                ? ` · ${data.totalGroups} ${data.groupBy === "artist" ? "artists" : data.groupBy === "album" ? "albums" : "decades"}`
+                : ""}
             </span>
             {data.totalTracks > 0 && (
               <button
@@ -420,9 +414,39 @@ export function Library({
                       : "Your library is waiting"}
               </h3>
               <p>
-                Like songs in Spotify, then sync here. Your tags will have a
-                place to land.
+                {filter.membership === "removed"
+                  ? "Songs removed from your Liked Songs appear here. Your tags stay safe for when you like them again."
+                  : filter.search ||
+                      filter.untagged ||
+                      filter.newOnly ||
+                      filter.artistId ||
+                      filter.album ||
+                      filter.decade
+                    ? "Try a broader view. Your other songs and their tags are still here."
+                    : "Like songs in Spotify, then use Sync now. You can tag them as soon as they arrive."}
               </p>
+              {(filter.search ||
+                filter.untagged ||
+                filter.newOnly ||
+                filter.artistId ||
+                filter.album ||
+                filter.decade) && (
+                <button
+                  onClick={() =>
+                    changeFilter({
+                      ...emptyFilter,
+                      membership: filter.membership,
+                    })
+                  }
+                >
+                  Reset filters
+                </button>
+              )}
+              {filter.membership === "removed" && (
+                <button onClick={() => changeFilter({ ...emptyFilter })}>
+                  Back to Liked Songs
+                </button>
+              )}
             </div>
           )}
           {data.groupBy !== null ? (
@@ -464,8 +488,19 @@ export function Library({
             </div>
           ) : data.groupBy === null ? (
             <div className="track-list">
+              <div
+                className="track-table-heading desktop-bulk"
+                aria-hidden="true"
+              >
+                <span>Song / artist / album</span>
+                <span>Year · Added</span>
+                <span>Tags</span>
+              </div>
               {data.tracks.map((track) => (
-                <article className="track-row" key={track.trackKey}>
+                <article
+                  className={`track-row ${editingTrack === track.trackKey ? "is-editing" : ""}`}
+                  key={track.trackKey}
+                >
                   <label className="desktop-bulk">
                     <input
                       type="checkbox"
@@ -524,24 +559,44 @@ export function Library({
                         <span className="muted">Resolving assigned tags…</span>
                       )}
                     </div>
-                    <TagPicker
-                      label={`Tag ${track.metadata?.title ?? "track"}`}
-                      onCreate={(name) =>
-                        mutate(
-                          name,
-                          { kind: "tracks", trackKeys: [track.trackKey] },
-                          "add",
+                    <button
+                      className="compact edit-track"
+                      aria-expanded={editingTrack === track.trackKey}
+                      onClick={() =>
+                        setEditingTrack(
+                          editingTrack === track.trackKey
+                            ? null
+                            : track.trackKey,
                         )
                       }
-                      disabled={busy}
-                      onChoose={(tag) =>
-                        mutate(
-                          tag,
-                          { kind: "tracks", trackKeys: [track.trackKey] },
-                          "add",
-                        )
-                      }
-                    />
+                    >
+                      {editingTrack === track.trackKey ? "Done" : "Edit tags"}
+                      <span className="sr-only">
+                        {" "}
+                        for {track.metadata?.title ?? "track"}
+                      </span>
+                    </button>
+                    {editingTrack === track.trackKey && (
+                      <TagPicker
+                        autoFocus
+                        label={`Tag ${track.metadata?.title ?? "track"}`}
+                        onCreate={(name) =>
+                          mutate(
+                            name,
+                            { kind: "tracks", trackKeys: [track.trackKey] },
+                            "add",
+                          )
+                        }
+                        disabled={busy}
+                        onChoose={(tag) =>
+                          mutate(
+                            tag,
+                            { kind: "tracks", trackKeys: [track.trackKey] },
+                            "add",
+                          )
+                        }
+                      />
+                    )}
                   </div>
                 </article>
               ))}

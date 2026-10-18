@@ -61,10 +61,14 @@ export function Builder({
   initialComplete,
   refresh,
   onCreated,
+  onViewPlaylists,
+  onTagLibrary,
 }: {
   initialComplete: boolean;
   refresh: number;
   onCreated: () => void;
+  onViewPlaylists: () => void;
+  onTagLibrary: () => void;
 }) {
   const [buckets, setBuckets] = useState<
     Record<keyof QueryBuilder, readonly TagDTO[]>
@@ -79,6 +83,9 @@ export function Builder({
   const [name, setName] = useState("");
   const [retention, setRetention] = useState<Retention>("month");
   const [busy, setBusy] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(
+    () => !matchMedia("(max-width:640px)").matches,
+  );
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const [paging, setPaging] = useState(false);
   const [pending, setPending] = useState<CreatePlaylistRequest | null>(
@@ -208,6 +215,26 @@ export function Builder({
         Start with a feeling. Add your tags, see what fits, and take it to
         Spotify.
       </p>
+      {!key && !pending && (
+        <p className="builder-start">
+          Need tags first?{" "}
+          <button className="text-button" onClick={onTagLibrary}>
+            Tag your library →
+          </button>
+        </p>
+      )}
+      {submitted && (
+        <div role="status" className="notice creation-confirmation">
+          <strong>Playlist request accepted.</strong>
+          <p>
+            Spotify is preparing the playlist. It is ready only after Spotify
+            confirms the contents.
+          </p>
+          <button className="primary" onClick={onViewPlaylists}>
+            View playlist progress →
+          </button>
+        </div>
+      )}
       {pending ? (
         <div className="notice">
           <h3>Creation awaiting confirmation</h3>
@@ -221,6 +248,46 @@ export function Builder({
         </div>
       ) : (
         <>
+          <div className="query-feedback" role="status" aria-live="polite">
+            <span className="eyebrow">YOUR MIX</span>
+            {!key ? (
+              <strong>Add a tag to start</strong>
+            ) : !matched && !error ? (
+              <strong>Finding matching songs…</strong>
+            ) : matched ? (
+              <>
+                <strong>
+                  {matched.playableCount} songs{" "}
+                  <span>
+                    · {Math.floor(matched.durationMs / 3600000)}h{" "}
+                    {Math.floor(matched.durationMs / 60000) % 60}m
+                  </span>
+                </strong>
+                {matched.playableCount === 0 && (
+                  <p>
+                    No playable songs match. Try fewer All of tags or remove an
+                    exclusion.
+                  </p>
+                )}
+                {matched.excludedCount > 0 && (
+                  <small>
+                    {matched.excludedCount} unavailable{" "}
+                    {matched.excludedCount === 1
+                      ? "song excluded"
+                      : "songs excluded"}
+                  </small>
+                )}
+              </>
+            ) : (
+              <strong>Preview needs attention</strong>
+            )}
+            <a
+              href="#playlist-preview"
+              onClick={() => setPreviewExpanded(true)}
+            >
+              Review songs ↓
+            </a>
+          </div>
           <div className="query-buckets">
             {(["all", "any", "none"] as const).map((bucket, index) => (
               <div className="query-bucket" key={bucket}>
@@ -268,11 +335,24 @@ export function Builder({
               </div>
             ))}
           </div>
-          <div className="preview-panel" aria-live="polite">
+          <details
+            className="preview-panel"
+            id="playlist-preview"
+            open={previewExpanded}
+            onToggle={(event) => setPreviewExpanded(event.currentTarget.open)}
+          >
+            <summary>
+              {matched
+                ? `Preview ${matched.playableCount} matching songs`
+                : "Your playlist preview"}
+            </summary>
             {!key ? (
               <div className="empty-state">
                 <h3>Your next playlist starts here</h3>
-                <p>Add at least one tag to see the songs that fit.</p>
+                <p>
+                  Add at least one tag to see the songs that fit. No tags yet?
+                  Start by tagging a few songs or a whole artist.
+                </p>
               </div>
             ) : !matched && !error ? (
               <p role="status">Finding matching songs…</p>
@@ -357,13 +437,17 @@ export function Builder({
                 </>
               )
             )}
-          </div>
+          </details>
           {!initialComplete && (
             <p className="notice">
               Your first import is still being verified. Browse and tag now;
               playlist creation unlocks after the complete library is ready.
             </p>
           )}
+          <div className="create-heading">
+            <span className="eyebrow">MAKE IT YOURS</span>
+            <h3>Name it. Keep it for a while.</h3>
+          </div>
           <form
             className="create-form"
             onSubmit={(event) => {
@@ -413,12 +497,6 @@ export function Builder({
             </button>
           )}
         </div>
-      )}
-      {submitted && (
-        <p role="status" className="notice">
-          Playlist request accepted. Follow its progress in Your playlists; it
-          is ready only after Spotify confirms the contents.
-        </p>
       )}
     </section>
   );

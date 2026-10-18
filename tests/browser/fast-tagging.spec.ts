@@ -321,7 +321,12 @@ test("queue input letters, number slots, navigation, skip and modified help are 
   await input.press("Alt+s");
   await expect(page.locator(".queue-card")).toContainText("Synthetic song 3");
   await input.press("Alt+h");
-  await expect(page.getByRole("dialog")).toContainText("Alt/Option");
+  await expect(
+    page.getByRole("dialog", {
+      name: "Keep your hands on the keyboard",
+      exact: true,
+    }),
+  ).toContainText("Alt/Option");
   await page.getByRole("button", { name: "Close help" }).click();
   expect(calls.filter((c) => c.path === "/api/tag-actions")).toHaveLength(1);
 });
@@ -362,6 +367,9 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
   const calls = await mock(page);
   await page.goto("/");
   await queue(page);
+  await page
+    .getByRole("button", { name: "Edit quick tags", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Set or pin slot 1", exact: true })
     .click();
@@ -405,7 +413,7 @@ test("browser ranges, tri-state fill/clear and opaque album facets use exact fro
   const calls = await mock(page);
   await page.goto("/");
   await browser(page);
-  await page.getByLabel("Group by artist").uncheck();
+  await page.getByLabel("Group rows").selectOption("none");
   await page.getByLabel("Select Synthetic song 1").check();
   await page
     .getByLabel("Select Synthetic song 3")
@@ -426,6 +434,7 @@ test("browser ranges, tri-state fill/clear and opaque album facets use exact fro
   expect(
     calls.filter((c) => c.path === "/api/tag-actions").at(-1)!.body.action,
   ).toBe("remove");
+  await page.locator(".filter-disclosure > summary").click();
   await page.getByLabel("Album", { exact: true }).selectOption(album);
   await expect
     .poll(() =>
@@ -538,7 +547,7 @@ test("mobile new badge opens cards and a touch sheet with swipe advance and no b
   test.skip(!isMobile, "Mobile lite mode");
   await mock(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "2 new", exact: true }).click();
+  await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   await expect(page.locator(".mobile-cards")).toBeVisible();
   await page.locator(".mobile-track").first().click();
   const sheet = page.locator(".queue-card.sheet-open");
@@ -556,7 +565,7 @@ test("mobile new badge opens cards and a touch sheet with swipe advance and no b
     changedTouches: [{ identifier: 1, clientX: 100, clientY: 205 }],
   });
   await expect(sheet).toContainText("Synthetic song 2");
-  await sheet.getByRole("button", { name: "2 chillout", exact: true }).click();
+  await sheet.getByRole("button", { name: "chillout", exact: true }).click();
   await expect(
     sheet.getByRole("button", { name: "Remove chillout from current song" }),
   ).toBeVisible();
@@ -627,6 +636,9 @@ test("failed first queue traversal retries the same default order and pinning pr
       .filter((c) => c.path === "/api/library/search" && c.body.filter.untagged)
       .at(-1)!.body.sort,
   ).toBe("newest");
+  await page
+    .getByRole("button", { name: "Edit quick tags", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Set or pin slot 1", exact: true })
     .click();
@@ -779,7 +791,7 @@ test("arrival review is an explicit owner mutation; navigation and typing never 
 }) => {
   const calls = await mock(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "2 new", exact: true }).click();
+  await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   if (isMobile) await page.locator(".mobile-track").first().click();
   else
     await expect(
@@ -906,6 +918,7 @@ test("repeating an artist jump reapplies that artist after clearing its browser 
   await expect(page.getByLabel("Artist", { exact: true })).toHaveValue(
     "aaaaaaaaaaaaaaaaaaaaaa",
   );
+  await page.locator(".filter-disclosure > summary").click();
   await page.getByLabel("Artist", { exact: true }).selectOption("");
   await expect(page.getByLabel("Artist", { exact: true })).toHaveValue("");
   await queue(page);
@@ -955,6 +968,9 @@ test("global rename updates a pinned quick slot without losing its identity", as
   });
   await page.goto("/");
   await queue(page);
+  await page
+    .getByRole("button", { name: "Edit quick tags", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Set or pin slot 1", exact: true })
     .click();
@@ -1207,4 +1223,305 @@ test("prefix groups retain keyboard identities, exact Enter choice and tri-state
         calls.filter((c) => c.path === "/api/tag-actions").at(-1)?.body.tagId,
     )
     .toBe(id(13));
+});
+
+test("daily queue keeps input and quick tags visible at 1280 × 800 and slot ranking survives saves", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop daily loop");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  let rerank = false;
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/tag-actions") rerank = true;
+      if (path === "/api/tags/vocabulary" && rerank) {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "2" },
+            tags: [tags[2], tags[1], tags[0]],
+            hasMore: false,
+            nextCursor: null,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.addInitScript(() =>
+    localStorage.setItem("tagger-guidance-dismissed", "yes"),
+  );
+  await page.goto("/");
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await expect(input).toBeFocused();
+  const inputBottom = await input.evaluate(
+    (el) => el.getBoundingClientRect().bottom + window.scrollY,
+  );
+  expect(inputBottom).toBeLessThan(800);
+  expect(
+    await page
+      .getByRole("button", { name: "Next →", exact: true })
+      .evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
+  ).toBeLessThan(800);
+  expect(
+    await page
+      .locator(".quick-slots")
+      .evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
+  ).toBeLessThan(800);
+  await expect(page.locator(".skip-link")).not.toBeInViewport();
+  await expect(
+    page.getByRole("button", { name: "Set or pin slot 1", exact: true }),
+  ).toHaveCount(0);
+  await input.press("1");
+  await expect(page.locator(".queue-feedback")).toContainText("Saved");
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Chill", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  if (process.env.UX_CAPTURE)
+    await page.screenshot({
+      path: ".local/ux/desktop-queue.png",
+      fullPage: true,
+    });
+});
+
+test("mobile native song modal traps background interaction, restores origin, and preserves drafts across resize", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Mobile modal");
+  await mock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "New arrivals 2" }).click();
+  const origin = page.locator(".mobile-track").nth(1);
+  await origin.click();
+  const dialog = page.getByRole("dialog", { name: "Tag song", exact: true });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate((el) => el.matches(":modal"))).toBe(true);
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe(
+    "hidden",
+  );
+  await expect(
+    dialog.getByRole("button", { name: "← Previous", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Next →", exact: true }),
+  ).toBeVisible();
+  await dialog
+    .getByLabel("Tag current song", { exact: true })
+    .fill("unfinished");
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(
+    page.getByLabel("Tag current song", { exact: true }),
+  ).toHaveValue("unfinished");
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await origin.click();
+  await expect(
+    dialog.getByLabel("Tag current song", { exact: true }),
+  ).toHaveValue("unfinished");
+  if (process.env.UX_CAPTURE)
+    await page.screenshot({ path: ".local/ux/mobile-song-sheet.png" });
+  await dialog.getByRole("button", { name: "Close song sheet" }).click();
+  await expect(origin).toBeFocused();
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+});
+
+test("quick-tag failures stay reachable inside the mobile modal and removing its last song unlocks scrolling", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Mobile recovery");
+  let emptied = false;
+  await mock(page, {
+    failAction: true,
+    intercept: async (route, path, body) => {
+      if (path !== "/api/library/search" || body.groupBy) return false;
+      await route.fulfill({
+        json: {
+          revision: { library: "1", annotations: "1" },
+          groupBy: null,
+          totalTracks: emptied ? 0 : 1,
+          nextCursor: null,
+          tracks: emptied ? [] : [makeTrack(1)],
+        },
+      });
+      return true;
+    },
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "New arrivals 2" }).click();
+  await page.locator(".mobile-track").first().click();
+  const dialog = page.getByRole("dialog", { name: "Tag song", exact: true });
+  await dialog
+    .locator(".quick-slots")
+    .getByRole("button", { name: "Chill", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("library changed");
+  emptied = true;
+  await dialog
+    .getByRole("button", { name: "Refresh queue", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Your playlists" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Your playlists" }),
+  ).toBeVisible();
+});
+
+test("deleting a frequent tag leaves its slot empty instead of changing the remaining number keys", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop number slots");
+  let deleted = false;
+  await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/sync" && body.reason === "manual")
+        deleted = true;
+      if (deleted && path === "/api/tags/vocabulary") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "2" },
+            tags: [tags[2], tags[1]],
+            hasMore: false,
+            nextCursor: null,
+          },
+        });
+        return true;
+      }
+      if (
+        deleted &&
+        path === "/api/tags/lookup" &&
+        body.tagIds.includes(id(1))
+      ) {
+        await route.fulfill({ status: 400, json: { error: "unknown_tag" } });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Chill", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Sync now" }).click();
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Empty slot", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "2 chillout", exact: true }),
+  ).toBeVisible();
+});
+
+test("skip link is hidden during normal work and exposed by intentional keyboard focus", async ({
+  page,
+}) => {
+  await mock(page);
+  await page.goto("/");
+  const skip = page.getByRole("link", { name: "Skip to workspace" });
+  await expect(skip).not.toBeInViewport();
+  await skip.focus();
+  await expect(skip).toBeInViewport();
+  await skip.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
+});
+
+test("first-run bulk tag action fits the unscrolled desktop workspace", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop backlog flow");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mock(page);
+  await page.goto("/");
+  const bulkInput = page.getByLabel("Tag all 3 songs by Synthetic Artist");
+  await expect(bulkInput).toBeVisible();
+  expect(
+    await bulkInput.evaluate(
+      (el) => el.getBoundingClientRect().bottom + scrollY,
+    ),
+  ).toBeLessThan(800);
+});
+
+test("new vocabulary fills the next quick slots while keeping earlier number assignments", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop number slots");
+  let count = 0;
+  await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/tags/vocabulary") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: String(count + 1) },
+            tags: tags.slice(0, count).reverse(),
+            hasMore: false,
+            nextCursor: null,
+          },
+        });
+        return true;
+      }
+      if (path === "/api/tag-actions") {
+        const added = tags[count++];
+        await route.fulfill({
+          json: {
+            actionId: id(50 + count),
+            selectedCount: 1,
+            changedCount: 1,
+            tag: added,
+            revision: { library: "1", annotations: String(count + 1) },
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Empty slot", exact: true }),
+  ).toBeDisabled();
+  await input.fill("fresh");
+  await page
+    .getByRole("button", { name: "Create “fresh”", exact: true })
+    .click();
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Chill", exact: true }),
+  ).toBeVisible();
+  await input.fill("fresh");
+  await page
+    .getByRole("button", { name: "Create “fresh”", exact: true })
+    .click();
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "2 chillout", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".quick-slots")
+      .getByRole("button", { name: "1 Chill", exact: true }),
+  ).toBeVisible();
 });

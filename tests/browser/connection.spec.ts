@@ -68,9 +68,9 @@ test("connection failure offers recovery without claiming disconnected", async (
   await page.unroute("**/api/session");
   await session(page, connected);
   await page.getByRole("button", { name: "Try again" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Spotify is connected" }),
-  ).toBeVisible();
+  await expect(page.locator(".account-details summary")).toContainText(
+    "Spotify connected",
+  );
 });
 test("renewal warning and expired connection keep an explicit reconnect action", async ({
   page,
@@ -131,6 +131,14 @@ test("disconnect requires confirmation, sends exact contract, and waits for purg
     sessionStorage.setItem("tagger-pending-create", "{}");
     sessionStorage.setItem("tagger-pending-playlist-actions", "[]");
   });
+  if (!(await page.locator(".account-details").getAttribute("open"))) {
+    if (
+      !(await page
+        .getByRole("button", { name: "Disconnect & delete app data" })
+        .isVisible())
+    )
+      await page.locator(".account-details summary").click();
+  }
   await page
     .getByRole("button", { name: "Disconnect & delete app data" })
     .click();
@@ -145,6 +153,14 @@ test("disconnect requires confirmation, sends exact contract, and waits for purg
   await expect(
     page.getByRole("button", { name: "Disconnect & delete app data" }),
   ).toBeFocused();
+  if (!(await page.locator(".account-details").getAttribute("open"))) {
+    if (
+      !(await page
+        .getByRole("button", { name: "Disconnect & delete app data" })
+        .isVisible())
+    )
+      await page.locator(".account-details summary").click();
+  }
   await page
     .getByRole("button", { name: "Disconnect & delete app data" })
     .click();
@@ -175,6 +191,14 @@ test("failed disconnect does not claim deletion", async ({ page }) => {
     route.fulfill({ status: 503, json: { error: "temporarily_unavailable" } }),
   );
   await page.goto("/");
+  if (!(await page.locator(".account-details").getAttribute("open"))) {
+    if (
+      !(await page
+        .getByRole("button", { name: "Disconnect & delete app data" })
+        .isVisible())
+    )
+      await page.locator(".account-details summary").click();
+  }
   await page
     .getByRole("button", { name: "Disconnect & delete app data" })
     .click();
@@ -184,9 +208,9 @@ test("failed disconnect does not claim deletion", async ({ page }) => {
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "Deletion could not be confirmed",
   );
-  await expect(
-    page.getByRole("heading", { name: "Spotify is connected" }),
-  ).toBeVisible();
+  await expect(page.locator(".account-details summary")).toContainText(
+    "Spotify connected",
+  );
 });
 for (const completed of [false, true]) {
   test(`lost disconnect response reconciles authoritative ${completed ? "disconnected" : "disconnecting"} state`, async ({
@@ -213,6 +237,7 @@ for (const completed of [false, true]) {
       await route.abort("failed");
     });
     await page.goto("/");
+    await page.locator(".account-details summary").click();
     await page
       .getByRole("button", { name: "Disconnect & delete app data" })
       .click();
@@ -250,6 +275,14 @@ test("lost disconnect and unavailable session preserve unconfirmed error", async
     await route.abort("failed");
   });
   await page.goto("/");
+  if (!(await page.locator(".account-details").getAttribute("open"))) {
+    if (
+      !(await page
+        .getByRole("button", { name: "Disconnect & delete app data" })
+        .isVisible())
+    )
+      await page.locator(".account-details summary").click();
+  }
   await page
     .getByRole("button", { name: "Disconnect & delete app data" })
     .click();

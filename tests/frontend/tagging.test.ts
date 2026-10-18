@@ -249,3 +249,28 @@ it("autocomplete groups normalized prefixes stably without changing relevance in
   ]);
   expect(ranked.map((item) => item.id)).toEqual(["a", "b", "c", "d", "e", "f"]);
 });
+
+it("a deleted ranked quick tag leaves a hole without shifting the remaining slot keys", async () => {
+  const { quickSlots } = await import("../../app/src/tagging");
+  const second = { id: "second" },
+    third = { id: "third" };
+  expect(quickSlots([undefined, second, third], {}, 3)).toEqual([
+    undefined,
+    second,
+    third,
+  ]);
+});
+
+it("a growing vocabulary fills uninitialized quick slots without reranking existing slots or deletion holes", async () => {
+  const { refreshQuickRank } = await import("../../app/src/tagging");
+  const a = { id: "a" },
+    b = { id: "b" },
+    c = { id: "c" };
+  expect(refreshQuickRank([a], [b, a])).toEqual([a, b]);
+  expect(refreshQuickRank([a, undefined, b], [c, b, a])).toEqual([
+    a,
+    undefined,
+    b,
+    c,
+  ]);
+});
