@@ -632,96 +632,98 @@ export function Library({
             revision has not changed.
           </p>
         )}
-      {selection &&
-        (selection.kind === "filter" || selection.trackKeys.length > 0) && (
-          <div className="bulk-bar desktop-bulk">
-            <strong>
-              {selection.kind === "filter"
-                ? "Matching selection"
-                : `${selection.trackKeys.length} selected`}
-            </strong>
-            {data && (
-              <BulkTags
+      <div className="library-action-dock">
+        {selection &&
+          (selection.kind === "filter" || selection.trackKeys.length > 0) && (
+            <div className="bulk-bar desktop-bulk">
+              <strong>
+                {selection.kind === "filter"
+                  ? "Matching selection"
+                  : `${selection.trackKeys.length} selected`}
+              </strong>
+              {data && (
+                <BulkTags
+                  selection={selection}
+                  revision={data.revision}
+                  refresh={refresh}
+                  busy={busy}
+                  onMutate={(tag, kind) => mutate(tag, selection, kind)}
+                />
+              )}
+              <button
+                className="compact"
+                disabled={filter.membership === "removed"}
+                onClick={() => onQueue(selection)}
+              >
+                Send selection to queue
+              </button>
+              <TagPicker
+                label="Add tag to selection"
                 selection={selection}
-                revision={data.revision}
+                selectionRevision={data?.revision}
                 refresh={refresh}
-                busy={busy}
-                onMutate={(tag, kind) => mutate(tag, selection, kind)}
+                onCreate={(name) => mutate(name, selection, "add")}
+                disabled={busy}
+                onChoose={(tag) => mutate(tag, selection, "add")}
               />
-            )}
+              <TagPicker
+                label="Remove tag from selection"
+                selection={selection}
+                selectionRevision={data?.revision}
+                refresh={refresh}
+                actionLabel="Remove"
+                disabled={busy}
+                onChoose={(tag) => mutate(tag, selection, "remove")}
+              />
+              <button className="compact" onClick={() => setSelection(null)}>
+                Clear selection
+              </button>
+            </div>
+          )}
+        {undoFeedback && (
+          <p role="status" className="notice">
+            {undoFeedback}
+          </p>
+        )}
+        {action && (
+          <div className="toast" role="status">
+            {action.message}
+            <button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const result = await api(
+                    `/tag-actions/${action.id}/undo`,
+                    undoAction,
+                    {},
+                  );
+                  setAction(null);
+                  setUndoFeedback(
+                    result.skippedCount
+                      ? `Restored ${result.restoredCount}; ${result.skippedCount} later edits were preserved.`
+                      : `Restored ${result.restoredCount} changed assignments.`,
+                  );
+                  onChanged();
+                } catch (error) {
+                  setError(errorMessage(error));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Undo
+            </button>
             <button
               className="compact"
-              disabled={filter.membership === "removed"}
-              onClick={() => onQueue(selection)}
+              aria-label="Dismiss saved action"
+              onClick={() => setAction(null)}
             >
-              Send selection to queue
-            </button>
-            <TagPicker
-              label="Add tag to selection"
-              selection={selection}
-              selectionRevision={data?.revision}
-              refresh={refresh}
-              onCreate={(name) => mutate(name, selection, "add")}
-              disabled={busy}
-              onChoose={(tag) => mutate(tag, selection, "add")}
-            />
-            <TagPicker
-              label="Remove tag from selection"
-              selection={selection}
-              selectionRevision={data?.revision}
-              refresh={refresh}
-              actionLabel="Remove"
-              disabled={busy}
-              onChoose={(tag) => mutate(tag, selection, "remove")}
-            />
-            <button className="compact" onClick={() => setSelection(null)}>
-              Clear selection
+              ×
             </button>
           </div>
         )}
-      {undoFeedback && (
-        <p role="status" className="notice">
-          {undoFeedback}
-        </p>
-      )}
-      {action && (
-        <div className="toast" role="status">
-          {action.message}
-          <button
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const result = await api(
-                  `/tag-actions/${action.id}/undo`,
-                  undoAction,
-                  {},
-                );
-                setAction(null);
-                setUndoFeedback(
-                  result.skippedCount
-                    ? `Restored ${result.restoredCount}; ${result.skippedCount} later edits were preserved.`
-                    : `Restored ${result.restoredCount} changed assignments.`,
-                );
-                onChanged();
-              } catch (error) {
-                setError(errorMessage(error));
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            Undo
-          </button>
-          <button
-            className="compact"
-            aria-label="Dismiss saved action"
-            onClick={() => setAction(null)}
-          >
-            ×
-          </button>
-        </div>
-      )}
+      </div>
     </section>
   );
 }

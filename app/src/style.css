@@ -12,7 +12,8 @@
   line-height: 1.5;
   font-weight: 400;
   --ink: #193c34;
-  --muted: #637064;
+  --muted: #566653;
+  --control-line: #77866e;
   --line: #d6dbcd;
   --paper: #fffef8;
   --wash: #eaf0df;
@@ -128,7 +129,7 @@ p {
   margin: 12px 0;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 1.8px;
   font-weight: 760;
   color: #536747;
@@ -149,7 +150,7 @@ p {
   margin-bottom: 36px;
 }
 .card-kicker {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 1.5px;
   font-weight: 750;
   color: #526e56;
@@ -218,7 +219,7 @@ button.primary:hover {
 }
 .principles span {
   font-size: 12px;
-  color: #71825e;
+  color: var(--muted);
 }
 .principles h3 {
   font-size: 17px;
@@ -268,6 +269,9 @@ dialog::backdrop {
 }
 .dialog p {
   font-size: 14px;
+}
+.dialog > button {
+  margin: 8px 8px 0 0;
 }
 .dialog-actions {
   display: flex;
@@ -401,9 +405,8 @@ dialog::backdrop {
   box-shadow: 0 2px 4px #173a3310;
 }
 .workspace-tabs span {
-  font-size: 10px;
+  font-size: 12px;
   margin-left: 5px;
-  opacity: 0.8;
 }
 .workspace-tabs .nav-create {
   margin-left: auto;
@@ -457,16 +460,21 @@ dialog::backdrop {
   background: var(--accent);
   border: 1px solid #c5d894;
   border-radius: 24px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 6px 12px;
   font-weight: 650;
+}
+.pill.information {
+  background: #edf0e9;
+  border-color: var(--line);
+  color: var(--muted);
 }
 .new-badge {
   min-height: 38px;
 }
 label {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: #53634e;
   font-weight: 650;
 }
@@ -476,7 +484,7 @@ select {
   width: 100%;
   min-width: 0;
   min-height: 44px;
-  border: 1px solid #c3cebb;
+  border: 1px solid var(--control-line);
   border-radius: 7px;
   padding: 10px 12px;
   background: var(--paper);
@@ -484,6 +492,20 @@ select {
   font: inherit;
   font-size: 14px;
   margin-top: 5px;
+}
+input:not([type="checkbox"]):hover:not(:disabled):not([aria-disabled="true"]),
+select:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+input:disabled,
+select:disabled,
+input[aria-disabled="true"] {
+  background: #edf0e9;
+  cursor: default;
 }
 input[type="checkbox"] {
   accent-color: var(--ink);
@@ -533,7 +555,7 @@ input[type="checkbox"] {
   height: 36px;
   border-radius: 10px;
   background: var(--wash);
-  color: #6b7a57;
+  color: var(--muted);
   display: grid;
   place-items: center;
   font-family: Georgia, serif;
@@ -590,7 +612,7 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 10px;
+  font-size: 12px;
   padding-left: 8px;
   color: var(--muted);
 }
@@ -612,9 +634,14 @@ input[type="checkbox"] {
 .suggestions > button:hover {
   background: var(--wash);
 }
+.suggestions [role="option"] > span {
+  flex: 1;
+  min-width: 0;
+}
 .suggestions small {
-  color: #5f7156;
-  font-size: 11px;
+  flex: 0 0 66px;
+  color: var(--muted);
+  font-size: 12px;
   font-weight: 400;
 }
 .suggestions .create-tag {
@@ -624,9 +651,9 @@ input[type="checkbox"] {
   color: #536747;
 }
 .suggestion-prefix {
-  font-size: 11px;
+  font-size: 12px;
   padding: 8px;
-  color: #5f7156;
+  color: var(--muted);
 }
 .track-summary {
   display: flex;
@@ -650,11 +677,11 @@ input[type="checkbox"] {
   font-weight: 650;
 }
 .track-summary span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .track-summary small {
-  font-size: 11px;
+  font-size: 12px;
   color: #855c22;
 }
 .track-summary img,
@@ -686,6 +713,7 @@ input[type="checkbox"] {
   border-top: 1px solid var(--line);
   align-items: center;
 }
+.track-row:has(input:checked),
 .track-row:focus-within,
 .track-row.is-editing {
   background: #eef1e4;
@@ -700,7 +728,7 @@ input[type="checkbox"] {
 }
 .track-dates {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   margin: 0;
 }
 .track-content > .tag-picker {
@@ -714,7 +742,7 @@ input[type="checkbox"] {
   gap: 14px;
   padding: 10px 12px 10px 42px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
 }
@@ -728,16 +756,23 @@ input[type="checkbox"] {
   border-radius: 18px;
   background: var(--wash);
   border-color: #ccd9bc;
-  font-size: 11px;
+  font-size: 12px;
   padding: 6px 10px;
   min-height: 32px;
   overflow-wrap: anywhere;
   max-width: 100%;
 }
-.bulk-bar {
+.library-action-dock {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 24px);
   position: sticky;
   bottom: 12px;
   z-index: 2;
+}
+.bulk-bar {
+  min-height: 0;
+  overflow: auto;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -753,6 +788,12 @@ input[type="checkbox"] {
   flex: 1;
   min-width: 200px;
   margin: 0;
+}
+.bulk-bar .suggestions {
+  position: relative;
+  top: auto;
+  margin-top: 6px;
+  box-shadow: none;
 }
 .bulk-states {
   flex-basis: 100%;
@@ -779,6 +820,15 @@ input[type="checkbox"] {
   width: max-content;
   max-width: calc(100% - 24px);
   font-size: 13px;
+}
+.library-action-dock > .toast {
+  flex-shrink: 0;
+  position: relative;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  max-width: 100%;
+  margin: 12px auto 0;
 }
 .toast button {
   color: var(--ink);
@@ -862,13 +912,13 @@ input[type="checkbox"] {
   margin: 0;
 }
 .bucket-heading small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   margin-left: auto;
 }
 .bucket-number {
-  font-size: 10px;
-  color: #71805f;
+  font-size: 12px;
+  color: var(--muted);
 }
 .query-bucket .tag-picker form {
   flex-wrap: wrap;
@@ -895,7 +945,7 @@ input[type="checkbox"] {
   color: var(--muted);
 }
 .preview-heading .preview-label {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 1.8px;
 }
 .preview-tracks {
@@ -959,7 +1009,7 @@ input[type="checkbox"] {
   margin: 18px 0 0;
 }
 .playlist-card > .muted {
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 5px;
 }
 .playlist-actions {
@@ -981,7 +1031,7 @@ input[type="checkbox"] {
 .retention-hint {
   flex-basis: 100%;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   margin: 0 0 8px;
 }
 .pill.pending,
@@ -1057,7 +1107,7 @@ dialog.queue-card {
 }
 .queue-details {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   margin: -18px 56px 18px 140px;
 }
 .quick-tags-heading {
@@ -1065,7 +1115,7 @@ dialog.queue-card {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 .quick-tags-heading strong {
   font-size: 12px;
@@ -1074,7 +1124,7 @@ dialog.queue-card {
   display: inline;
   margin-left: 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
 }
 .quick-slots {
@@ -1092,22 +1142,24 @@ dialog.queue-card {
   width: 100%;
   min-height: 49px;
   padding: 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .quick-slots kbd {
   display: block;
-  color: #657e4d;
-  font: 600 10px inherit;
+  color: var(--muted);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 12px;
   margin-bottom: 3px;
 }
 .quick-slots .compact {
   margin-top: 4px;
   width: 100%;
   padding: 5px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .queue-card > .tag-picker {
-  margin: 12px 0 16px;
+  margin: 12px 0 12px;
 }
 .queue-card > .tag-picker input {
   min-height: 50px;
@@ -1127,16 +1179,24 @@ dialog.queue-card {
 .queue-actions button,
 .queue-actions a {
   min-height: 36px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 8px 10px;
 }
 .queue-actions a {
   display: inline-flex;
   align-items: center;
 }
-.queue-actions button:nth-of-type(2),
-.queue-actions button:nth-of-type(3) {
+.queue-actions .queue-previous {
   background: var(--wash);
+}
+.queue-actions .queue-skip {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.queue-actions .queue-skip:hover {
+  background: var(--wash);
+  color: var(--ink);
 }
 .queue-card .suggestions {
   position: relative;
@@ -1157,7 +1217,7 @@ dialog.queue-card {
 }
 .queue-feedback button {
   min-height: 36px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .facet-row {
   display: flex;
@@ -1180,6 +1240,12 @@ dialog.queue-card {
 .vocabulary-list article > div {
   flex: 1;
   min-width: 180px;
+}
+.vocabulary-list strong,
+.dialog h2,
+.dialog h3,
+.dialog p {
+  overflow-wrap: anywhere;
 }
 .vocabulary-list small {
   display: block;
@@ -1666,6 +1732,11 @@ dialog.queue-card {
   .dialog-actions {
     flex-direction: column;
   }
+  .dialog > button {
+    display: block;
+    width: 100%;
+    margin: 10px 0 0;
+  }
   .dialog-actions button {
     width: 100%;
   }
@@ -1742,7 +1813,7 @@ dialog.queue-card {
   cursor: pointer;
 }
 .filter-disclosure summary span {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
   margin-left: 10px;
@@ -1872,4 +1943,17 @@ dialog.queue-card {
 .builder input,
 .builder select {
   scroll-margin-top: 150px;
+}
+
+/* Reserve a second header row before the account target crowds the wordmark. */
+@media (max-width: 360px) {
+  .shell:has(.workspace) header {
+    padding-bottom: 60px;
+  }
+  .account-details summary {
+    top: 60px;
+    left: 18px;
+    right: auto;
+    margin-left: 0;
+  }
 }
