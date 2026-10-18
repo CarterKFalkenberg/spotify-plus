@@ -234,8 +234,15 @@ export function Playlists({
     }
   }
   const stale =
-    !data?.lastCleanupAt ||
-    Date.now() - Date.parse(data.lastCleanupAt) > 86400000;
+    data !== null &&
+    (!data.lastCleanupAt ||
+      Date.now() - Date.parse(data.lastCleanupAt) > 86400000);
+  const periodLabel =
+    period === "week"
+      ? "1 week"
+      : period === "threeMonths"
+        ? "3 calendar months"
+        : "1 calendar month";
   return (
     <section aria-labelledby="playlists-title">
       <div className="section-heading">
@@ -254,13 +261,22 @@ export function Playlists({
           Refresh playlists
         </button>
       </div>
-      <p className={stale || data?.cleanupBlockedBy ? "notice" : "muted"}>
-        Last successful cleanup:{" "}
-        {data?.lastCleanupAt ? date(data.lastCleanupAt) : "not yet confirmed"}.
-        {stale &&
-          " Cleanup may be delayed; free hosting can pause. Overdue work resumes when service recovers."}
-        {data?.cleanupBlockedBy && ` ${blockMessage[data.cleanupBlockedBy]}`}
-      </p>
+      {data && (
+        <p
+          className={
+            stale || data.cleanupBlockedBy
+              ? "notice cleanup-status"
+              : "muted cleanup-status"
+          }
+        >
+          Last successful cleanup:{" "}
+          {data?.lastCleanupAt ? date(data.lastCleanupAt) : "not yet confirmed"}
+          .
+          {stale &&
+            " Cleanup may be delayed; free hosting can pause. Overdue work resumes when service recovers."}
+          {data?.cleanupBlockedBy && ` ${blockMessage[data.cleanupBlockedBy]}`}
+        </p>
+      )}
       {tagError && (
         <p role="alert" className="notice">
           {tagError} Refresh playlists to resolve the current query tags.
@@ -279,6 +295,20 @@ export function Playlists({
           <p>
             Playlists you create here will appear here, with their expiry date
             and a way to keep the good ones.
+          </p>
+        </div>
+      )}
+      {!!data?.playlists.length && (
+        <div className="extension-setting">
+          <RetentionPicker
+            pinned={false}
+            label="Extend / Unpin for"
+            value={period}
+            onChange={setPeriod}
+          />
+          <p className="muted">
+            Extend resets the clock; Unpin starts a new one. Regenerate uses the
+            existing retention and keeps your current Spotify name.
           </p>
         </div>
       )}
@@ -367,6 +397,11 @@ export function Playlists({
                           Extend
                         </button>
                       )}
+                      <span className="retention-hint">
+                        {item.retention === "pinned"
+                          ? `Unpin keeps it for ${periodLabel} from today.`
+                          : `Extend keeps it for ${periodLabel} from today. Pin keeps it until you unpin.`}
+                      </span>
                       <button
                         disabled={
                           !!busy ||
@@ -396,20 +431,6 @@ export function Playlists({
           </article>
         ))}
       </div>
-      {!!data?.playlists.length && (
-        <div className="extension-setting">
-          <RetentionPicker
-            pinned={false}
-            label="Extend / Unpin for"
-            value={period}
-            onChange={setPeriod}
-          />
-          <p className="muted">
-            Extend resets the clock; Unpin starts a new one. Regenerate uses the
-            existing retention and keeps your current Spotify name.
-          </p>
-        </div>
-      )}
       {data?.nextCursor && (
         <button onClick={() => setCursor(data.nextCursor)}>
           More playlists
@@ -425,8 +446,11 @@ export function Playlists({
           else setConfirm(null);
         }}
         className="dialog"
+        aria-labelledby="playlist-removal-title"
       >
-        <h2>Remove this playlist from Your Library?</h2>
+        <h2 id="playlist-removal-title">
+          Remove this playlist from Your Library?
+        </h2>
         <p>
           “{confirm?.name}” will be removed from your Spotify library. Its
           Spotify URL or other followers may remain. Your Liked Songs are never

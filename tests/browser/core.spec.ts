@@ -256,6 +256,16 @@ async function choose(page: Page, label = "Add All of tag") {
     .locator(".suggestions")
     .getByRole("option", { name: /^Synthetic tag 1 / })
     .click();
+  if (
+    label.startsWith("Add ") &&
+    !(await page
+      .locator(".preview-panel")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page
+      .locator(".query-feedback")
+      .getByRole("link", { name: "Review songs ↓" })
+      .click();
 }
 async function builder(page: Page) {
   await page
@@ -324,7 +334,7 @@ test("explicit remove and changed-only undo use server identities", async ({
   test.skip(isMobile, "Bulk selection is desktop only");
   const calls = await mock(page);
   await page.goto("/");
-  await page.getByLabel("Group by artist").uncheck();
+  await page.getByLabel("Group rows").selectOption("none");
   await page.getByLabel("Select Synthetic song 1").check();
   await expect(
     page
@@ -565,7 +575,7 @@ test("import browsing stays available while create is gated; manual sync and new
       .filter((call) => call.path === "/api/library/sync")
       .map((call) => call.body.reason),
   ).toContain("manual");
-  await page.getByRole("button", { name: "2 new", exact: true }).click();
+  await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   await expect(
     page.getByRole("heading", { name: "Tagging queue", exact: true }),
   ).toBeVisible();
@@ -577,6 +587,7 @@ test("import browsing stays available while create is gated; manual sync and new
     )
     .toBe(true);
   if (!isMobile) {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await library(page);
     await page.getByLabel("Untagged", { exact: true }).check();
     await page.getByLabel("Search your library").fill("Synthetic");
@@ -1068,7 +1079,7 @@ test("successful freeform tag keeps input focus for the next tag and preserves e
     return true;
   });
   await page.goto("/");
-  await page.getByLabel("Group by artist").uncheck();
+  await page.getByLabel("Group rows").selectOption("none");
   await page.getByLabel("Select Synthetic song 1").check();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("First keyboard tag");
@@ -1581,4 +1592,167 @@ test("a slow successful label retry survives progress polls after its initial fa
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.clock.runFor(6_000);
   expect(lookups).toBe(2);
+});
+
+test("creation offers a direct confirmed-request progress path and feedback stays beside bucket editing", async ({
+  page,
+}) => {
+  await mock(page);
+  await page.goto("/");
+  await builder(page);
+  await expect(
+    page.getByRole("button", { name: "Tag your library →" }),
+  ).toBeVisible();
+  await choose(page);
+  const feedback = page.locator(".query-feedback");
+  await expect(feedback).toContainText("2 songs");
+  await expect(feedback).toContainText("1 unavailable song excluded");
+  await page.getByRole("button", { name: "Create playlist →" }).click();
+  await page.getByRole("button", { name: "View playlist progress →" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your playlists", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: "Your playlists" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("cleanup delay appears only after a loaded response and retention consequences stay beside actions", async ({
+  page,
+}) => {
+  const pending = { release: null as (() => void) | null };
+  await mock(page, async (route, path) => {
+    if (path !== "/api/playlists") return false;
+    await new Promise<void>((resolve) => {
+      pending.release = resolve;
+    });
+    await route.fulfill({
+      json: {
+        playlists: [playlist()],
+        nextCursor: null,
+        lastCleanupAt: null,
+        cleanupBlockedBy: null,
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await lists(page);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Loading playlists" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Cleanup may be delayed/)).toHaveCount(0);
+  pending.release?.();
+  await expect(page.getByText(/Cleanup may be delayed/)).toBeVisible();
+  await expect(page.locator(".retention-hint")).toContainText(
+    "1 calendar month from today",
+  );
+  await page
+    .getByLabel("Extend / Unpin for", { exact: true })
+    .selectOption("week");
+  await expect(page.locator(".retention-hint")).toContainText(
+    "1 week from today",
+  );
+});
+
+for (const width of [320, 360, 390, 430, 768, 1280])
+  test(`workspace reflows at ${width}px with long synthetic text and visible focus`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mock(page, async (route, path) => {
+      if (path !== "/api/tags") return false;
+      await route.fulfill({
+        json: {
+          tags: [
+            {
+              ...tag(),
+              name: "mood:A very long synthetic tag for checking narrow layouts",
+            },
+          ],
+          hasMore: false,
+          revision,
+        },
+      });
+      return true;
+    });
+    await page.goto("/");
+    await builder(page);
+    await page.getByLabel("Add All of tag", { exact: true }).fill("mood:");
+    await page.getByRole("option", { name: /^mood:A very long/ }).click();
+    await expect(page.locator(".query-feedback")).toContainText("2 songs");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.getByLabel("Playlist name", { exact: true }).focus();
+    expect(
+      await page
+        .getByLabel("Playlist name", { exact: true })
+        .evaluate((el) => getComputedStyle(el).outlineStyle),
+    ).not.toBe("none");
+    if (width === 320 && process.env.UX_CAPTURE) {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({
+        path: ".local/ux/mobile-320-long-tags.png",
+        fullPage: true,
+      });
+    }
+    await lists(page);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
+
+test("synthetic UX captures", async ({ page, isMobile }) => {
+  test.skip(
+    !process.env.UX_CAPTURE,
+    "Opt-in local synthetic visual inspection",
+  );
+  await mock(page);
+  await page.goto("/");
+  if (!isMobile) {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await library(page);
+    await expect(page.locator(".artist-card")).toBeVisible();
+    expect(
+      await page
+        .getByLabel("Tag all 3 songs by Synthetic Artist")
+        .evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
+    ).toBeLessThan(800);
+    await page.screenshot({
+      path: ".local/ux/desktop-first-run.png",
+      fullPage: true,
+    });
+    await page.getByLabel("Group rows").selectOption("none");
+    await expect(page.locator(".track-row").first()).toBeVisible();
+    await page.screenshot({
+      path: ".local/ux/desktop-library.png",
+      fullPage: true,
+    });
+  }
+  await builder(page);
+  await choose(page);
+  await expect(page.locator(".query-feedback")).toContainText("2 songs");
+  if (isMobile) await page.locator(".preview-panel > summary").click();
+  await page.getByLabel("Playlist name", { exact: true }).focus();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({
+    path: `.local/ux/${isMobile ? "mobile" : "desktop"}-builder.png`,
+    fullPage: true,
+  });
+  await page.screenshot({
+    path: `.local/ux/${isMobile ? "mobile" : "desktop"}-builder-viewport.png`,
+  });
+  await lists(page);
+  await expect(page.locator(".playlist-card")).toBeVisible();
+  await page.screenshot({
+    path: `.local/ux/${isMobile ? "mobile" : "desktop"}-playlists.png`,
+    fullPage: true,
+  });
 });

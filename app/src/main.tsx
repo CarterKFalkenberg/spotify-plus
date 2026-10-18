@@ -73,6 +73,7 @@ function Home() {
   const [deleting, setDeleting] = useState(false);
   const [deleteFailed, setDeleteFailed] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
   const settingsRef = useRef<HTMLButtonElement>(null);
   const authCode = params.get("auth_error");
   const authError = authCode
@@ -102,7 +103,17 @@ function Home() {
     };
   }, [attempt]);
   useEffect(() => {
-    if (confirming) confirmRef.current?.focus();
+    if (!confirming) return;
+    const element = deleteDialog.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    element?.showModal();
+    confirmRef.current?.focus();
+    return () => {
+      element?.close();
+      document.body.style.overflow = previousOverflow;
+      settingsRef.current?.focus();
+    };
   }, [confirming]);
   async function removeData() {
     setDeleting(true);
@@ -155,7 +166,6 @@ function Home() {
           </p>
         </>
       )}
-      {connected && <Workspace />}
       <section
         className={`connection-card ${connected ? "account-card" : ""}`}
         aria-labelledby="connection-title"
@@ -211,41 +221,61 @@ function Home() {
             </a>
           </div>
         ) : connected ? (
-          <>
-            <h2 id="connection-title">
+          <details
+            className="account-details"
+            open={
+              session.connection === "reconnect" || !!session.reconnectWarning
+                ? true
+                : undefined
+            }
+          >
+            <summary>
+              <span className="status-dot" />
               {session.connection === "reconnect"
-                ? "Reconnect to continue"
-                : "Spotify is connected"}
-            </h2>
-            <p>
-              {session.connection === "reconnect"
-                ? "Your authorization has expired or needs renewing. Reconnect with the same Spotify account."
-                : "Your Liked Songs stay yours. Tags and playlists live here."}
-            </p>
-            {session.reconnectWarning && session.connection !== "reconnect" && (
-              <p className="notice" role="status">
-                Reconnect soon: Spotify authorization reaches its renewal
-                deadline on{" "}
-                {new Date(session.authorizationDeadline!).toLocaleDateString(
-                  undefined,
-                  { dateStyle: "long", timeZone: "America/New_York" },
-                )}
-                .
+                ? "Spotify needs reconnecting"
+                : "Spotify connected"}
+              <span>Account & connection</span>
+            </summary>
+            <div className="account-content">
+              <h2 id="connection-title">
+                {session.connection === "reconnect"
+                  ? "Reconnect to continue"
+                  : "Spotify is connected"}
+              </h2>
+              <p>
+                {session.connection === "reconnect"
+                  ? "Your authorization has expired or needs renewing. Reconnect with the same Spotify account."
+                  : "Your Liked Songs stay yours. Tags and playlists live here."}
               </p>
-            )}
-            {session.connection === "reconnect" || session.reconnectWarning ? (
-              <a className="button" href="/auth/spotify/start">
-                Reconnect Spotify
-              </a>
-            ) : null}
-            <button
-              className="text-button"
-              ref={settingsRef}
-              onClick={() => setConfirming(true)}
-            >
-              Disconnect & delete app data
-            </button>
-          </>
+              {session.reconnectWarning &&
+                session.connection !== "reconnect" && (
+                  <p className="notice" role="status">
+                    Reconnect soon: Spotify authorization reaches its renewal
+                    deadline on{" "}
+                    {new Date(
+                      session.authorizationDeadline!,
+                    ).toLocaleDateString(undefined, {
+                      dateStyle: "long",
+                      timeZone: "America/New_York",
+                    })}
+                    .
+                  </p>
+                )}
+              {session.connection === "reconnect" ||
+              session.reconnectWarning ? (
+                <a className="button" href="/auth/spotify/start">
+                  Reconnect Spotify
+                </a>
+              ) : null}
+              <button
+                className="text-button"
+                ref={settingsRef}
+                onClick={() => setConfirming(true)}
+              >
+                Disconnect & delete app data
+              </button>
+            </div>
+          </details>
         ) : (
           <>
             <h2 id="connection-title">Start with your Spotify</h2>
@@ -263,6 +293,7 @@ function Home() {
           </>
         )}
       </section>
+      {connected && <Workspace />}
       {!connected && (
         <div className="principles">
           <div>
@@ -282,81 +313,58 @@ function Home() {
           </div>
         </div>
       )}
-      {confirming && (
-        <div className="dialog-backdrop">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-title"
-            className="dialog"
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && !deleting) {
-                setConfirming(false);
-                settingsRef.current?.focus();
-              }
-              if (event.key === "Tab") {
-                const buttons = [
-                  ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    "button:not(:disabled)",
-                  ),
-                ];
-                const first = buttons[0],
-                  last = buttons.at(-1);
-                if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last?.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first?.focus();
-                }
-              }
+      <dialog
+        ref={deleteDialog}
+        className="dialog"
+        aria-labelledby="delete-title"
+        onCancel={(event) => {
+          if (deleting) event.preventDefault();
+          else setConfirming(false);
+        }}
+      >
+        <h2 id="delete-title">Delete everything in this app?</h2>
+        <p>
+          This deletes your tags, cached library, connection credentials, and
+          app-controlled annotation backups.
+        </p>
+        <p>
+          <strong>Your existing Spotify playlists stay.</strong> Automatic
+          playlist cleanup stops. Full grant revocation is a separate step on
+          Spotify’s Apps page.
+        </p>
+        <p className="muted">
+          A keyed owner fingerprint remains to keep this private app bound to
+          your account. Provider-internal retention is outside the app’s
+          controls.
+        </p>
+        {deleteFailed && (
+          <p role="alert">
+            Deletion could not be confirmed. Check your connection and try
+            again; this page does not claim your data was deleted.
+          </p>
+        )}
+        <div className="dialog-actions">
+          <button
+            ref={confirmRef}
+            disabled={deleting}
+            onClick={() => {
+              setConfirming(false);
+              settingsRef.current?.focus();
             }}
           >
-            <h2 id="delete-title">Delete everything in this app?</h2>
-            <p>
-              This deletes your tags, cached library, connection credentials,
-              and app-controlled annotation backups.
-            </p>
-            <p>
-              <strong>Your existing Spotify playlists stay.</strong> Automatic
-              playlist cleanup stops. Full grant revocation is a separate step
-              on Spotify’s Apps page.
-            </p>
-            <p className="muted">
-              A keyed owner fingerprint remains to keep this private app bound
-              to your account. Provider-internal retention is outside the app’s
-              controls.
-            </p>
-            {deleteFailed && (
-              <p role="alert">
-                Deletion could not be confirmed. Check your connection and try
-                again; this page does not claim your data was deleted.
-              </p>
-            )}
-            <div className="dialog-actions">
-              <button
-                ref={confirmRef}
-                disabled={deleting}
-                onClick={() => {
-                  setConfirming(false);
-                  settingsRef.current?.focus();
-                }}
-              >
-                Keep my data
-              </button>
-              <button
-                className="danger"
-                disabled={deleting}
-                onClick={() => {
-                  void removeData();
-                }}
-              >
-                {deleting ? "Disconnecting…" : "Delete all app data"}
-              </button>
-            </div>
-          </section>
+            Keep my data
+          </button>
+          <button
+            className="danger"
+            disabled={deleting}
+            onClick={() => {
+              void removeData();
+            }}
+          >
+            {deleting ? "Disconnecting…" : "Delete all app data"}
+          </button>
         </div>
-      )}
+      </dialog>
     </>
   );
 }
@@ -464,6 +472,9 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
 function App() {
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content">
+        Skip to workspace
+      </a>
       <header>
         <Link className="wordmark" to="/" aria-label="Spotify Plus home">
           <span className="mark" aria-hidden="true">
@@ -473,7 +484,7 @@ function App() {
         </Link>
         <span className="private-label">A personal music workspace</span>
       </header>
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/privacy" element={<Policy type="privacy" />} />

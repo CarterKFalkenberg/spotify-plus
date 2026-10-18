@@ -65,13 +65,27 @@ export function skipToTail<T>(rows: readonly T[], index: number): T[] {
   if (item !== undefined) result.push(item);
   return result;
 }
+/** Keep session number-key assignments while filling previously uninitialized slots. */
+export function refreshQuickRank<T extends { id: string }>(
+  previous: readonly (T | undefined)[],
+  fresh: readonly T[],
+): (T | undefined)[] {
+  const existing = new Set(previous.flatMap((tag) => (tag ? [tag.id] : [])));
+  return [
+    ...previous.map((tag) =>
+      tag ? (fresh.find((next) => next.id === tag.id) ?? tag) : undefined,
+    ),
+    ...fresh.filter((tag) => !existing.has(tag.id)),
+  ].slice(0, 30);
+}
+
 export function quickSlots<T extends { id: string }>(
-  ranked: readonly T[],
+  ranked: readonly (T | undefined)[],
   pins: Record<number, T>,
   size = 9,
 ): (T | undefined)[] {
   const unpinned = ranked.filter(
-    (t) => !Object.values(pins).some((p) => p.id === t.id),
+    (t) => !t || !Object.values(pins).some((p) => p.id === t.id),
   );
   let next = 0;
   return Array.from({ length: size }, (_, i) => pins[i] ?? unpinned[next++]);

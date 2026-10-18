@@ -93,16 +93,11 @@ export function Workspace() {
   return (
     <div className="workspace">
       <div className="workspace-heading">
-        <div>
-          <div className="eyebrow">YOUR LIBRARY, IN YOUR WORDS</div>
-          <h1>
-            Find your kind of <em>good.</em>
-          </h1>
-        </div>
+        <h1 className="sr-only">Your music workspace</h1>
         <div className="sync-controls">
           {!!status?.newCount && (
             <button
-              className="new-badge"
+              className="new-badge desktop-arrivals"
               onClick={() => {
                 setNewOnly(true);
                 setQueueSource({ ...emptyFilter, newOnly: true });
@@ -174,6 +169,7 @@ export function Workspace() {
       )}
       <nav className="workspace-tabs" aria-label="Workspace">
         <button
+          className="nav-queue"
           aria-pressed={tab === "queue"}
           onClick={() => {
             setQueueSource(null);
@@ -183,6 +179,7 @@ export function Workspace() {
           Tag queue
         </button>
         <button
+          className="nav-library"
           aria-pressed={tab === "library"}
           onClick={() => {
             setTab("library");
@@ -192,22 +189,36 @@ export function Workspace() {
           Library <span>{status?.activeCount ?? "—"}</span>
         </button>
         <button
+          className="nav-create"
           aria-pressed={tab === "builder"}
           onClick={() => setTab("builder")}
         >
           Make a playlist
         </button>
         <button
+          className="nav-playlists"
           aria-pressed={tab === "playlists"}
           onClick={() => setTab("playlists")}
         >
           Your playlists
         </button>
         <button
+          className="nav-tags"
           aria-pressed={tab === "vocabulary"}
           onClick={() => setTab("vocabulary")}
         >
           Tags
+        </button>
+        <button
+          className="nav-arrivals mobile-only"
+          aria-pressed={tab === "queue"}
+          onClick={() => {
+            setNewOnly(true);
+            setQueueSource({ ...emptyFilter, newOnly: true });
+            setTab("queue");
+          }}
+        >
+          New arrivals <span>{status?.newCount ?? "—"}</span>
         </button>
       </nav>
       <div hidden={tab !== "queue"}>
@@ -258,6 +269,8 @@ export function Workspace() {
             initialComplete={status?.initialSyncComplete ?? false}
             refresh={refreshFor("builder")}
             onCreated={() => setRefresh((v) => v + 1)}
+            onViewPlaylists={() => setTab("playlists")}
+            onTagLibrary={() => setTab("library")}
           />
         )}
       </div>

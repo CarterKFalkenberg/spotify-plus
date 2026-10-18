@@ -27,6 +27,7 @@ import {
   queueShortcut,
   skipToTail,
   quickSlots,
+  refreshQuickRank,
   preserveCurrent,
   ownedPatchRevision,
   restoredQueueTags,
@@ -49,7 +50,7 @@ export function Queue({
   const [mode, setMode] = useState("newest");
   const [rows, setRows] = useState<TrackDTO[]>([]),
     [index, setIndex] = useState(0);
-  const [frequent, setFrequent] = useState<readonly TagDTO[]>([]),
+  const [frequent, setFrequent] = useState<readonly (TagDTO | undefined)[]>([]),
     [pinned, setPinned] = useState<Record<number, TagDTO>>({});
   const [known, setKnown] = useState<readonly TagDTO[]>([]),
     [error, setError] = useState(""),
@@ -58,6 +59,20 @@ export function Queue({
   const [help, setHelp] = useState(false),
     [sheet, setSheet] = useState(false),
     [pinSlot, setPinSlot] = useState<number | null>(null);
+  const [editingSlots, setEditingSlots] = useState(false);
+  const [mobile, setMobile] = useState(
+    () => matchMedia("(max-width:640px)").matches,
+  );
+  useEffect(() => {
+    const media = matchMedia("(max-width:640px)");
+    const update = () => {
+      setMobile(media.matches);
+      setSheet(false);
+    };
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const hasCurrent = !!rows[index];
   const [actions, setActions] = useState<
     {
       id: string;
@@ -65,20 +80,38 @@ export function Queue({
       tagId: string;
       kind: "add" | "remove";
       changed: boolean;
-      message: string;
+      tagName: string;
     }[]
   >([]);
   const [tagged, setTagged] = useState(new Set<string>());
   const seed = useRef(crypto.randomUUID()),
     container = useRef<HTMLDivElement>(null),
     touch = useRef<{ x: number; y: number } | null>(null);
-  const sheetElement = useRef<HTMLDivElement>(null);
+  const sheetElement = useRef<HTMLDialogElement | null>(null);
+  const originatingCard = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    if (!sheet) return;
-    const previous = document.activeElement as HTMLElement;
-    sheetElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    return () => previous?.focus();
-  }, [sheet]);
+    if (!active) setSheet(false);
+  }, [active]);
+  useEffect(() => {
+    const element = sheetElement.current;
+    if (!element || !hasCurrent || !active) return;
+    const modal = mobile && sheet;
+    const oldOverflow = document.body.style.overflow;
+    if (modal) {
+      document.body.style.overflow = "hidden";
+      element.showModal();
+    } else if (!mobile) element.show();
+    return () => {
+      element.close();
+      if (modal) {
+        document.body.style.overflow = oldOverflow;
+        originatingCard.current?.focus();
+      }
+    };
+  }, [sheet, mobile, hasCurrent, active]);
+  useEffect(() => {
+    if (!hasCurrent) setSheet(false);
+  }, [hasCurrent]);
   const syncedRevision = useRef<LibraryStatusDTO["revision"] | null>(null);
   const queueKeys = useRef(new Set<string>());
   const [retry, setRetry] = useState(0);
@@ -88,6 +121,17 @@ export function Queue({
     else helpDialog.current?.close();
   }, [help]);
   const current = rows[index];
+  const lastAction = actions.at(-1);
+  const feedbackTarget =
+    lastAction?.key === current?.trackKey
+      ? "this song"
+      : "the previously edited song";
+  const savedFeedback = lastAction
+    ? lastAction.changed
+      ? `${lastAction.kind === "add" ? "Added" : "Removed"} “${lastAction.tagName}” ${lastAction.kind === "add" ? "to" : "from"} ${feedbackTarget} · Saved`
+      : `“${lastAction.tagName}” ${lastAction.kind === "add" ? "is already on" : "was already removed from"} ${feedbackTarget}`
+    : "";
+
   const rowsRef = useRef(rows),
     indexRef = useRef(index),
     generation = useRef(0);
@@ -102,7 +146,7 @@ export function Queue({
       { search: "", sort: "mostUsed", cursor: null, limit: 30 },
       c.signal,
     )
-      .then((v) => setFrequent(v.tags))
+      .then((v) => setFrequent((old) => refreshQuickRank(old, v.tags)))
       .catch((e) => {
         if (!c.signal.aborted) setError(errorMessage(e));
       });
@@ -110,7 +154,14 @@ export function Queue({
   }, [refresh]);
   // Pins retain identities, while global vocabulary edits update their labels.
   useEffect(() => {
-    const ids = [...new Set(Object.values(pinned).map((t) => t.id))];
+    const ids = [
+      ...new Set(
+        [
+          ...Object.values(pinned),
+          ...frequent.filter((t): t is TagDTO => !!t),
+        ].map((t) => t.id),
+      ),
+    ];
     if (!ids.length) return;
     const c = new AbortController();
     async function resolve() {
@@ -132,7 +183,14 @@ export function Queue({
         );
         live = individually.filter((t): t is TagDTO => t !== null);
       }
-      if (!c.signal.aborted)
+      if (!c.signal.aborted) {
+        setFrequent((old) =>
+          old.map((tag) =>
+            tag && ids.includes(tag.id)
+              ? live.find((t) => t.id === tag.id)
+              : tag,
+          ),
+        );
         setPinned((old) =>
           Object.fromEntries(
             Object.entries(old).flatMap(([slot, t]) => {
@@ -142,6 +200,7 @@ export function Queue({
             }),
           ),
         );
+      }
     }
     void resolve().catch((e) => {
       if (!c.signal.aborted) setError(errorMessage(e));
@@ -282,11 +341,11 @@ export function Queue({
     return () => c.abort();
   }, [current]);
   useEffect(() => {
-    if (active && !matchMedia("(max-width:640px)").matches)
+    if (active && !mobile && !editingSlots && pinSlot === null)
       container.current
         ?.querySelector<HTMLInputElement>(".tag-picker input")
         ?.focus();
-  }, [active, index]);
+  }, [active, index, current?.trackKey, mobile, editingSlots, pinSlot]);
   useEffect(() => {
     if (index >= rows.length) setIndex(Math.max(0, rows.length - 1));
   }, [index, rows.length]);
@@ -332,7 +391,7 @@ export function Queue({
           tagId: v.tag.id,
           kind,
           changed: v.changedCount > 0,
-          message: `${kind === "add" ? "Added" : "Removed"} “${v.tag.name}” · ${v.changedCount} changed`,
+          tagName: v.tag.name,
         },
       ]);
       onChanged();
@@ -481,25 +540,25 @@ export function Queue({
           {tagged.size} tagged this session ·{" "}
           {status ? status.activeCount - status.untaggedCount : 0} songs tagged
         </span>
+        <label className="desktop-bulk queue-order">
+          Queue order
+          <select
+            value={source ? "filter" : mode}
+            onChange={(e) => {
+              seed.current = crypto.randomUUID();
+              setMode(e.target.value);
+            }}
+            disabled={!!source}
+          >
+            <option value="newest">Untagged · newest liked first</option>
+            <option value="oldest">Untagged · oldest first</option>
+            <option value="latest">New since last completed sync</option>
+            <option value="random">Untagged · random</option>
+            {source && <option value="filter">Sent from library filter</option>}
+          </select>
+        </label>
       </div>
-      <label className="desktop-bulk">
-        Queue order
-        <select
-          value={source ? "filter" : mode}
-          onChange={(e) => {
-            seed.current = crypto.randomUUID();
-            setMode(e.target.value);
-          }}
-          disabled={!!source}
-        >
-          <option value="newest">Untagged · newest liked first</option>
-          <option value="oldest">Untagged · oldest first</option>
-          <option value="latest">New since last completed sync</option>
-          <option value="random">Untagged · random</option>
-          {source && <option value="filter">Sent from library filter</option>}
-        </select>
-      </label>
-      {error && (
+      {error && !sheet && (
         <p role="alert" className="notice">
           {error}{" "}
           <button
@@ -526,7 +585,8 @@ export function Queue({
           <button
             key={t.trackKey}
             className="mobile-track"
-            onClick={() => {
+            onClick={(event) => {
+              originatingCard.current = event.currentTarget;
               setIndex(i);
               setSheet(true);
             }}
@@ -537,35 +597,11 @@ export function Queue({
         ))}
       </div>
       {current && (
-        <div
+        <dialog
           className={`queue-card ${sheet ? "sheet-open" : ""}`}
           ref={sheetElement}
-          role={sheet ? "dialog" : undefined}
-          aria-modal={sheet ? true : undefined}
-          aria-label={sheet ? "Tag song" : undefined}
-          onKeyDown={(e) => {
-            if (!sheet) return;
-            if (e.key === "Escape") {
-              setSheet(false);
-              e.stopPropagation();
-            }
-            if (e.key === "Tab") {
-              const controls = [
-                ...e.currentTarget.querySelectorAll<HTMLElement>(
-                  "button:not(:disabled),a[href],input:not(:disabled)",
-                ),
-              ].filter((el) => el.getClientRects().length);
-              const first = controls[0],
-                last = controls.at(-1);
-              if (e.shiftKey && document.activeElement === first) {
-                e.preventDefault();
-                last?.focus();
-              } else if (!e.shiftKey && document.activeElement === last) {
-                e.preventDefault();
-                first?.focus();
-              }
-            }
-          }}
+          aria-label={mobile ? "Tag song" : "Current song"}
+          onCancel={() => setSheet(false)}
           onTouchStart={(e) => {
             if ((e.target as HTMLElement).closest("input,button,a")) {
               touch.current = null;
@@ -593,6 +629,14 @@ export function Queue({
           >
             Close song sheet
           </button>
+          {error && sheet && (
+            <div role="alert" className="notice">
+              {error}{" "}
+              <button onClick={() => setRetry((v) => v + 1)}>
+                Refresh queue
+              </button>
+            </div>
+          )}
           <TrackSummary track={current} />
           <p className="queue-details">
             {current.metadata?.releaseDate?.slice(0, 4) ?? "Year unavailable"} ·{" "}
@@ -617,9 +661,27 @@ export function Queue({
               </button>
             ))}
           </div>
+          <div className="quick-tags-heading">
+            <strong>
+              Quick tags{" "}
+              <small className="desktop-bulk">
+                Press 1–9 on an empty input
+              </small>
+            </strong>
+            <button
+              className="compact desktop-bulk"
+              aria-expanded={editingSlots}
+              onClick={() => {
+                setEditingSlots((v) => !v);
+                setPinSlot(null);
+              }}
+            >
+              {editingSlots ? "Done editing quick tags" : "Edit quick tags"}
+            </button>
+          </div>
           <div className="quick-slots" aria-label="Quick tags">
             {slots.map((t, i) => (
-              <div key={i}>
+              <div key={i} className={!t ? "empty-slot" : undefined}>
                 <button
                   className="chip"
                   disabled={!t || busy}
@@ -627,17 +689,43 @@ export function Queue({
                 >
                   <kbd>{i + 1}</kbd> {t?.name ?? "Empty slot"}
                 </button>
-                <button
-                  className="compact desktop-bulk"
-                  aria-label={`Set or pin slot ${i + 1}`}
-                  onClick={() => setPinSlot(i)}
-                >
-                  {" "}
-                  {pinned[i] ? "Pinned" : "Pin"}
-                </button>
+                {editingSlots && (
+                  <button
+                    className="compact desktop-bulk"
+                    aria-label={`Set or pin slot ${i + 1}`}
+                    onClick={() => setPinSlot(i)}
+                  >
+                    {" "}
+                    {pinned[i] ? "Pinned" : "Pin"}
+                  </button>
+                )}
               </div>
             ))}
           </div>
+          {pinSlot !== null && (
+            <div className="notice">
+              <TagPicker
+                label={`Choose tag for slot ${pinSlot + 1}`}
+                onChoose={(t) => {
+                  setPinned((old) => ({ ...old, [pinSlot]: t }));
+                  setPinSlot(null);
+                }}
+              />
+              <button
+                onClick={() => {
+                  setPinned((old) => {
+                    const next = { ...old };
+                    delete next[pinSlot];
+                    return next;
+                  });
+                  setPinSlot(null);
+                }}
+              >
+                Unpin slot
+              </button>
+              <button onClick={() => setPinSlot(null)}>Cancel</button>
+            </div>
+          )}
           <TagPicker
             label="Tag current song"
             showEmptySuggestions={false}
@@ -695,46 +783,23 @@ export function Queue({
               Hotkey help
             </button>
           </div>
-        </div>
-      )}
-      {!!actions.length && (
-        <div role="status" className="toast">
-          {actions.at(-1)?.message}
-          <button disabled={busy} onClick={() => void undo()}>
-            Undo last action
-          </button>
-        </div>
-      )}
-      {pinSlot !== null && (
-        <div className="notice">
-          <TagPicker
-            label={`Choose tag for slot ${pinSlot + 1}`}
-            onChoose={(t) => {
-              setPinned((old) => ({ ...old, [pinSlot]: t }));
-              setPinSlot(null);
-            }}
-          />
-          <button
-            onClick={() => {
-              setPinned((old) => {
-                const next = { ...old };
-                delete next[pinSlot];
-                return next;
-              });
-              setPinSlot(null);
-            }}
-          >
-            Unpin slot
-          </button>
-          <button onClick={() => setPinSlot(null)}>Cancel</button>
-        </div>
+          {!!actions.length && (
+            <div role="status" className="queue-feedback">
+              {savedFeedback}
+              <button disabled={busy} onClick={() => void undo()}>
+                Undo last action
+              </button>
+            </div>
+          )}
+        </dialog>
       )}
       <dialog
         ref={helpDialog}
         className="dialog"
+        aria-labelledby="hotkey-title"
         onCancel={() => setHelp(false)}
       >
-        <h3>Keep your hands on the keyboard</h3>
+        <h3 id="hotkey-title">Keep your hands on the keyboard</h3>
         <p>
           Enter applies the selected established match. Empty input: 1–9 quick
           tags; ← / → previous / next. Alt/Option + S skips, Z undoes, R removes
