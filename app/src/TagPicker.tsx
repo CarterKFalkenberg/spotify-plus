@@ -46,6 +46,40 @@ export function TagPicker({
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
   const composing = useRef(false);
+  const pointerActive = useRef(false);
+  const pendingBlur = useRef(false);
+  useEffect(() => {
+    if (!focused) return;
+    let frame = 0;
+    const start = () => {
+      pointerActive.current = true;
+    };
+    const finish = () => {
+      pointerActive.current = false;
+      // In-flow menus can change the sticky editor's height. Keep the pressed
+      // target stable until its click has dispatched, then close the picker.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (
+          pendingBlur.current &&
+          !container.current?.contains(document.activeElement)
+        )
+          setFocused(false);
+        pendingBlur.current = false;
+      });
+    };
+    document.addEventListener("pointerdown", start, true);
+    document.addEventListener("pointerup", finish, true);
+    document.addEventListener("pointercancel", finish, true);
+    return () => {
+      document.removeEventListener("pointerdown", start, true);
+      document.removeEventListener("pointerup", finish, true);
+      document.removeEventListener("pointercancel", finish, true);
+      cancelAnimationFrame(frame);
+      pointerActive.current = false;
+      pendingBlur.current = false;
+    };
+  }, [focused]);
   useEffect(() => {
     if (autoFocus) input.current?.focus();
   }, [autoFocus]);
@@ -147,8 +181,10 @@ export function TagPicker({
       className="tag-picker"
       ref={container}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget))
-          setFocused(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          if (pointerActive.current) pendingBlur.current = true;
+          else setFocused(false);
+        }
       }}
     >
       <form
@@ -217,6 +253,7 @@ export function TagPicker({
             readOnly={disabled || busy}
             aria-disabled={disabled || busy}
             onFocus={() => {
+              pendingBlur.current = false;
               if (!focused) setSearching(true);
               setFocused(true);
             }}

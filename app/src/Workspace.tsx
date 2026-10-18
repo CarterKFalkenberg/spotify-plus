@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import type {
   LibraryStatusDTO,
@@ -91,7 +92,7 @@ export function Workspace() {
   if (visible) viewRefresh.current[tab] = refresh;
   const refreshFor = (view: string) => viewRefresh.current[view] ?? 0;
   return (
-    <div className="workspace">
+    <div className="workspace" data-view={tab}>
       <div className="workspace-heading">
         <h1 className="sr-only">Your music workspace</h1>
         <div className="sync-controls">
@@ -176,7 +177,7 @@ export function Workspace() {
             setTab("queue");
           }}
         >
-          Tag queue
+          <Icon name="queue" /> Tag queue
         </button>
         <button
           className="nav-library"
@@ -186,28 +187,29 @@ export function Workspace() {
             setNewOnly(false);
           }}
         >
-          Library <span>{status?.activeCount ?? "—"}</span>
+          <Icon name="library" /> Library{" "}
+          <span>{status?.activeCount ?? "—"}</span>
         </button>
         <button
           className="nav-create"
           aria-pressed={tab === "builder"}
           onClick={() => setTab("builder")}
         >
-          Make a playlist
+          <Icon name="builder" /> Make a playlist
         </button>
         <button
           className="nav-playlists"
           aria-pressed={tab === "playlists"}
           onClick={() => setTab("playlists")}
         >
-          Your playlists
+          <Icon name="playlists" /> Your playlists
         </button>
         <button
           className="nav-tags"
           aria-pressed={tab === "vocabulary"}
           onClick={() => setTab("vocabulary")}
         >
-          Tags
+          <Icon name="vocabulary" /> Tags
         </button>
         <button
           className="nav-arrivals mobile-only"
@@ -218,7 +220,8 @@ export function Workspace() {
             setTab("queue");
           }}
         >
-          New arrivals <span>{status?.newCount ?? "—"}</span>
+          <Icon name="queue" /> New arrivals{" "}
+          <span>{status?.newCount ?? "—"}</span>
         </button>
       </nav>
       <div hidden={tab !== "queue"}>

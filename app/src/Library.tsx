@@ -220,7 +220,6 @@ export function Library({
     <section aria-labelledby="library-title">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">MAKE A LITTLE ORDER</div>
           <h2 id="library-title">Your library</h2>
         </div>
         <span className="muted">Tags save as you go</span>
@@ -475,7 +474,7 @@ export function Library({
                     </button>
                   </div>
                   <button
-                    className="compact"
+                    className="compact group-browse"
                     onClick={() => {
                       changeFilter({ ...group.selection.filter });
                       setGrouped(false);
