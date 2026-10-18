@@ -28,7 +28,7 @@ Light uses a cool neutral canvas, white work surfaces and near-black type. Dark 
 
 ## Evidence and verification
 
-Before/after proof uses synthetic fixtures only. Real Spotify names, library metadata, images and credentials never enter screenshots or model context. Matching baseline and final captures, exact source provenance and explanations are published with the PR and linked in the delivery response. The detailed proof page and image comparisons live under `docs/design/proof/` once the final rendered review is complete.
+Before/after proof uses synthetic fixtures only. Real Spotify names, library metadata, images and credentials never enter screenshots or model context. Matching baseline and final captures, exact source provenance and explanations are published with the PR and linked in the delivery response. The [detailed captioned proof gallery](design/proof/README.md) includes 22 comparisons and their source/hash manifest under `docs/design/proof/`.
 
 Browser checks continue to measure resolved text contrast, enabled field borders, placeholder contrast, focus, reflow, modal behavior, keyboard/IME safety, selection/undo and navigation hierarchy. Both palettes cover authenticated library, bulk selection, builder suggestions, playlist states, queue applied tags and suggestions, vocabulary and destructive confirmation. Geometry checks cover desktop account/appearance separation, phone task and primary-action clearance, focused sheet suggestions, group Browse targets, and the separate saved-feedback row at 600px and 720px desktop heights.
 
