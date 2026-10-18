@@ -80,7 +80,7 @@ export function Queue({
       tagId: string;
       kind: "add" | "remove";
       changed: boolean;
-      message: string;
+      tagName: string;
     }[]
   >([]);
   const [tagged, setTagged] = useState(new Set<string>());
@@ -121,6 +121,17 @@ export function Queue({
     else helpDialog.current?.close();
   }, [help]);
   const current = rows[index];
+  const lastAction = actions.at(-1);
+  const feedbackTarget =
+    lastAction?.key === current?.trackKey
+      ? "this song"
+      : "the previously edited song";
+  const savedFeedback = lastAction
+    ? lastAction.changed
+      ? `${lastAction.kind === "add" ? "Added" : "Removed"} “${lastAction.tagName}” ${lastAction.kind === "add" ? "to" : "from"} ${feedbackTarget} · Saved`
+      : `“${lastAction.tagName}” ${lastAction.kind === "add" ? "is already on" : "was already removed from"} ${feedbackTarget}`
+    : "";
+
   const rowsRef = useRef(rows),
     indexRef = useRef(index),
     generation = useRef(0);
@@ -380,9 +391,7 @@ export function Queue({
           tagId: v.tag.id,
           kind,
           changed: v.changedCount > 0,
-          message: v.changedCount
-            ? `${kind === "add" ? "Added" : "Removed"} “${v.tag.name}” ${kind === "add" ? "to" : "from"} this song · Saved`
-            : `“${v.tag.name}” ${kind === "add" ? "is already on" : "was already removed from"} this song`,
+          tagName: v.tag.name,
         },
       ]);
       onChanged();
@@ -776,7 +785,7 @@ export function Queue({
           </div>
           {!!actions.length && (
             <div role="status" className="queue-feedback">
-              {actions.at(-1)?.message}
+              {savedFeedback}
               <button disabled={busy} onClick={() => void undo()}>
                 Undo last action
               </button>

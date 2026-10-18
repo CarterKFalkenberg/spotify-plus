@@ -1525,3 +1525,92 @@ test("new vocabulary fills the next quick slots while keeping earlier number ass
       .getByRole("button", { name: "1 Chill", exact: true }),
   ).toBeVisible();
 });
+
+test("saved feedback follows its action after desktop navigation or reopening a different mobile card", async ({
+  page,
+  isMobile,
+}) => {
+  const calls = await mock(page, {
+    intercept: async (route, path) => {
+      if (!path.endsWith("/undo")) return false;
+      await route.fulfill({
+        json: {
+          actionId: id(50),
+          restoredCount: 1,
+          skippedCount: 0,
+          revision: { library: "1", annotations: "3" },
+        },
+      });
+      return true;
+    },
+  });
+  await page.goto("/");
+  if (isMobile) {
+    await page
+      .getByRole("button", { name: "New arrivals 2", exact: true })
+      .click();
+    await page.locator(".mobile-track").first().click();
+  } else await queue(page);
+  const surface = page.locator(".queue-card");
+  await surface
+    .locator(".quick-slots")
+    .getByRole("button", { name: isMobile ? "Chill" : "1 Chill", exact: true })
+    .click();
+  await expect(surface.locator(".queue-feedback")).toContainText(
+    "Added “Chill” to this song · Saved",
+  );
+  if (isMobile) {
+    await surface
+      .getByRole("button", { name: "Close song sheet", exact: true })
+      .click();
+    await page.locator(".mobile-track").nth(1).click();
+  } else
+    await surface.getByRole("button", { name: "Next →", exact: true }).click();
+  await expect(surface).toContainText("Synthetic song 2");
+  await expect(surface.locator(".queue-feedback")).toContainText(
+    "Added “Chill” to the previously edited song · Saved",
+  );
+  await expect(
+    surface.getByRole("button", {
+      name: "Remove Chill from current song",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await surface
+    .getByRole("button", { name: "← Previous", exact: true })
+    .click();
+  await expect(surface.locator(".queue-feedback")).toContainText(
+    "Added “Chill” to this song · Saved",
+  );
+  await surface.getByRole("button", { name: "Next →", exact: true }).click();
+  await expect(surface.locator(".queue-feedback")).toContainText(
+    "Added “Chill” to the previously edited song · Saved",
+  );
+  await surface
+    .getByRole("button", { name: "Undo last action", exact: true })
+    .click();
+  expect(
+    calls
+      .filter((call) => call.path.endsWith("/undo"))
+      .map((call) => call.path),
+  ).toEqual([`/api/tag-actions/${id(50)}/undo`]);
+  await expect(surface.locator(".queue-feedback")).toHaveCount(0);
+  await expect(page.locator(".mobile-track").first()).toContainText("0 tags");
+  await expect(surface).toContainText("Synthetic song 2");
+  await expect(
+    surface.getByRole("button", {
+      name: "Remove Chill from current song",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await surface
+    .getByRole("button", { name: "← Previous", exact: true })
+    .click();
+  await expect(surface).toContainText("Synthetic song 1");
+  await expect(
+    surface.getByRole("button", {
+      name: "Remove Chill from current song",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+});
