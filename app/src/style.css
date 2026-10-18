@@ -1922,3 +1922,16 @@ dialog.queue-card {
 .builder select {
   scroll-margin-top: 150px;
 }
+
+/* Reserve a second header row before the account target crowds the wordmark. */
+@media (max-width: 360px) {
+  .shell:has(.workspace) header {
+    padding-bottom: 60px;
+  }
+  .account-details summary {
+    top: 60px;
+    left: 18px;
+    right: auto;
+    margin-left: 0;
+  }
+}

@@ -1807,3 +1807,33 @@ for (const width of [320, 390, 1280])
       ),
     ).toBe(true);
   });
+
+for (const width of [320, 390])
+  test(`connected header separates home and account targets at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mock(page);
+    await page.goto("/");
+    await expect(
+      page.getByRole("navigation", { name: "Workspace" }),
+    ).toBeVisible();
+    const home = await page
+      .getByRole("link", { name: "Spotify Plus home" })
+      .boundingBox();
+    const account = page.locator(".account-details summary");
+    const target = await account.boundingBox();
+    expect(home).not.toBeNull();
+    expect(target).not.toBeNull();
+    expect(
+      home!.x + home!.width <= target!.x ||
+        target!.x + target!.width <= home!.x ||
+        home!.y + home!.height <= target!.y ||
+        target!.y + target!.height <= home!.y,
+    ).toBe(true);
+    expect(target!.height).toBeGreaterThanOrEqual(44);
+    expect(target!.x).toBeGreaterThanOrEqual(0);
+    expect(target!.x + target!.width).toBeLessThanOrEqual(width);
+    await account.click();
+    await expect(page.locator(".account-details")).toHaveAttribute("open", "");
+  });
