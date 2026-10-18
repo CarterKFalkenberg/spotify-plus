@@ -1,0 +1,14 @@
+flowchart TB
+ MAIN[main.tsx / router + session + disconnect] --> W[Workspace.tsx / revisions + tabs + status]
+ W --> L[Library / search + sort + groups]
+ W --> Q[Queue / desktop shortcuts + mobile sheet]
+ W --> B[Builder / query buckets + preview]
+ W --> P[Playlists / lifecycle actions]
+ W --> V[Vocabulary / rename + merge + delete]
+ L --> F[Facets + BulkTags]
+ Q --> T[TagPicker / autocomplete + slots]
+ F --> T
+ B --> T
+ W --> POLL[useVisiblePolling + polling.ts]
+ P --> POLL
+ W --> REV[Library and annotation revision invalidation]

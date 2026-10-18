@@ -1,0 +1,21 @@
+flowchart TB
+ UI[React components] --> CLIENT[api.ts / fast-api.ts / session.ts]
+ CLIENT --> PROXY[proxy/worker.ts]
+ PROXY --> HAND[api/handler.ts]
+ HAND --> ROUTES[api/library.ts + playlist-api.ts]
+ ROUTES --> C[contracts.ts / validation]
+ ROUTES --> DB[database.ts / RPC client]
+ ENTRY[api/index.ts + jobs/index.ts] --> DRAIN[jobs.ts / drainJobs]
+ DRAIN --> LIB[library.ts]
+ DRAIN --> PR[playlist-runtime.ts + playlist-runner.ts]
+ DRAIN --> BACK[annotation-backups.ts]
+ PR --> DOMAIN[playlist-domain.ts / pure behavior]
+ LIB --> SP[spotify.ts / guarded adapter]
+ PR --> SP
+ SP --> TOK[tokens.ts / serialized refresh]
+ TOK --> CRYPTO[crypto.ts]
+ LIB --> DB
+ PR --> DB
+ BACK --> DB
+ BACK --> STORAGE[backups.ts / Storage adapter]
+ DB --> SQL[Versioned SQL migrations / atomic RPCs]

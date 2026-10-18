@@ -1,0 +1,12 @@
+stateDiagram-v2
+ [*] --> pending: create accepted
+ pending --> ready: content + disclosure verified / publication acknowledged
+ pending --> incomplete: unresolved or failed work
+ ready --> pending: regenerate or metadata operation
+ ready --> removing: delete or expiry
+ incomplete --> pending: retry permitted
+ incomplete --> removing: retry deletion / safe Delete / expiry
+ removing --> removed: absence confirmed
+ removing --> incomplete: removal unconfirmed
+ pending --> incomplete: provider / recovery failure
+ removed --> [*]

@@ -1,0 +1,24 @@
+sequenceDiagram
+ actor U as Owner browser
+ participant P as Cloudflare proxy
+ participant A as API
+ participant D as PostgreSQL
+ participant S as Spotify Accounts / API
+ U->>P: GET /auth/spotify/start
+ P->>A: Request + proxy secret
+ A->>D: Store hashed state / browser binding / encrypted PKCE verifier
+ A-->>U: OAuth redirect + secure binding cookie
+ U->>S: Consent with PKCE challenge
+ S-->>U: Redirect to callback with code + state
+ U->>P: GET /auth/spotify/callback
+ P->>A: Forward callback
+ A->>D: Consume matching state once
+ A->>S: Exchange code + verifier
+ A->>S: GET /me
+ A->>D: Bind immutable owner, encrypted tokens + session hash
+ D->>D: Enqueue initial library import
+ A-->>U: HttpOnly session cookie + redirect home
+ U->>P: GET /api/session
+ P->>A: Cookie + proxy secret
+ A->>D: Resolve session + current account epoch
+ A-->>U: Redacted session state

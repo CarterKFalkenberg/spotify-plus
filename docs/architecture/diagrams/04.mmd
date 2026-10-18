@@ -1,0 +1,48 @@
+erDiagram
+ annotations ||--o| track_metadata : caches
+ annotations ||--o{ track_tags : has
+ tags ||--o{ track_tags : assigned
+ tags ||--o{ tag_actions : changed_by
+ tag_actions ||--o{ tag_action_edges : records
+ annotations ||--o{ tag_action_edges : affected
+ sync_runs ||--o{ sync_seen : observes
+ playlists ||--o{ playlist_operations : executes
+ playlists ||--o{ playlist_requests : deduplicates
+ annotations {
+  text track_key PK
+  bigint epoch
+ }
+ track_metadata {
+  text track_key PK,FK
+  text spotify_id UK
+  timestamptz liked_at
+  timestamptz removed_at
+  timestamptz acknowledged_at
+ }
+ track_tags {
+  text track_key PK,FK
+  uuid tag_id PK,FK
+  boolean present
+  bigint version
+ }
+ tags {
+  uuid id PK
+  text normalized_name
+  text name
+  timestamptz deleted_at
+ }
+ playlists {
+  uuid id PK
+  text spotify_id UK
+  jsonb query
+  date expires_on
+  text status
+ }
+ playlist_operations {
+  uuid id PK
+  uuid playlist_id FK
+  uuid job_id UK
+  text_array target
+  boolean create_attempted
+  jsonb scan
+ }

@@ -1,0 +1,18 @@
+sequenceDiagram
+ actor U as Owner
+ participant B as Browser
+ participant A as API
+ participant D as SQL transaction
+ U->>B: Select all matching filter, add tag
+ B->>A: Selection + revision + tag
+ A->>D: app_tag_action / owner + session
+ D->>D: Validate revision and freeze target keys
+ D->>D: Add missing edges, increment versions
+ D->>D: Journal only changed edges
+ D-->>B: Changed count + action ID + revision
+ B-->>U: Added to 43 songs / Undo
+ U->>B: Undo
+ B->>A: Action ID
+ A->>D: app_tag_undo / same session
+ D->>D: Restore only edges still at recorded after-version
+ D-->>B: Undo result + new revision

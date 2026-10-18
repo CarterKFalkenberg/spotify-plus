@@ -1,0 +1,20 @@
+flowchart TB
+ T[Durable operation and target] --> STORED{Spotify ID stored?}
+ STORED -->|yes| READ
+ STORED -->|no| ATT{Create previously attempted?}
+ ATT -->|no| INT[Checkpoint create intent]
+ INT --> POST[POST /me/playlists with unique marker]
+ POST -->|ID received| ID[Persist Spotify ID]
+ POST -->|response lost| SCAN[Scan current-user playlists for marker]
+ ATT -->|yes / no stored ID| SCAN
+ SCAN -->|exactly one valid match| ID
+ SCAN -->|none or duplicate| STOP[Incomplete / explicit recovery]
+ ID --> READ[Verify owner + remote ordered content + snapshot]
+ READ --> PREFIX{Remote is target prefix?}
+ PREFIX -->|yes| APPEND[Append next chunk / at most 100]
+ PREFIX -->|no| REPLACE[Replace first chunk / at most 100]
+ APPEND --> READ
+ REPLACE --> READ
+ READ -->|complete exact target| META[Preserve name and outside notes / fixed-false metadata PUT]
+ META --> VERIFY[Re-read description + snapshot + noncollaboration]
+ VERIFY --> READY[Complete operation / ready]
