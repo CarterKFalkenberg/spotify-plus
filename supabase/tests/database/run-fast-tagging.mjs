@@ -171,7 +171,8 @@ try {
     "PGRST_DB_ANON_ROLE=service_role",
     "--env",
     "PGRST_DB_SCHEMAS=public",
-    "public.ecr.aws/supabase/postgrest:v16.4",
+    // Same v16.4 bytes as ECR, without its shared download quota; see IMAGES.md.
+    "ghcr.io/supabase/postgrest:v16.4@sha256:d155c6718ed9a9f990d159a2ab7c0a3f16944dbb6d0a0344557421042acfe0df",
   ]);
   const rpc = async (name, args) =>
     JSON.parse(
