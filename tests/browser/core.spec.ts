@@ -1,3 +1,4 @@
+import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
 const id = (n: number) =>
   `${n.toString(16).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`;
@@ -1756,3 +1757,53 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
     fullPage: true,
   });
 });
+
+for (const width of [320, 390, 1280])
+  test(`working surfaces retain readable text and identifying fields at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mock(page);
+    await page.goto("/");
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: /^Library/ })
+      .click();
+    if (width === 1280)
+      await expect(page.locator(".artist-card")).toBeVisible();
+    else await expect(page.getByLabel("Search your library")).toBeVisible();
+    await assertReadableSurface(page);
+    if (width === 1280) {
+      await page.getByLabel("Group rows").selectOption("none");
+      await page.getByLabel("Select Synthetic song 1").check();
+      await expect(page.locator(".bulk-bar")).toBeVisible();
+      await assertReadableSurface(page);
+    }
+    await builder(page);
+    await expect(page.locator(".bucket-number").first()).toBeVisible();
+    await assertReadableSurface(page);
+    const information = await resolvedAppearance(
+      page.getByText("Request hidden from profile & search", { exact: true }),
+    );
+    await page.getByLabel("Add All of tag", { exact: true }).fill("Synthetic");
+    await expect(
+      page.locator(".suggestions [role=option]").first(),
+    ).toBeVisible();
+    await assertReadableSurface(page);
+    await page.locator(".suggestions [role=option]").first().click();
+    await expect(page.locator(".query-feedback")).toContainText("2 songs");
+    await assertReadableSurface(page);
+    await lists(page);
+    await expect(page.locator(".playlist-card")).toBeVisible();
+    await expect(page.getByText("Resolving query tags…")).toHaveCount(0);
+    await assertReadableSurface(page);
+    expect(await resolvedAppearance(page.locator(".pill.ready"))).not.toEqual(
+      information,
+    );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });

@@ -741,16 +741,21 @@ export function Queue({
                 Mark arrival reviewed
               </button>
             )}
-            <button disabled={index === 0 || busy} onClick={() => advance(-1)}>
+            <button
+              className="queue-previous"
+              disabled={index === 0 || busy}
+              onClick={() => advance(-1)}
+            >
               ← Previous
             </button>
             <button
+              className="primary queue-next"
               disabled={busy || index === rows.length - 1}
               onClick={() => advance(1)}
             >
               Next →
             </button>
-            <button disabled={busy} onClick={skip}>
+            <button className="queue-skip" disabled={busy} onClick={skip}>
               Skip · requeue
             </button>
             {current.metadata?.spotifyUrl && (
