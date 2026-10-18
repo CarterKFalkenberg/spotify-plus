@@ -762,10 +762,17 @@ input[type="checkbox"] {
   overflow-wrap: anywhere;
   max-width: 100%;
 }
-.bulk-bar {
+.library-action-dock {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 24px);
   position: sticky;
   bottom: 12px;
   z-index: 2;
+}
+.bulk-bar {
+  min-height: 0;
+  overflow: auto;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -781,6 +788,12 @@ input[type="checkbox"] {
   flex: 1;
   min-width: 200px;
   margin: 0;
+}
+.bulk-bar .suggestions {
+  position: relative;
+  top: auto;
+  margin-top: 6px;
+  box-shadow: none;
 }
 .bulk-states {
   flex-basis: 100%;
@@ -807,6 +820,15 @@ input[type="checkbox"] {
   width: max-content;
   max-width: calc(100% - 24px);
   font-size: 13px;
+}
+.library-action-dock > .toast {
+  flex-shrink: 0;
+  position: relative;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  max-width: 100%;
+  margin: 12px auto 0;
 }
 .toast button {
   color: var(--ink);

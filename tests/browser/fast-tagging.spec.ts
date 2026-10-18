@@ -1702,3 +1702,93 @@ test("narrow picker, failure, vocabulary and destructive confirmation remain rea
     ),
   ).toBe(true);
 });
+
+for (const height of [720, 600])
+  for (const selection of [false, true])
+    test(`saved ${selection ? "bulk" : "group"} feedback keeps the next picker and Undo usable at ${height}px height`, async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, "Desktop tagging interaction");
+      await page.setViewportSize({ width: 1280, height });
+      const calls = await mock(page);
+      await page.goto("/");
+      await browser(page);
+      const groupInput = page.getByLabel(
+        "Tag all 3 songs by Synthetic Artist",
+        { exact: true },
+      );
+      await groupInput.fill("Chill");
+      const refreshed = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/library/search",
+      );
+      await page
+        .getByRole("option", { name: "Chill 84 songs", exact: true })
+        .click();
+      await expect(page.locator(".toast")).toContainText("Added");
+      await refreshed;
+      if (selection)
+        await page
+          .getByRole("button", { name: "Select all 3 matching", exact: true })
+          .click();
+      const input = selection
+        ? page.getByLabel("Add tag to selection", { exact: true })
+        : groupInput;
+      await input.fill("ch");
+      const picker = page.locator(".tag-picker").filter({ has: input });
+      await expect(picker.getByRole("option").first()).toBeVisible();
+      await assertSeparateFeedback();
+      await input.press("Escape");
+      await input.fill("fresh");
+      const create = page.getByRole("button", {
+        name: "Create “fresh”",
+        exact: true,
+      });
+      await expect(create).toBeEnabled();
+      await create.scrollIntoViewIfNeeded();
+      async function assertSeparateFeedback() {
+        await picker.locator(".suggestions").scrollIntoViewIfNeeded();
+        const menu = await picker.locator(".suggestions").boundingBox();
+        const feedback = await page.locator(".toast").boundingBox();
+        expect(menu).not.toBeNull();
+        expect(feedback).not.toBeNull();
+        expect(
+          menu!.x + menu!.width <= feedback!.x ||
+            feedback!.x + feedback!.width <= menu!.x ||
+            menu!.y + menu!.height <= feedback!.y ||
+            feedback!.y + feedback!.height <= menu!.y,
+        ).toBe(true);
+        const undo = await page
+          .locator(".toast")
+          .getByRole("button", { name: "Undo", exact: true })
+          .boundingBox();
+        expect(undo).not.toBeNull();
+        expect(undo!.y).toBeGreaterThanOrEqual(0);
+        expect(undo!.y + undo!.height).toBeLessThanOrEqual(height);
+        const dock = await page.locator(".library-action-dock").boundingBox();
+        expect(dock).not.toBeNull();
+        expect(dock!.y).toBeGreaterThanOrEqual(0);
+        expect(dock!.y + dock!.height).toBeLessThanOrEqual(height);
+      }
+      await assertSeparateFeedback();
+      await create.click();
+      await expect(page.locator(".toast")).toContainText("fresh");
+      expect(
+        calls.filter((c) => c.path === "/api/tag-actions").at(-1)!.body.tagName,
+      ).toBe("fresh");
+      const undo = page
+        .locator(".toast")
+        .getByRole("button", { name: "Undo", exact: true });
+      if (selection) await undo.click();
+      else {
+        await undo.focus();
+        await page.keyboard.press("Enter");
+      }
+      await expect(
+        page
+          .getByRole("status")
+          .filter({ hasText: "later edits were preserved" }),
+      ).toBeVisible();
+      expect(calls.filter((c) => c.path.endsWith("/undo"))).toHaveLength(1);
+    });
