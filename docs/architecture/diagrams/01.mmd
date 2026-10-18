@@ -1,0 +1,33 @@
+flowchart TB
+ subgraph Device[Your device]
+ B[React browser app]
+ SC[Spotify client]
+ end
+ subgraph CF[Cloudflare Workers Free]
+ A[Compiled static assets]
+ P[Thin same-origin proxy]
+ end
+ subgraph SB[Supabase Free]
+ API[api Edge Function / Deno]
+ J[jobs Edge Function / Deno]
+ DB[(PostgreSQL / private app schema)]
+ CR[pg_cron + pg_net]
+ V[Vault / cron authentication]
+ ST[Private encrypted annotation backups]
+ end
+ S[Spotify Accounts + Web API]
+ ART[Spotify image CDN]
+ A -. JS and CSS .-> B
+ B -->|HTTPS / cookie| P
+ P -->|fixed upstream + proxy secret| API
+ API -->|service-only RPC| DB
+ API -->|optional bounded drain| DB
+ CR -->|authenticated invocation| J
+ V --> CR
+ DB -->|due rows| CR
+ J -->|lease / checkpoint| DB
+ API -->|OAuth / guarded transport| S
+ J -->|guarded transport| S
+ J --> ST
+ B -. deep link .-> SC
+ B -. artwork URL .-> ART

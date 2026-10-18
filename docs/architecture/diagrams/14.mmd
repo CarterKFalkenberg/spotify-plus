@@ -1,0 +1,9 @@
+flowchart LR
+ H[Document hidden / playlist tab inactive] -->|visible or focused| R[Immediate refresh]
+ R --> I[Idle or blocked / 60s]
+ R --> A[Working first minute / 5s]
+ A -->|still working| S[Working later / 15s]
+ S -->|finished or blocked| I
+ I -->|hidden| H
+ A -->|hidden| H
+ S -->|hidden| H

@@ -1,0 +1,10 @@
+flowchart LR
+ B[Builder buckets] --> AST[Validated query AST]
+ AST --> PRE[POST /api/query/preview]
+ PRE --> SQL[SQL / cached membership + tag edges]
+ SQL --> UI[Count + duration + tracks + revision]
+ UI --> HUMAN[Owner reviews preview]
+ HUMAN --> CREATE[POST /api/playlists]
+ CREATE --> FREEZE[Validate revision / freeze ordered playable target]
+ FREEZE --> JOB[Playlist operation + job]
+ JOB --> SP[Spotify writes later]

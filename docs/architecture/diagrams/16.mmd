@@ -1,0 +1,9 @@
+flowchart TB
+ F[Pure tests / parsing, keyboard, query, dates] --> H[Handler + adapter tests / synthetic faults]
+ H --> SQL[Disposable PostgreSQL / transactions and concurrency]
+ SQL --> LOCAL[Local Supabase / PostgREST, Storage, authenticated cron]
+ F --> PW[Playwright / desktop and mobile synthetic UI]
+ LOCAL --> CI[scripts/check + check-supabase / CI]
+ PW --> CI
+ CI --> LIVE[Exact-head deployed stage proof / redacted real assertions]
+ LIVE --> HUMAN[Actual phone speed + tagging speed + publication outcome]

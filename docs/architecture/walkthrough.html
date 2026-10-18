@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Spotify Plus request walkthrough</title><style>
+:root{color-scheme:light dark;--background:#f6f7f4;--foreground:#172a32;--muted:#e6eee8;--muted-foreground:#526570;--border:#b8c9c0;--viz-series-1:#12654e}*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font:16px/1.55 system-ui,sans-serif}main{max-width:1080px;margin:auto;padding:32px 24px}a{color:var(--viz-series-1)}h1{font-size:clamp(28px,5vw,44px);line-height:1.15;margin:18px 0}h2{font-size:24px}code{font-size:12px;overflow-wrap:anywhere}.intro{color:var(--muted-foreground)}.viz-controls{margin:20px 0}.form-label{display:grid;gap:6px;max-width:360px}.form-select,.btn{font:inherit;border:1px solid var(--border);border-radius:6px;background:var(--background);color:var(--foreground);padding:10px 14px}.btn{cursor:pointer}.btn-primary{background:var(--viz-series-1);color:var(--background);border-color:var(--viz-series-1)}.btn:disabled{opacity:.45;cursor:default}.viz-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.text-small{font-size:13px;color:var(--muted-foreground)}.tabular-nums{font-variant-numeric:tabular-nums}#sp-event{padding:16px;border:1px solid var(--border);border-radius:8px;min-height:84px}footer{margin-top:32px;font-size:13px;color:var(--muted-foreground)}@media(prefers-color-scheme:dark){:root{--background:#18251f;--foreground:#e7f0eb;--muted:#263b30;--muted-foreground:#b3c8bc;--border:#5b7767;--viz-series-1:#8ee0b9}}@media(max-width:520px){main{padding:20px 16px}.viz-row{gap:8px}.btn{padding:9px 12px}}
+</style></head><body><main><a href="handbook.html">← Architecture handbook</a><h1>Spotify Plus request walkthrough</h1><p class="intro">Step through eight synthetic flows from browser intent to durable state and remote effects. Based on the October 14, 2026 source snapshot <code>7cfd663a3766ae694041d1c170705820f49c4ff6</code>; this is an implementation guide, not a live service check.</p><div id="spotify-flow-guide">
+  <div class="viz-controls">
+    <label class="form-label">Flow
+      <select class="form-select" id="sp-flow-select">
+        <option value="login">Spotify login</option>
+        <option value="sync">Library import</option>
+        <option value="tag">Bulk tagging and undo</option>
+        <option value="preview">Query preview</option>
+        <option value="create">Playlist creation</option>
+        <option value="lost">Lost Spotify response</option>
+        <option value="expiry">Unattended expiry</option>
+        <option value="disconnect">Disconnect</option>
+      </select>
+    </label>
+  </div>
+  <div class="viz-row"><button class="btn" id="sp-prev" type="button">Previous</button><button class="btn btn-primary" id="sp-next" type="button">Next step</button><span id="sp-counter" class="text-small tabular-nums"></span></div>
+  <div class="text-small">Logical handoffs · browser API traffic passes through Cloudflare</div>
+  <div id="sp-diagram" role="img" aria-label="Current request path across system participants"></div>
+  <div id="sp-event" aria-live="polite"></div>
+  <div class="text-small" id="sp-source"></div>
+</div>
+<style>
+#spotify-flow-guide #sp-diagram{width:100%;margin:14px 0 4px}
+#spotify-flow-guide #sp-diagram svg{display:block;width:100%;overflow:visible}
+#spotify-flow-guide .sp-link{fill:none;stroke:var(--viz-series-1);stroke-width:2}
+#spotify-flow-guide .sp-node{fill:var(--muted);stroke:var(--border);stroke-width:1}
+#spotify-flow-guide .sp-active{fill:color-mix(in srgb,var(--viz-series-1) 15%,var(--background));stroke:var(--viz-series-1)}
+#spotify-flow-guide svg text{fill:var(--foreground);font-family:inherit;font-size:14px}
+#spotify-flow-guide svg .sp-sub{fill:var(--muted-foreground);font-size:12px}
+#spotify-flow-guide #sp-source{color:var(--muted-foreground);margin-top:7px;overflow-wrap:anywhere}
+</style>
+<script>
+(()=>{
+const root=document.getElementById('spotify-flow-guide');
+const flow=root.querySelector('#sp-flow-select'),prev=root.querySelector('#sp-prev'),next=root.querySelector('#sp-next'),counter=root.querySelector('#sp-counter'),diagram=root.querySelector('#sp-diagram'),event=root.querySelector('#sp-event'),source=root.querySelector('#sp-source');
+const flows={
+login:[
+['browser','proxy','Open Spotify login','GET /auth/spotify/start','proxy/worker.ts'],
+['proxy','api','Forward to the fixed API origin','Proxy secret added server-side','api/handler.ts'],
+['api','db','Store the OAuth challenge','State hash + browser binding + encrypted PKCE verifier','app_oauth_start'],
+['browser','remote','Complete Spotify consent','PKCE challenge; redirect returns code and state','Spotify Accounts'],
+['api','remote','Exchange code and read identity','Server verifier; immutable account_id','persistGrant / tokens.ts'],
+['api','db','Commit owner, tokens and session','Encrypted credentials + session hash; import queued','app_connect'],
+['api','browser','Return the app session','Secure HttpOnly cookie; Spotify tokens stay server-side','api/handler.ts']
+],
+sync:[
+['api','db','Request a library walk','Initial connection, manual Sync now, or maintenance','app_library_sync'],
+['db','jobs','Dispatch and claim durable work','pg_cron / pg_net; current epoch and lease token','app_job_claim'],
+['jobs','remote','Read one saved-library page','GET /me/tracks; up to 50 items','library.ts'],
+['jobs','db','Commit page and resume position','Metadata + seen set + offset in one transaction','app_library_page_commit'],
+['jobs','remote','Walk the entire library again','Offset pages are not a snapshot','library.ts'],
+['jobs','db','Compare consecutive valid full passes','Same track-key and liked-at sets; consistent coverage','app_library_page_commit'],
+['db','db','Complete verified reconciliation','Soft-remove missing tracks; initial generation gate opens','library_state / sync_seen'],
+['api','browser','Read the new library revision','Visible UI polling observes completion','Workspace.tsx / polling.ts']
+],
+tag:[
+['browser','api','Submit selection and tag action','Explicit keys or revision-bound matching filter','BulkTags.tsx / api/library.ts'],
+['api','db','Freeze targets under the owner lock','Reject stale revision before applying changes','app_tag_action'],
+['db','db','Apply only missing assignments','Version edges; journal only actual changes','track_tags / tag_action_edges'],
+['api','browser','Return count and Undo action ID','Tag mutation is already committed','Library.tsx'],
+['browser','api','Request session Undo','Use the server-issued action ID','POST /api/tag-actions/{id}/undo'],
+['api','db','Restore eligible changed edges','Later version changes are preserved','app_tag_undo']
+],
+preview:[
+['browser','browser','Build a query tree','All / Any / None buckets become AND / OR / NOT','Builder.tsx'],
+['browser','api','Request preview','AST contains stable tag UUIDs','POST /api/query/preview'],
+['api','db','Validate every tag and evaluate locally','Cached membership + annotation edges','app_query_preview'],
+['db','api','Return revision-bound results','Matched, playable, excluded, duration and preview rows','query_targets'],
+['api','browser','Review before creating','Zero Spotify requests in this flow','Builder.tsx']
+],
+create:[
+['browser','api','Submit reviewed playlist intent','Request UUID + query + revision + name + retention','POST /api/playlists'],
+['api','db','Freeze target and enqueue operation','Deduplicate intent; require completed initial sync','app_playlist_create'],
+['db','jobs','Claim playlist job','API may wake a drain; cron supplies durable recovery','drainJobs'],
+['jobs','db','Record creation intent before dispatch','create_attempted prevents blind duplicate creation','app_playlist_checkpoint'],
+['jobs','remote','Create the tracked playlist','POST /me/playlists; unique app marker','spotify.ts'],
+['jobs','remote','Verify and populate ordered contents','Read current state; replace/append at most 100 items','playlist-runner.ts'],
+['jobs','remote','Verify disclosure and request hiding','Preserve name/notes; fixed public:false command','updatePlaylistDescription'],
+['jobs','db','Commit ready state','Content verified; hiding outcome remains unverified','app_playlist_complete'],
+['api','browser','Display completion and Spotify link','User opens the resulting snapshot playlist','Playlists.tsx']
+],
+lost:[
+['jobs','remote','Append a target chunk','POST can succeed remotely before the response is lost','appendPlaylistItems'],
+['remote','jobs','No reliable acknowledgement','The outcome is uncertain, not confirmed failure','SpotifyError / ambiguous write'],
+['jobs','db','Keep durable work for recovery','Retry timestamp; frozen target survives','app_playlist_failed'],
+['db','jobs','Claim again with a valid fence','New lease; same operation','app_job_claim'],
+['jobs','remote','Read ordered remote contents','Verify owner, stable snapshot and target prefix','playlist-runner.ts'],
+['jobs','remote','Write only what remains necessary','Never replay append solely from a saved offset','verifiedPrefix'],
+['jobs','db','Finish only after verification','A checkpoint is not POST idempotency','app_playlist_complete']
+],
+expiry:[
+['db','db','Discover an overdue unpinned playlist','After its New York valid-through date','app_playlist_schedule'],
+['db','jobs','Invoke the authenticated worker','No browser needed; hosting must be running','scheduler_tick / pg_net'],
+['jobs','db','Check epoch, operation and managed identity','Reject stale lease or unrelated playlist','app_playlist_fence'],
+['jobs','remote','Remove only the managed playlist URI','DELETE /me/library; never a track URI','removeManagedPlaylists'],
+['jobs','remote','Confirm library absence','False containment + absent from saved-playlist collection','playlist-runner.ts'],
+['jobs','db','Commit removed state','Spotify object or direct link can still exist','app_playlist_complete']
+],
+disconnect:[
+['browser','api','Confirm Delete all app data','Explicit product confirmation','POST /api/disconnect'],
+['api','db','Invalidate the connection epoch','Cancel leases; remove credentials, sessions and product rows','app_disconnect'],
+['db','jobs','Queue backup cleanup','Retired targets survive in the purge registry','purge_backups'],
+['jobs','remote','Delete private backup objects and buckets','Storage target identities are never reused','PrivateBackups.purge'],
+['jobs','db','Checkpoint verified target absence','A stale worker cannot upload into the deleted bucket','app_backup_purge_checkpoint'],
+['jobs','db','Finish disconnect only after cleanup','Existing Spotify playlists remain; cleanup stops','app_disconnect_finish'],
+['api','browser','Show disconnected state','Full grant revocation is on Spotify account Apps','main.tsx']
+]
+};
+let selected='create',step=0;
+const names={browser:['Browser','React UI'],proxy:['Cloudflare','Thin proxy'],api:['Supabase API','Session + actions'],db:['PostgreSQL','Durable state'],jobs:['Job runner','Bounded Deno work'],remote:['Spotify','External API']};
+function draw(){
+ flow.value=selected;const steps=flows[selected],s=steps[step];prev.disabled=step===0;next.disabled=step===steps.length-1;counter.textContent=(step+1)+' / '+steps.length;
+ const w=Math.max(280,diagram.clientWidth),small=w<520,cols=small?2:3,gap=small?24:36,nodeW=(w-gap*(cols-1))/cols,nodeH=68,rowGap=small?54:80,ids=['browser','proxy','api','db','jobs','remote'],positions={};
+ ids.forEach((id,i)=>positions[id]={x:(i%cols)*(nodeW+gap),y:Math.floor(i/cols)*(nodeH+rowGap)});
+ const h=Math.ceil(ids.length/cols)*(nodeH+rowGap)-rowGap+22;
+ const ns='http://www.w3.org/2000/svg';const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox',`0 -40 ${w} ${h+55}`);svg.setAttribute('role','img');svg.setAttribute('aria-label',s[2]+': '+names[s[0]][0]+' to '+(selected==='disconnect'&&s[1]==='remote'?'Supabase Storage':names[s[1]][0]));
+ const defs=document.createElementNS(ns,'defs');defs.innerHTML='<marker id="sp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--viz-series-1)"/></marker>';svg.append(defs);
+ const a=positions[s[0]],b=positions[s[1]],path=document.createElementNS(ns,'path');let d;
+ if(s[0]===s[1]){const x=a.x+nodeW*.3,y=a.y+nodeH;d=`M ${x} ${y} C ${x-5} ${y+38},${x+nodeW*.5+5} ${y+38},${x+nodeW*.5} ${y}`;}
+ else if(a.y===b.y){const right=b.x>a.x;const x1=a.x+(right?nodeW:0),x2=b.x+(right?0:nodeW),y=a.y+nodeH/2;d=Math.abs(b.x-a.x)>nodeW+gap+1?`M ${a.x+nodeW/2} ${a.y} C ${a.x+nodeW/2} ${a.y-35},${b.x+nodeW/2} ${b.y-35},${b.x+nodeW/2} ${b.y}`:`M ${x1} ${y} L ${x2} ${y}`;}
+ else {const down=b.y>a.y,x1=a.x+nodeW/2,x2=b.x+nodeW/2,y1=a.y+(down?nodeH:0),y2=b.y+(down?0:nodeH);d=`M ${x1} ${y1} C ${x1} ${(y1+y2)/2},${x2} ${(y1+y2)/2},${x2} ${y2}`;}
+ path.setAttribute('d',d);path.setAttribute('class','sp-link');path.setAttribute('marker-end','url(#sp-arrow)');svg.append(path);
+ ids.forEach(id=>{const p=positions[id],rect=document.createElementNS(ns,'rect');rect.setAttribute('x',p.x);rect.setAttribute('y',p.y);rect.setAttribute('width',nodeW);rect.setAttribute('height',nodeH);rect.setAttribute('rx','8');rect.setAttribute('class','sp-node'+(id===s[0]||id===s[1]?' sp-active':''));svg.append(rect);const labels=id==='remote'&&selected==='disconnect'?['Supabase Storage','Private backups']:names[id];labels.forEach((label,i)=>{const text=document.createElementNS(ns,'text');text.setAttribute('x',p.x+nodeW/2);text.setAttribute('y',p.y+28+i*22);text.setAttribute('text-anchor','middle');if(i)text.setAttribute('class','sp-sub');text.textContent=label;svg.append(text);});});
+ diagram.replaceChildren(svg);event.replaceChildren();const title=document.createElement('strong');title.textContent=s[2];event.append(title,document.createTextNode(' — '+s[3]));source.textContent=s[4];
+}
+flow.addEventListener('change',()=>{selected=flow.value;step=0;draw();});prev.addEventListener('click',()=>{if(step>0){step--;draw();}});next.addEventListener('click',()=>{if(step<flows[selected].length-1){step++;draw();}});
+draw();new ResizeObserver(draw).observe(diagram);
+})();
+</script>
+<footer><a href="README.md">Documentation index</a> · All diagrams and steps run locally; no Spotify requests or account data are used.</footer></main></body></html>

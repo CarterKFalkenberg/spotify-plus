@@ -1,0 +1,13 @@
+flowchart TB
+ ISSUE[Issue + brief + accepted decisions] --> WT[Isolated codex branch / worktree]
+ WT --> CHECK[Implementation + synthetic checks]
+ CHECK --> REVIEW[Independent Standards and Spec review]
+ REVIEW --> PR[Final PR title / body + exact-head CI]
+ PR --> MERGE[Expected-head verified merge]
+ MERGE --> BUILD[Build merged SHA / recheck required evidence]
+ BUILD --> PREP[Validate Free targets / prepare private deploy inputs]
+ PREP --> DEPLOY[Additive migrations + api/jobs + Worker/assets]
+ DEPLOY --> HEALTH[Health: frontend = API = jobs SHA]
+ HEALTH --> LIVE[Stage verification + real scheduled proof]
+ LIVE --> READY[Software review and handoff]
+ READY --> HUMAN[Separate actual-device product acceptance]

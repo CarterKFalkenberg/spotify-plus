@@ -1,0 +1,13 @@
+flowchart TB
+ E[OAuth / manual sync / daily maintenance] --> W[Create or resume sync run]
+ W --> P[Read saved tracks / at most 50 per page]
+ P --> TX[One SQL transaction: metadata + seen set + next offset]
+ TX --> MORE{More pages?}
+ MORE -->|yes| P
+ MORE -->|no| VALID{Consistent total and unique coverage?}
+ VALID -->|no| RESTART[Start another full pass]
+ VALID -->|yes| MATCH{Same ID + liked-at set as consecutive valid pass?}
+ MATCH -->|no prior or different| RESTART
+ RESTART --> P
+ MATCH -->|yes| COMMIT[Mark complete + soft-remove unseen + revision]
+ COMMIT --> GATE[Initial generation gate opens]

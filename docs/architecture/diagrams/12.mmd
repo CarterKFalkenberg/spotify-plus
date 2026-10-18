@@ -1,0 +1,21 @@
+sequenceDiagram
+ participant C as pg_cron / each minute
+ participant D as PostgreSQL
+ participant N as pg_net + Vault
+ participant J as jobs function
+ participant S as Spotify or Storage
+ C->>D: scheduler_tick / inspect due work
+ D->>N: Dispatch when needed with cron secret
+ N->>J: POST jobs
+ J->>D: Record SHA, claim due job with 100s lease
+ D-->>J: Job + lease token + epoch
+ J->>D: Validate or renew fence
+ J->>S: Bounded remote action
+ J->>D: Persist checkpoint
+ alt work completed
+ J->>D: Finish done if lease still valid
+ else budget or retry
+ J->>D: Queue with retry_at
+ else function killed
+ Note over D,J: Lease expires, later invocation claims work
+ end
