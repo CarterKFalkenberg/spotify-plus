@@ -9,6 +9,7 @@ import {
 } from "react-router";
 import { disconnect, readSession, type Session } from "./session";
 import "./style.css";
+import { ThemeControl } from "./Theme";
 import { forgetPlaylistIntents } from "./intents";
 import { Workspace } from "./Workspace";
 const authErrors: Readonly<Record<string, { title: string; detail: string }>> =
@@ -153,18 +154,17 @@ function Home() {
   return (
     <>
       {!connected && (
-        <>
-          <div className="eyebrow">YOUR LIBRARY, IN YOUR WORDS</div>
+        <div className="connection-heading">
           <h1>
-            Good music.
+            Your Spotify library.
             <br />
-            <span>Your kind of order.</span>
+            Your own tags.
           </h1>
-          <p className="intro">
-            A quiet place for your Liked Songs, personal tags, and playlists for
-            the moment.
+          <p>
+            Organize Liked Songs and make temporary playlists from the music you
+            already keep.
           </p>
-        </>
+        </div>
       )}
       <section
         className={`connection-card ${connected ? "account-card" : ""}`}
@@ -172,7 +172,7 @@ function Home() {
       >
         <div className="card-kicker">
           <span className="status-dot" />
-          PRIVATE · ONE ACCOUNT
+          One account · Spotify login
         </div>
         {authError && (
           <div role="alert" className="notice">
@@ -295,21 +295,18 @@ function Home() {
       </section>
       {connected && <Workspace />}
       {!connected && (
-        <div className="principles">
+        <div className="connection-notes">
           <div>
-            <span>01</span>
-            <h3>Tag in your own words</h3>
-            <p>Make room for moods, places, and everything between.</p>
+            <h3>Tag your library</h3>
+            <p>Work through a song at a time, or tag whole artists together.</p>
           </div>
           <div>
-            <span>02</span>
-            <h3>Make a playlist for now</h3>
-            <p>Choose your tags. Preview the songs. Listen in Spotify.</p>
+            <h3>Preview a playlist</h3>
+            <p>Combine tags and review the matching songs before creating.</p>
           </div>
           <div>
-            <span>03</span>
-            <h3>Keep the clutter out</h3>
-            <p>Set a retention window, or pin a playlist to keep it.</p>
+            <h3>Choose when it expires</h3>
+            <p>Keep a playlist for a week, a month, three months, or pin it.</p>
           </div>
         </div>
       )}
@@ -372,9 +369,7 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
   return (
     <article className="policy">
       <Link to="/">← Back to your app</Link>
-      <h1>
-        {type === "privacy" ? "Privacy, plainly." : "A personal workspace."}
-      </h1>
+      <h1>{type === "privacy" ? "Privacy" : "Terms of use"}</h1>
       {type === "privacy" ? (
         <>
           <h2>One account. Your data.</h2>
@@ -482,7 +477,7 @@ function App() {
           </span>{" "}
           Spotify Plus
         </Link>
-        <span className="private-label">A personal music workspace</span>
+        <ThemeControl />
       </header>
       <main id="main-content" tabIndex={-1}>
         <Routes>
@@ -501,7 +496,7 @@ function App() {
         </Routes>
       </main>
       <footer>
-        <span>Made for a library of one.</span>
+        <span>Spotify Plus · A personal library</span>
         <nav aria-label="Legal">
           <Link to="/privacy">Privacy</Link>
           <Link to="/terms">Terms</Link>

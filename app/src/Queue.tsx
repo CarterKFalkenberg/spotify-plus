@@ -533,7 +533,6 @@ export function Queue({
     >
       <div className="section-heading">
         <div>
-          <div className="eyebrow">ONE SONG, A FEW WORDS</div>
           <h2 id="queue-title">Tagging queue</h2>
         </div>
         <span role="status">
@@ -637,104 +636,113 @@ export function Queue({
               </button>
             </div>
           )}
-          <TrackSummary track={current} />
-          <p className="queue-details">
-            {current.metadata?.releaseDate?.slice(0, 4) ?? "Year unavailable"} ·{" "}
-            {current.metadata?.durationMs === null
-              ? "Duration unavailable"
-              : `${Math.floor((current.metadata?.durationMs ?? 0) / 60000)}:${String(Math.floor(((current.metadata?.durationMs ?? 0) % 60000) / 1000)).padStart(2, "0")}`}{" "}
-            · Liked{" "}
-            {current.metadata
-              ? new Date(current.metadata.likedAt).toLocaleDateString()
-              : ""}
-          </p>
-          <div className="chips">
-            {known.map((t) => (
-              <button
-                className="chip"
-                key={t.id}
-                disabled={busy}
-                onClick={() => void mutate(t, "remove").catch(() => {})}
-                aria-label={`Remove ${t.name} from current song`}
-              >
-                {t.name} ×
-              </button>
-            ))}
+          <div className="queue-identity">
+            <TrackSummary track={current} />
+            <p className="queue-details">
+              {current.metadata?.releaseDate?.slice(0, 4) ?? "Year unavailable"}{" "}
+              ·{" "}
+              {current.metadata?.durationMs === null
+                ? "Duration unavailable"
+                : `${Math.floor((current.metadata?.durationMs ?? 0) / 60000)}:${String(Math.floor(((current.metadata?.durationMs ?? 0) % 60000) / 1000)).padStart(2, "0")}`}{" "}
+              · Liked{" "}
+              {current.metadata
+                ? new Date(current.metadata.likedAt).toLocaleDateString()
+                : ""}
+            </p>
           </div>
-          <div className="quick-tags-heading">
-            <strong>
-              Quick tags{" "}
-              <small className="desktop-bulk">
-                Press 1–9 on an empty input
-              </small>
-            </strong>
-            <button
-              className="compact desktop-bulk"
-              aria-expanded={editingSlots}
-              onClick={() => {
-                setEditingSlots((v) => !v);
-                setPinSlot(null);
-              }}
-            >
-              {editingSlots ? "Done editing quick tags" : "Edit quick tags"}
-            </button>
-          </div>
-          <div className="quick-slots" aria-label="Quick tags">
-            {slots.map((t, i) => (
-              <div key={i} className={!t ? "empty-slot" : undefined}>
+          <div className="tagging-desk">
+            <div className="current-tags-heading">
+              Current tags <span>Saved as you tag</span>
+            </div>
+            <div className="chips current-tags">
+              {known.length === 0 && <span className="muted">No tags yet</span>}
+              {known.map((t) => (
                 <button
                   className="chip"
-                  disabled={!t || busy}
-                  onClick={() => t && void mutate(t).catch(() => {})}
+                  key={t.id}
+                  disabled={busy}
+                  onClick={() => void mutate(t, "remove").catch(() => {})}
+                  aria-label={`Remove ${t.name} from current song`}
                 >
-                  <kbd>{i + 1}</kbd> {t?.name ?? "Empty slot"}
+                  {t.name} ×
                 </button>
-                {editingSlots && (
-                  <button
-                    className="compact desktop-bulk"
-                    aria-label={`Set or pin slot ${i + 1}`}
-                    onClick={() => setPinSlot(i)}
-                  >
-                    {" "}
-                    {pinned[i] ? "Pinned" : "Pin"}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          {pinSlot !== null && (
-            <div className="notice">
-              <TagPicker
-                label={`Choose tag for slot ${pinSlot + 1}`}
-                onChoose={(t) => {
-                  setPinned((old) => ({ ...old, [pinSlot]: t }));
-                  setPinSlot(null);
-                }}
-              />
+              ))}
+            </div>
+            <TagPicker
+              label="Tag current song"
+              showEmptySuggestions={false}
+              autoFocus={active && !matchMedia("(max-width:640px)").matches}
+              refresh={refresh}
+              disabled={busy}
+              onCreate={mutate}
+              onChoose={mutate}
+            />
+            <div className="quick-tags-heading">
+              <strong>
+                Quick tags{" "}
+                <small className="desktop-bulk">
+                  Press 1–9 on an empty input
+                </small>
+              </strong>
               <button
+                className="compact desktop-bulk"
+                aria-expanded={editingSlots}
                 onClick={() => {
-                  setPinned((old) => {
-                    const next = { ...old };
-                    delete next[pinSlot];
-                    return next;
-                  });
+                  setEditingSlots((v) => !v);
                   setPinSlot(null);
                 }}
               >
-                Unpin slot
+                {editingSlots ? "Done editing quick tags" : "Edit quick tags"}
               </button>
-              <button onClick={() => setPinSlot(null)}>Cancel</button>
             </div>
-          )}
-          <TagPicker
-            label="Tag current song"
-            showEmptySuggestions={false}
-            autoFocus={active && !matchMedia("(max-width:640px)").matches}
-            refresh={refresh}
-            disabled={busy}
-            onCreate={mutate}
-            onChoose={mutate}
-          />
+            <div className="quick-slots" aria-label="Quick tags">
+              {slots.map((t, i) => (
+                <div key={i} className={!t ? "empty-slot" : undefined}>
+                  <button
+                    className="chip"
+                    disabled={!t || busy}
+                    onClick={() => t && void mutate(t).catch(() => {})}
+                  >
+                    <kbd>{i + 1}</kbd> {t?.name ?? "Empty slot"}
+                  </button>
+                  {editingSlots && (
+                    <button
+                      className="compact desktop-bulk"
+                      aria-label={`Set or pin slot ${i + 1}`}
+                      onClick={() => setPinSlot(i)}
+                    >
+                      {" "}
+                      {pinned[i] ? "Pinned" : "Pin"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {pinSlot !== null && (
+              <div className="notice">
+                <TagPicker
+                  label={`Choose tag for slot ${pinSlot + 1}`}
+                  onChoose={(t) => {
+                    setPinned((old) => ({ ...old, [pinSlot]: t }));
+                    setPinSlot(null);
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    setPinned((old) => {
+                      const next = { ...old };
+                      delete next[pinSlot];
+                      return next;
+                    });
+                    setPinSlot(null);
+                  }}
+                >
+                  Unpin slot
+                </button>
+                <button onClick={() => setPinSlot(null)}>Cancel</button>
+              </div>
+            )}
+          </div>
           <div className="queue-actions">
             {current.metadata?.acknowledgedAt === null && (
               <button disabled={busy} onClick={() => void markReviewed()}>
@@ -758,6 +766,8 @@ export function Queue({
             <button className="queue-skip" disabled={busy} onClick={skip}>
               Skip · requeue
             </button>
+          </div>
+          <div className="queue-tools">
             {current.metadata?.spotifyUrl && (
               <a
                 href={current.metadata.spotifyUrl}

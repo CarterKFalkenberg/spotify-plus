@@ -408,9 +408,7 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
     page.getByText("Private by default", { exact: true }),
   ).toHaveCount(0);
   await choose(page);
-  await expect(
-    page.locator(".preview-heading").getByText("2 songs", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
   await expect(
     page.getByText("0h 6m · from your cached library"),
   ).toBeVisible();
@@ -795,14 +793,17 @@ for (const zero of [true, false])
     await page.goto("/");
     await builder(page);
     await choose(page);
-    await expect(
-      page.getByText(
-        zero
-          ? "No songs have this combination of tags. Try removing a requirement."
-          : "1 songs",
-        { exact: true },
-      ),
-    ).toBeVisible();
+    if (zero)
+      await expect(
+        page.getByText(
+          "No songs have this combination of tags. Try removing a requirement.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+    else
+      await expect(page.locator(".query-feedback strong")).toContainText(
+        "1 songs",
+      );
     await expect(
       page.getByRole("button", { name: "Create playlist →" }),
     ).toBeDisabled();
@@ -880,9 +881,9 @@ test("synthetic desktop/mobile visual acceptance", async ({
   await page.goto("/");
   if (isMobile) {
     await choose(page);
-    await expect(
-      page.locator(".preview-heading").getByText("2 songs", { exact: true }),
-    ).toBeVisible();
+    await expect(page.locator(".query-feedback strong")).toContainText(
+      "2 songs",
+    );
   } else
     await expect(
       page.getByRole("heading", { name: "Synthetic Artist", exact: true }),
@@ -1132,6 +1133,7 @@ test("background refresh never silently renews a frozen filter selection", async
             groups: [
               {
                 ...group,
+                taggedCount: currentRevision.library === "2" ? 1 : 0,
                 selection: {
                   ...group.selection,
                   expectedRevision: currentRevision,
@@ -1159,6 +1161,11 @@ test("background refresh never silently renews a frozen filter selection", async
   currentRevision = { library: "2", annotations: "2" };
   await page.clock.runFor(61_000);
   await expect.poll(() => searches, { timeout: 10000 }).toBeGreaterThan(before);
+  // A request starting is not proof its revision has rendered. Wait for the
+  // refreshed result while retaining the old frozen selection and typed draft.
+  await expect(page.locator(".artist-card").first()).toContainText(
+    "3 songs · 1 tagged",
+  );
   await expect(input).toHaveValue("Frozen filter draft");
   await expect(input).toBeFocused();
   await expect(
@@ -1321,7 +1328,7 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   await page.goto("/");
   await builder(page);
   await choose(page);
-  await expect(page.locator(".preview-heading")).toContainText("2 songs");
+  await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
   await page
     .getByLabel("Playlist name", { exact: true })
     .fill("My synthetic draft");
@@ -1337,6 +1344,7 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   });
   expect(scroll).toBeGreaterThan(0);
   await lists(page);
+  await page.locator(".retention-settings summary").click();
   await page
     .getByLabel("Extend / Unpin for", { exact: true })
     .selectOption("threeMonths");
@@ -1650,6 +1658,7 @@ test("cleanup delay appears only after a loaded response and retention consequen
   await expect(page.locator(".retention-hint")).toContainText(
     "1 calendar month from today",
   );
+  await page.locator(".retention-settings summary").click();
   await page
     .getByLabel("Extend / Unpin for", { exact: true })
     .selectOption("week");
@@ -1758,55 +1767,63 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
   });
 });
 
-for (const width of [320, 390, 1280])
-  test(`working surfaces retain readable text and identifying fields at ${width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 900 });
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await mock(page);
-    await page.goto("/");
-    await page
-      .getByRole("navigation", { name: "Workspace" })
-      .getByRole("button", { name: /^Library/ })
-      .click();
-    if (width === 1280)
-      await expect(page.locator(".artist-card")).toBeVisible();
-    else await expect(page.getByLabel("Search your library")).toBeVisible();
-    await assertReadableSurface(page);
-    if (width === 1280) {
-      await page.getByLabel("Group rows").selectOption("none");
-      await page.getByLabel("Select Synthetic song 1").check();
-      await expect(page.locator(".bulk-bar")).toBeVisible();
+for (const appearance of ["light", "dark"] as const)
+  for (const width of [320, 390, 1280])
+    test(`working surfaces retain readable text and identifying fields at ${width}px in ${appearance} mode`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await mock(page);
+      await page.goto("/");
+      await page
+        .getByLabel("Appearance", { exact: true })
+        .selectOption(appearance);
+      await page
+        .getByRole("navigation", { name: "Workspace" })
+        .getByRole("button", { name: /^Library/ })
+        .click();
+      if (width === 1280)
+        await expect(page.locator(".artist-card")).toBeVisible();
+      else await expect(page.getByLabel("Search your library")).toBeVisible();
       await assertReadableSurface(page);
-    }
-    await builder(page);
-    await expect(page.locator(".bucket-number").first()).toBeVisible();
-    await assertReadableSurface(page);
-    const information = await resolvedAppearance(
-      page.getByText("Request hidden from profile & search", { exact: true }),
-    );
-    await page.getByLabel("Add All of tag", { exact: true }).fill("Synthetic");
-    await expect(
-      page.locator(".suggestions [role=option]").first(),
-    ).toBeVisible();
-    await assertReadableSurface(page);
-    await page.locator(".suggestions [role=option]").first().click();
-    await expect(page.locator(".query-feedback")).toContainText("2 songs");
-    await assertReadableSurface(page);
-    await lists(page);
-    await expect(page.locator(".playlist-card")).toBeVisible();
-    await expect(page.getByText("Resolving query tags…")).toHaveCount(0);
-    await assertReadableSurface(page);
-    expect(await resolvedAppearance(page.locator(".pill.ready"))).not.toEqual(
-      information,
-    );
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-  });
+      if (width === 1280) {
+        await page.getByLabel("Group rows").selectOption("none");
+        await page.getByLabel("Select Synthetic song 1").check();
+        await expect(page.locator(".bulk-bar")).toBeVisible();
+        await assertReadableSurface(page);
+      }
+      await builder(page);
+      await expect(
+        page.getByRole("heading", { name: "All of", exact: true }),
+      ).toBeVisible();
+      await assertReadableSurface(page);
+      const information = await resolvedAppearance(
+        page.getByText("Request hidden from profile & search", { exact: true }),
+      );
+      await page
+        .getByLabel("Add All of tag", { exact: true })
+        .fill("Synthetic");
+      await expect(
+        page.locator(".suggestions [role=option]").first(),
+      ).toBeVisible();
+      await assertReadableSurface(page);
+      await page.locator(".suggestions [role=option]").first().click();
+      await expect(page.locator(".query-feedback")).toContainText("2 songs");
+      await assertReadableSurface(page);
+      await lists(page);
+      await expect(page.locator(".playlist-card")).toBeVisible();
+      await expect(page.getByText("Resolving query tags…")).toHaveCount(0);
+      await assertReadableSurface(page);
+      expect(await resolvedAppearance(page.locator(".pill.ready"))).not.toEqual(
+        information,
+      );
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    });
 
 for (const width of [320, 390])
   test(`connected header separates home and account targets at ${width}px`, async ({
@@ -1836,4 +1853,44 @@ for (const width of [320, 390])
     expect(target!.x + target!.width).toBeLessThanOrEqual(width);
     await account.click();
     await expect(page.locator(".account-details")).toHaveAttribute("open", "");
+  });
+
+for (const width of [320, 390])
+  test(`phone task and first playlist action stay above navigation at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mock(page);
+    await page.goto("/");
+    await lists(page);
+    const heading = await page
+      .getByRole("heading", { name: "Your playlists", exact: true })
+      .boundingBox();
+    expect(heading).not.toBeNull();
+    expect(heading!.y).toBeLessThanOrEqual(150);
+    const open = await page
+      .locator(".playlist-card")
+      .first()
+      .getByRole("link", { name: "Open in Spotify ↗" })
+      .boundingBox();
+    const nav = await page
+      .getByRole("navigation", { name: "Workspace" })
+      .boundingBox();
+    expect(open).not.toBeNull();
+    expect(nav).not.toBeNull();
+    expect(open!.y + open!.height).toBeLessThan(nav!.y);
+    await expect(page.locator(".retention-settings summary")).toContainText(
+      "1 calendar month",
+    );
+    await page.locator(".retention-settings summary").click();
+    await page
+      .getByLabel("Extend / Unpin for", { exact: true })
+      .selectOption("week");
+    await expect(page.locator(".retention-settings summary")).toContainText(
+      "1 week",
+    );
+    await page.locator(".retention-settings summary").click();
+    await expect(page.locator(".retention-hint").first()).toContainText(
+      "1 week",
+    );
   });

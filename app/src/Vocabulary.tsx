@@ -22,6 +22,7 @@ export function Vocabulary({
     [data, setData] = useState<ReturnType<typeof vocabulary> | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const [mergeMode, setMergeMode] = useState(false);
   const [selected, setSelected] = useState<TagDTO | null>(null),
     [name, setName] = useState(""),
     [sources, setSources] = useState<TagDTO[]>([]),
@@ -133,10 +134,9 @@ export function Vocabulary({
     }
   }
   return (
-    <section aria-labelledby="vocabulary-title">
+    <section className="vocabulary-page" aria-labelledby="vocabulary-title">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">YOUR WORDS, KEPT USEFUL</div>
           <h2 id="vocabulary-title">Tag vocabulary</h2>
         </div>
         <span className="muted">
@@ -197,20 +197,40 @@ export function Vocabulary({
           No tags in this view. Add your own words while tagging.
         </p>
       )}
-      <div className="vocabulary-list">
+      <div className="dictionary-toolbar">
+        <span>
+          Tag <span className="muted">/ active songs</span>
+        </span>
+        <button
+          className="compact text-button"
+          aria-pressed={mergeMode}
+          onClick={() => {
+            setMergeMode(!mergeMode);
+            setSources([]);
+          }}
+        >
+          {mergeMode ? "Done selecting" : "Select tags to merge"}
+        </button>
+      </div>
+      <div className={`vocabulary-list ${mergeMode ? "merge-mode" : ""}`}>
         {data?.tags.map((t) => (
           <article key={t.id}>
             <div>
               <strong>{t.name}</strong>
               <small>
-                {t.activeTrackCount} active songs · Last used{" "}
+                Last used{" "}
                 {t.lastUsedAt
                   ? new Date(t.lastUsedAt).toLocaleDateString()
                   : "never"}
               </small>
             </div>
+            <span className="dictionary-count">
+              {t.activeTrackCount}
+              <span className="sr-only"> active songs</span>
+            </span>
             <button
-              className="compact"
+              className="compact dictionary-manage"
+              aria-label={`Manage ${t.name}`}
               onClick={() => {
                 setSelected(t);
                 setName(t.name);
@@ -218,26 +238,28 @@ export function Vocabulary({
                 setTarget(null);
               }}
             >
-              Manage {t.name}
+              Manage <span aria-hidden="true">↗</span>
             </button>
-            <label>
-              <input
-                type="checkbox"
-                checked={sources.some((s) => s.id === t.id)}
-                onChange={(e) =>
-                  setSources((old) =>
-                    e.target.checked
-                      ? [...old.filter((s) => s.id !== t.id), t]
-                      : old.filter((s) => s.id !== t.id),
-                  )
-                }
-              />{" "}
-              Merge source
-            </label>
+            {mergeMode && (
+              <label className="merge-source">
+                <input
+                  type="checkbox"
+                  checked={sources.some((s) => s.id === t.id)}
+                  onChange={(e) =>
+                    setSources((old) =>
+                      e.target.checked
+                        ? [...old.filter((s) => s.id !== t.id), t]
+                        : old.filter((s) => s.id !== t.id),
+                    )
+                  }
+                />{" "}
+                <span className="sr-only">Merge source {t.name}</span>
+              </label>
+            )}
           </article>
         ))}
       </div>
-      {!!sources.length && (
+      {mergeMode && !!sources.length && (
         <aside className="notice">
           <p>
             Merge{" "}

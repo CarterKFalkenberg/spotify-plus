@@ -1616,92 +1616,130 @@ test("saved feedback follows its action after desktop navigation or reopening a 
   ).toHaveCount(0);
 });
 
-test("queue navigation emphasis survives explicit arrival review and readable applied states", async ({
-  page,
-  isMobile,
-}) => {
-  test.skip(isMobile, "Desktop queue navigation");
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await mock(page);
-  await page.addInitScript(() =>
-    localStorage.setItem("tagger-guidance-dismissed", "yes"),
-  );
-  await page.goto("/");
-  const next = page.getByRole("button", { name: "Next →", exact: true });
-  const previous = page.getByRole("button", {
-    name: "← Previous",
-    exact: true,
+for (const appearance of ["light", "dark"] as const)
+  test(`queue navigation emphasis survives explicit arrival review and readable applied states in ${appearance} mode`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "Desktop queue navigation");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mock(page);
+    await page.addInitScript(() =>
+      localStorage.setItem("tagger-guidance-dismissed", "yes"),
+    );
+    await page.goto("/");
+    await page
+      .getByLabel("Appearance", { exact: true })
+      .selectOption(appearance);
+    const next = page.getByRole("button", { name: "Next →", exact: true });
+    const previous = page.getByRole("button", {
+      name: "← Previous",
+      exact: true,
+    });
+    const skip = page.getByRole("button", {
+      name: "Skip · requeue",
+      exact: true,
+    });
+    await expect(next).toBeVisible();
+    const emphasis = await resolvedAppearance(next);
+    expect(emphasis).not.toEqual(await resolvedAppearance(previous));
+    expect(emphasis).not.toEqual(await resolvedAppearance(skip));
+    await assertReadableSurface(page);
+    await page
+      .getByRole("button", { name: "Mark arrival reviewed", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Mark arrival reviewed", exact: true }),
+    ).toHaveCount(0);
+    expect(await resolvedAppearance(next)).toEqual(emphasis);
+    expect(await resolvedAppearance(previous)).not.toEqual(emphasis);
+    expect(await resolvedAppearance(skip)).not.toEqual(emphasis);
+    await assertReadableSurface(page);
+    await page.locator(".quick-slots button").first().click();
+    await expect(page.locator(".queue-feedback")).toContainText("Saved");
+    await assertReadableSurface(page);
+    expect(
+      await next.evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
+    ).toBeLessThan(800);
+    await page.getByLabel("Tag current song", { exact: true }).fill("ch");
+    await expect(
+      page.locator(".suggestions [role=option]").first(),
+    ).toBeVisible();
+    await assertReadableSurface(page);
+    await page.getByLabel("Tag current song", { exact: true }).press("Escape");
+    await next.click();
+    await expect(previous).toBeEnabled();
+    expect(await resolvedAppearance(previous)).not.toEqual(emphasis);
   });
-  const skip = page.getByRole("button", {
-    name: "Skip · requeue",
-    exact: true,
-  });
-  await expect(next).toBeVisible();
-  const emphasis = await resolvedAppearance(next);
-  expect(emphasis).not.toEqual(await resolvedAppearance(previous));
-  expect(emphasis).not.toEqual(await resolvedAppearance(skip));
-  await assertReadableSurface(page);
-  await page
-    .getByRole("button", { name: "Mark arrival reviewed", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Mark arrival reviewed", exact: true }),
-  ).toHaveCount(0);
-  expect(await resolvedAppearance(next)).toEqual(emphasis);
-  expect(await resolvedAppearance(previous)).not.toEqual(emphasis);
-  expect(await resolvedAppearance(skip)).not.toEqual(emphasis);
-  await assertReadableSurface(page);
-  await page.locator(".quick-slots button").first().click();
-  await expect(page.locator(".queue-feedback")).toContainText("Saved");
-  await assertReadableSurface(page);
-  expect(
-    await next.evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
-  ).toBeLessThan(800);
-  await next.click();
-  await expect(previous).toBeEnabled();
-  expect(await resolvedAppearance(previous)).not.toEqual(emphasis);
-});
 
-test("narrow picker, failure, vocabulary and destructive confirmation remain readable", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 844 });
-  await mock(page, { failAction: true });
-  await page.goto("/");
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "New arrivals 2" })
-    .click();
-  await page.locator(".mobile-track").first().click();
-  await page.getByLabel("Tag current song", { exact: true }).fill("ch");
-  await expect(
-    page.locator(".suggestions [role=option]").first(),
-  ).toBeVisible();
-  await assertReadableSurface(page);
-  await page.locator(".suggestions [role=option]").first().click();
-  await expect(
-    page
-      .getByRole("dialog", { name: "Tag song", exact: true })
-      .getByRole("alert")
-      .first(),
-  ).toBeVisible();
-  await assertReadableSurface(page);
-  await page.goto("/");
-  await vocabulary(page);
-  await expect(page.locator(".vocabulary-list article")).toHaveCount(3);
-  await assertReadableSurface(page);
-  await page.getByRole("button", { name: "Manage Chill", exact: true }).click();
-  await page.getByRole("button", { name: "Preview delete" }).click();
-  await expect(
-    page.getByRole("button", { name: "Delete tag and 120 assignments" }),
-  ).toBeVisible();
-  await assertReadableSurface(page);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-});
+for (const appearance of ["light", "dark"] as const)
+  test(`narrow picker, failure, vocabulary and destructive confirmation remain readable in ${appearance} mode`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    await mock(page, { failAction: true });
+    await page.goto("/");
+    await page
+      .getByLabel("Appearance", { exact: true })
+      .selectOption(appearance);
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: "New arrivals 2" })
+      .click();
+    await page.locator(".mobile-track").first().click();
+    await page.getByLabel("Tag current song", { exact: true }).fill("ch");
+    await expect(
+      page.locator(".suggestions [role=option]").first(),
+    ).toBeVisible();
+    const focusedInput = page.getByLabel("Tag current song", { exact: true });
+    const option = page.locator(".suggestions [role=option]").first();
+    await option.scrollIntoViewIfNeeded();
+    await expect(focusedInput).toBeFocused();
+    const bounds = await option.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844);
+    expect(
+      await option.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(
+          document.elementFromPoint(
+            rect.x + rect.width / 2,
+            rect.y + rect.height / 2,
+          ),
+        );
+      }),
+    ).toBe(true);
+    await assertReadableSurface(page);
+    await option.click();
+    await expect(
+      page
+        .getByRole("dialog", { name: "Tag song", exact: true })
+        .getByRole("alert")
+        .first(),
+    ).toBeVisible();
+    await assertReadableSurface(page);
+    await page.goto("/");
+    await page
+      .getByLabel("Appearance", { exact: true })
+      .selectOption(appearance);
+    await vocabulary(page);
+    await expect(page.locator(".vocabulary-list article")).toHaveCount(3);
+    await assertReadableSurface(page);
+    await page
+      .getByRole("button", { name: "Manage Chill", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Preview delete" }).click();
+    await expect(
+      page.getByRole("button", { name: "Delete tag and 120 assignments" }),
+    ).toBeVisible();
+    await assertReadableSurface(page);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
 
 for (const height of [720, 600])
   for (const selection of [false, true])
@@ -1792,3 +1830,114 @@ for (const height of [720, 600])
       ).toBeVisible();
       expect(calls.filter((c) => c.path.endsWith("/undo"))).toHaveLength(1);
     });
+
+test("dictionary merge mode keeps selection explicit and previews the full union before committing", async ({
+  page,
+}) => {
+  const calls = await mock(page);
+  await page.goto("/");
+  await vocabulary(page);
+  await expect(
+    page.getByRole("checkbox", { name: /^Merge source/ }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Select tags to merge", exact: true })
+    .click();
+  await page
+    .getByRole("checkbox", { name: "Merge source chillout", exact: true })
+    .check();
+  await page
+    .getByRole("checkbox", { name: "Merge source mood:soft", exact: true })
+    .check();
+  await page
+    .getByLabel("Merge into existing tag", { exact: true })
+    .fill("Chill");
+  await page
+    .getByRole("option", { name: "Chill 84 songs", exact: true })
+    .click();
+  const preview = page.getByRole("dialog").filter({ hasText: "Confirm merge" });
+  await expect(preview).toContainText("99 distinct songs");
+  expect(calls.filter((call) => call.path === "/api/tags/manage")).toHaveLength(
+    0,
+  );
+  await page
+    .getByRole("button", { name: "Confirm change", exact: true })
+    .click();
+  expect(
+    calls.find((call) => call.path === "/api/tags/manage")!.body,
+  ).toMatchObject({
+    action: "merge",
+    sourceIds: [id(2), id(3)],
+    targetId: id(1),
+  });
+  await page
+    .getByRole("button", { name: "Done selecting", exact: true })
+    .click();
+  await expect(
+    page.getByRole("checkbox", { name: /^Merge source/ }),
+  ).toHaveCount(0);
+});
+
+for (const width of [1024, 1280, 1440])
+  test(`desktop chrome and group actions keep separate targets at ${width}px`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "Desktop geometry");
+    await page.setViewportSize({ width, height: 900 });
+    await mock(page);
+    await page.goto("/");
+    const account = await page
+      .locator(".account-details summary")
+      .boundingBox();
+    const appearance = await page.locator(".theme-control").boundingBox();
+    expect(account).not.toBeNull();
+    expect(appearance).not.toBeNull();
+    expect(account!.x + account!.width).toBeLessThanOrEqual(appearance!.x);
+    const group = page.locator(".artist-card").first();
+    await expect(group).toBeVisible();
+    const browse = await group
+      .getByRole("button", { name: "Browse songs →", exact: true })
+      .boundingBox();
+    expect(browse).not.toBeNull();
+    expect(browse!.width).toBeGreaterThanOrEqual(110);
+    expect(browse!.height).toBeGreaterThanOrEqual(44);
+    await expect(
+      page.getByRole("button", { name: "New arrivals 2", exact: true }),
+    ).not.toBeVisible();
+  });
+
+test("a pointer press outside an in-flow picker preserves its target through click; keyboard blur closes immediately", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop bulk editor");
+  await mock(page);
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Select all 3 matching", exact: true })
+    .click();
+  const input = page.getByLabel("Add tag to selection", { exact: true });
+  await input.fill("ch");
+  const picker = page.locator(".tag-picker").filter({ has: input });
+  await expect(picker.getByRole("option").first()).toBeVisible();
+  await page.getByRole("button", { name: /^Library/ }).focus();
+  await expect(picker.locator(".suggestions")).toHaveCount(0);
+  await input.focus();
+  await expect(picker.getByRole("option").first()).toBeVisible();
+  const clear = page.getByRole("button", {
+    name: "Clear selection",
+    exact: true,
+  });
+  await clear.scrollIntoViewIfNeeded();
+  const bounds = await clear.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(
+    bounds!.x + bounds!.width / 2,
+    bounds!.y + bounds!.height / 2,
+  );
+  await page.mouse.down();
+  await expect(picker.locator(".suggestions")).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator(".bulk-bar")).toHaveCount(0);
+});

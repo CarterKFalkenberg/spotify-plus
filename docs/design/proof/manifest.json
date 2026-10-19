@@ -1,0 +1,206 @@
+{
+  "beforeHead": "2fc191f5a41dfc758100492c742896c6c05313af",
+  "afterHead": "31670e64a6dd2c6489a3792c66b938a194d19f63",
+  "phase": "reviewed",
+  "syntheticOnly": true,
+  "comparisons": [
+    {
+      "file": "queue-before-after.png",
+      "flow": "Focused tagging",
+      "sources": [
+        "baseline-full-light/desktop-queue.png",
+        "reviewed-dark/desktop-queue.png"
+      ],
+      "sha256": "38dea522b9b6ce3889739a24f18f371fa85d3fde6e8de8c2a9cd355a22f993cf"
+    },
+    {
+      "file": "library-before-after.png",
+      "flow": "Library browsing",
+      "sources": [
+        "baseline-full-light/desktop-library.png",
+        "reviewed-dark/desktop-library.png"
+      ],
+      "sha256": "fb75a65219de8995387fc0cd19d7722ed8c10836a45fd4d81d064725f21f1572"
+    },
+    {
+      "file": "groups-before-after.png",
+      "flow": "Bulk tagging by artist",
+      "sources": [
+        "baseline-full-light/desktop-library-groups.png",
+        "reviewed-dark/desktop-library-groups.png"
+      ],
+      "sha256": "0ef6f293ea7ff2027e124dbde8a8db36d9b39cb0c881dccfc1425c67ca9dc84f"
+    },
+    {
+      "file": "builder-before-after.png",
+      "flow": "Compose and preview",
+      "sources": [
+        "baseline-full-light/1440-builder.png",
+        "reviewed-dark/1440-builder.png"
+      ],
+      "sha256": "c667d5e7ec7ed8545faaa0c6f734202f50a8e6d6e269b6adb6d76d39bb25e8da"
+    },
+    {
+      "file": "playlists-before-after.png",
+      "flow": "Playlist collection",
+      "sources": [
+        "baseline-full-light/1440-playlists.png",
+        "reviewed-dark/1440-playlists.png"
+      ],
+      "sha256": "7cea81ddb0fb385bdd832abfc68eb3315f874f77a55cdae438011cd3fce17b2c"
+    },
+    {
+      "file": "tags-before-after.png",
+      "flow": "Tag dictionary",
+      "sources": [
+        "baseline-full-light/desktop-vocabulary.png",
+        "reviewed-dark/desktop-vocabulary.png"
+      ],
+      "sha256": "e524ae152ecb5553266d52eea09c5a58432c71adad73816a3810200f32ad5d06"
+    },
+    {
+      "file": "mobile-builder-before-after.png",
+      "flow": "Phone playlist flow",
+      "sources": [
+        "baseline-full-light/390-builder-viewport.png",
+        "reviewed-dark/390-builder-viewport.png"
+      ],
+      "sha256": "3a55c84c8102df8a8f78974238073089907d410f6cb2866ae651818d1ce366c4"
+    },
+    {
+      "file": "mobile-playlists-before-after.png",
+      "flow": "Phone playlist collection",
+      "sources": [
+        "baseline-full-light/390-playlists-viewport.png",
+        "reviewed-dark/390-playlists-viewport.png"
+      ],
+      "sha256": "f481529f8dfa9a16232cf064204bf7e5cf4f2f7f14b1052fada8049c03dd63f8"
+    },
+    {
+      "file": "mobile-arrivals-before-after.png",
+      "flow": "New arrivals",
+      "sources": [
+        "baseline-full-light/390-arrivals.png",
+        "reviewed-dark/390-arrivals.png"
+      ],
+      "sha256": "879d586cb5c61a9d222edc6df3b80aa1cd4de5eec8120103385e0c8de56ccc30"
+    },
+    {
+      "file": "mobile-sheet-before-after.png",
+      "flow": "Phone tagging sheet",
+      "sources": [
+        "baseline-full-light/390-song-sheet.png",
+        "reviewed-dark/390-song-sheet.png"
+      ],
+      "sha256": "40242d5d9edecbe0966b67273686357f0dd88fd2d7865de21a523c0eff693c92"
+    },
+    {
+      "file": "mobile-tags-before-after.png",
+      "flow": "Phone tag management",
+      "sources": [
+        "baseline-full-light/390-vocabulary.png",
+        "reviewed-dark/390-vocabulary.png"
+      ],
+      "sha256": "fe4e2f94fec787b517bdeededc328539322ec38319dc6690e29bfa0a3190b58a"
+    },
+    {
+      "file": "connect-before-after.png",
+      "flow": "Connect Spotify",
+      "sources": [
+        "baseline-full-light/1440-connect.png",
+        "reviewed-dark/1440-connect.png"
+      ],
+      "sha256": "9430a5ef030233a325329bb0bc3981245a979e4fb52acdd493fc4f3d09dbaa1e"
+    },
+    {
+      "file": "error-before-after.png",
+      "flow": "Failure and recovery",
+      "sources": [
+        "baseline-full-light/390-song-error.png",
+        "reviewed-dark/390-song-error.png"
+      ],
+      "sha256": "af01c4652983cd61b6943a2467823546277b90aa3a0a5c37ec78c121d595f6b8"
+    },
+    {
+      "file": "confirm-before-after.png",
+      "flow": "Explicit tag confirmation",
+      "sources": [
+        "baseline-full-light/390-delete-tag.png",
+        "reviewed-dark/390-delete-tag.png"
+      ],
+      "sha256": "8e147977d216143c2436534be1b97b169e9d8a89b9783905f2b2dfcd574f748d"
+    },
+    {
+      "file": "account-before-after.png",
+      "flow": "Account and connection",
+      "sources": [
+        "baseline-full-light/390-account.png",
+        "reviewed-dark/390-account.png"
+      ],
+      "sha256": "a3dc21f1f679e10c42fd160502507a39b625c5151406182a1c3ff33f52010402"
+    },
+    {
+      "file": "account-confirm-before-after.png",
+      "flow": "Disconnect confirmation",
+      "sources": [
+        "baseline-full-light/390-account-confirm.png",
+        "reviewed-dark/390-account-confirm.png"
+      ],
+      "sha256": "5d7ca2e145433382b95fdfb7a309ccad295369f12559da39d2dbedb76ed5af7f"
+    },
+    {
+      "file": "privacy-before-after.png",
+      "flow": "Privacy page",
+      "sources": [
+        "baseline-full-light/390-privacy-viewport.png",
+        "reviewed-dark/390-privacy-viewport.png"
+      ],
+      "sha256": "1dc087c7598ee1e537aadd3694167ba77c6c3081a94411c04bce2057c81463ab"
+    },
+    {
+      "file": "terms-before-after.png",
+      "flow": "Terms page",
+      "sources": [
+        "baseline-full-light/390-terms-viewport.png",
+        "reviewed-dark/390-terms-viewport.png"
+      ],
+      "sha256": "02cb44cebadbd70e4ffd8217c8ed66c32be13c2efa9a9b0e2732b4bdc9c0b305"
+    },
+    {
+      "file": "not-found-before-after.png",
+      "flow": "Unknown route recovery",
+      "sources": [
+        "baseline-full-light/390-not-found.png",
+        "reviewed-dark/390-not-found.png"
+      ],
+      "sha256": "0f7c953926935fefe0addd1e08aa18f96607ae275f5a2a2301f9c7f3e643fdcc"
+    },
+    {
+      "file": "auth-error-before-after.png",
+      "flow": "Connection error",
+      "sources": [
+        "baseline-full-light/390-auth-error-viewport.png",
+        "reviewed-dark/390-auth-error-viewport.png"
+      ],
+      "sha256": "89f3ed298a7fbd61ce754f838cff3dc82e989a71909ffd0132f4fc8048746efc"
+    },
+    {
+      "file": "themes.png",
+      "flow": "Appearance options",
+      "sources": [
+        "reviewed-light/desktop-queue.png",
+        "reviewed-dark/desktop-queue.png"
+      ],
+      "sha256": "4e3a2fa68c8c0b6e013889f5c9d48871dd00195834efa88d3131fe419cfb99eb"
+    },
+    {
+      "file": "mobile-themes.png",
+      "flow": "Appearance options",
+      "sources": [
+        "reviewed-light/390-builder-viewport.png",
+        "reviewed-dark/390-builder-viewport.png"
+      ],
+      "sha256": "ba415cc25793c04c0fff291e956ee2d27758b61a18ce16eb79dc47d88d31bcca"
+    }
+  ]
+}

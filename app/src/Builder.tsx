@@ -206,7 +206,6 @@ export function Builder({
     <section className="builder" aria-labelledby="builder-title">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">SOMETHING FOR RIGHT NOW</div>
           <h2 id="builder-title">Make a playlist</h2>
         </div>
         <span className="pill information">
@@ -214,8 +213,7 @@ export function Builder({
         </span>
       </div>
       <p className="section-intro">
-        Start with a feeling. Add your tags, see what fits, and take it to
-        Spotify.
+        Combine your tags, review the songs, then create a snapshot in Spotify.
       </p>
       {!key && !pending && (
         <p className="builder-start">
@@ -250,235 +248,235 @@ export function Builder({
         </div>
       ) : (
         <>
-          <div className="query-feedback" role="status" aria-live="polite">
-            <span className="eyebrow">YOUR MIX</span>
-            {!key ? (
-              <strong>Add a tag to start</strong>
-            ) : !matched && !error ? (
-              <strong>Finding matching songs…</strong>
-            ) : matched ? (
-              <>
-                <strong>
-                  {matched.playableCount} songs{" "}
-                  <span>
-                    · {Math.floor(matched.durationMs / 3600000)}h{" "}
-                    {Math.floor(matched.durationMs / 60000) % 60}m
-                  </span>
-                </strong>
-                {matched.playableCount === 0 && (
-                  <p>
-                    No playable songs match. Try fewer All of tags or remove an
-                    exclusion.
-                  </p>
-                )}
-                {matched.excludedCount > 0 && (
-                  <small>
-                    {matched.excludedCount} unavailable{" "}
-                    {matched.excludedCount === 1
-                      ? "song excluded"
-                      : "songs excluded"}
-                  </small>
-                )}
-              </>
-            ) : (
-              <strong>Preview needs attention</strong>
-            )}
-            <a
-              href="#playlist-preview"
-              onClick={() => setPreviewExpanded(true)}
-            >
-              Review songs ↓
-            </a>
-          </div>
-          <div className="query-buckets">
-            {(["all", "any", "none"] as const).map((bucket, index) => (
-              <div className="query-bucket" key={bucket}>
-                <div className="bucket-heading">
-                  <span className="bucket-number">0{index + 1}</span>
-                  <h3>
-                    {bucket === "all"
-                      ? "All of"
-                      : bucket === "any"
-                        ? "Any of"
-                        : "None of"}
-                  </h3>
-                  <small>
-                    {bucket === "all"
-                      ? "Every tag"
-                      : bucket === "any"
-                        ? "At least one"
-                        : "Leave these out"}
-                  </small>
-                </div>
-                <div className="chips">
-                  {buckets[bucket].map((tag) => (
-                    <button
-                      className="chip"
-                      key={tag.id}
-                      aria-label={`Remove ${tag.name} from ${bucket}`}
-                      onClick={() =>
-                        edit(
-                          bucket,
-                          buckets[bucket].filter((t) => t.id !== tag.id),
-                        )
-                      }
-                    >
-                      {tag.name} ×
-                    </button>
-                  ))}
-                </div>
-                <TagPicker
-                  label={`Add ${bucket === "all" ? "All of" : bucket === "any" ? "Any of" : "None of"} tag`}
-                  onChoose={(tag) => {
-                    if (!buckets[bucket].some((t) => t.id === tag.id))
-                      edit(bucket, [...buckets[bucket], tag]);
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-          <details
-            className="preview-panel"
-            id="playlist-preview"
-            open={previewExpanded}
-            onToggle={(event) => setPreviewExpanded(event.currentTarget.open)}
-          >
-            <summary>
-              {matched
-                ? `Preview ${matched.playableCount} matching songs`
-                : "Your playlist preview"}
-            </summary>
-            {!key ? (
-              <div className="empty-state">
-                <h3>Your next playlist starts here</h3>
-                <p>
-                  Add at least one tag to see the songs that fit. No tags yet?
-                  Start by tagging a few songs or a whole artist.
-                </p>
-              </div>
-            ) : !matched && !error ? (
-              <p role="status">Finding matching songs…</p>
-            ) : (
-              matched && (
+          <div className="builder-layout">
+            <div className="query-feedback" role="status" aria-live="polite">
+              {!key ? (
+                <strong>Add a tag to start</strong>
+              ) : !matched && !error ? (
+                <strong>Finding matching songs…</strong>
+              ) : matched ? (
                 <>
-                  <div className="preview-heading">
-                    <div>
-                      <strong>{matched.playableCount} songs</strong>
-                      <span>
-                        {Math.floor(matched.durationMs / 3600000)}h{" "}
-                        {Math.floor(matched.durationMs / 60000) % 60}m · from
-                        your cached library
-                      </span>
-                    </div>
-                    <span className="preview-label">PREVIEW</span>
-                  </div>
+                  <strong>
+                    {matched.playableCount} songs{" "}
+                    <span>
+                      · {Math.floor(matched.durationMs / 3600000)}h{" "}
+                      {Math.floor(matched.durationMs / 60000) % 60}m
+                    </span>
+                  </strong>
+                  {matched.playableCount === 0 && (
+                    <p>
+                      No playable songs match. Try fewer All of tags or remove
+                      an exclusion.
+                    </p>
+                  )}
                   {matched.excludedCount > 0 && (
-                    <p className="notice">
+                    <small>
                       {matched.excludedCount} unavailable{" "}
-                      {matched.excludedCount === 1 ? "song is" : "songs are"}{" "}
-                      excluded from this playlist ({matched.matchedCount} total
-                      matches).
-                    </p>
-                  )}
-                  {matched.matchedCount === 0 && (
-                    <p className="empty-state">
-                      No songs have this combination of tags. Try removing a
-                      requirement.
-                    </p>
-                  )}
-                  <div className="preview-tracks">
-                    {matched.tracks.map((track) => (
-                      <TrackSummary key={track.trackKey} track={track} />
-                    ))}
-                  </div>
-                  {matched.nextCursor && (
-                    <button
-                      disabled={paging}
-                      onClick={async () => {
-                        const capturedKey = key,
-                          capturedVersion = version.current;
-                        setPaging(true);
-                        try {
-                          const next = await api("/query/preview", preview, {
-                            query,
-                            cursor: matched.nextCursor,
-                            limit: 50,
-                          });
-                          if (
-                            capturedKey !== queryRef.current ||
-                            capturedVersion !== version.current
-                          )
-                            return;
-                          if (
-                            JSON.stringify(next.query) !== capturedKey ||
-                            JSON.stringify(next.revision) !==
-                              JSON.stringify(matched.revision)
-                          )
-                            throw new Error("stale_page");
-                          setResult({
-                            key: capturedKey,
-                            refresh,
-                            value: {
-                              ...next,
-                              tracks: [...matched.tracks, ...next.tracks],
-                            },
-                          });
-                        } catch (error) {
-                          if (capturedVersion === version.current) {
-                            setResult(null);
-                            setError(errorMessage(error));
-                          }
-                        } finally {
-                          setPaging(false);
-                        }
-                      }}
-                    >
-                      {paging ? "Loading…" : "More preview songs"}
-                    </button>
+                      {matched.excludedCount === 1
+                        ? "song excluded"
+                        : "songs excluded"}
+                    </small>
                   )}
                 </>
-              )
-            )}
-          </details>
-          {!initialComplete && (
-            <p className="notice">
-              Your first import is still being verified. Browse and tag now;
-              playlist creation unlocks after the complete library is ready.
-            </p>
-          )}
-          <div className="create-heading">
-            <span className="eyebrow">MAKE IT YOURS</span>
-            <h3>Name it. Keep it for a while.</h3>
+              ) : (
+                <strong>Preview needs attention</strong>
+              )}
+              <a
+                href="#playlist-preview"
+                onClick={() => setPreviewExpanded(true)}
+              >
+                Review songs ↓
+              </a>
+            </div>
+            <div className="query-composer">
+              <h3 className="composer-title">Match your tags</h3>
+              <div className="query-buckets">
+                {(["all", "any", "none"] as const).map((bucket) => (
+                  <div className="query-bucket" key={bucket}>
+                    <div className="bucket-heading">
+                      <h3>
+                        {bucket === "all"
+                          ? "All of"
+                          : bucket === "any"
+                            ? "Any of"
+                            : "None of"}
+                      </h3>
+                      <small>
+                        {bucket === "all"
+                          ? "Every tag"
+                          : bucket === "any"
+                            ? "At least one"
+                            : "Leave these out"}
+                      </small>
+                    </div>
+                    <div className="chips">
+                      {buckets[bucket].map((tag) => (
+                        <button
+                          className="chip"
+                          key={tag.id}
+                          aria-label={`Remove ${tag.name} from ${bucket}`}
+                          onClick={() =>
+                            edit(
+                              bucket,
+                              buckets[bucket].filter((t) => t.id !== tag.id),
+                            )
+                          }
+                        >
+                          {tag.name} ×
+                        </button>
+                      ))}
+                    </div>
+                    <TagPicker
+                      label={`Add ${bucket === "all" ? "All of" : bucket === "any" ? "Any of" : "None of"} tag`}
+                      onChoose={(tag) => {
+                        if (!buckets[bucket].some((t) => t.id === tag.id))
+                          edit(bucket, [...buckets[bucket], tag]);
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <details
+              className="preview-panel"
+              id="playlist-preview"
+              open={previewExpanded}
+              onToggle={(event) => setPreviewExpanded(event.currentTarget.open)}
+            >
+              <summary>Review matching songs</summary>
+              {!key ? (
+                <div className="empty-state">
+                  <h3>Choose your first tag</h3>
+                  <p>
+                    Add at least one tag to see the songs that fit. No tags yet?
+                    Start by tagging a few songs or a whole artist.
+                  </p>
+                </div>
+              ) : !matched && !error ? (
+                <p role="status">Finding matching songs…</p>
+              ) : (
+                matched && (
+                  <>
+                    <div className="preview-heading">
+                      <div>
+                        <span>
+                          {Math.floor(matched.durationMs / 3600000)}h{" "}
+                          {Math.floor(matched.durationMs / 60000) % 60}m · from
+                          your cached library
+                        </span>
+                      </div>
+                      <span className="preview-label">Preview</span>
+                    </div>
+                    {matched.excludedCount > 0 && (
+                      <p className="notice">
+                        {matched.excludedCount} unavailable{" "}
+                        {matched.excludedCount === 1 ? "song is" : "songs are"}{" "}
+                        excluded from this playlist ({matched.matchedCount}{" "}
+                        total matches).
+                      </p>
+                    )}
+                    {matched.matchedCount === 0 && (
+                      <p className="empty-state">
+                        No songs have this combination of tags. Try removing a
+                        requirement.
+                      </p>
+                    )}
+                    <div className="preview-tracks">
+                      {matched.tracks.map((track) => (
+                        <TrackSummary key={track.trackKey} track={track} />
+                      ))}
+                    </div>
+                    {matched.nextCursor && (
+                      <button
+                        disabled={paging}
+                        onClick={async () => {
+                          const capturedKey = key,
+                            capturedVersion = version.current;
+                          setPaging(true);
+                          try {
+                            const next = await api("/query/preview", preview, {
+                              query,
+                              cursor: matched.nextCursor,
+                              limit: 50,
+                            });
+                            if (
+                              capturedKey !== queryRef.current ||
+                              capturedVersion !== version.current
+                            )
+                              return;
+                            if (
+                              JSON.stringify(next.query) !== capturedKey ||
+                              JSON.stringify(next.revision) !==
+                                JSON.stringify(matched.revision)
+                            )
+                              throw new Error("stale_page");
+                            setResult({
+                              key: capturedKey,
+                              refresh,
+                              value: {
+                                ...next,
+                                tracks: [...matched.tracks, ...next.tracks],
+                              },
+                            });
+                          } catch (error) {
+                            if (capturedVersion === version.current) {
+                              setResult(null);
+                              setError(errorMessage(error));
+                            }
+                          } finally {
+                            setPaging(false);
+                          }
+                        }}
+                      >
+                        {paging ? "Loading…" : "More preview songs"}
+                      </button>
+                    )}
+                  </>
+                )
+              )}
+            </details>
+            <div className="playlist-setup">
+              {!initialComplete && (
+                <p className="notice">
+                  Your first import is still being verified. Browse and tag now;
+                  playlist creation unlocks after the complete library is ready.
+                </p>
+              )}
+              <div className="create-heading">
+                <h3>Playlist details</h3>
+              </div>
+              <form
+                className="create-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void create();
+                }}
+              >
+                <label>
+                  Playlist name
+                  <input
+                    value={name}
+                    placeholder={defaultName}
+                    maxLength={100}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </label>
+                <RetentionPicker value={retention} onChange={setRetention} />
+                <button className="primary" disabled={!canCreate || busy}>
+                  {busy ? "Requesting…" : "Create playlist →"}
+                </button>
+              </form>
+              <p className="disclosure">
+                We ask Spotify to hide the playlist from your profile and
+                search. Anyone with its link can still access it. Spotify
+                acknowledges the request; hiding cannot be independently
+                verified. The query and expiry date appear in Spotify’s
+                description. Playlists are snapshots. Regenerate replaces manual
+                track edits; expiry removes the playlist from Your Library. Pin
+                it to keep it.
+              </p>
+            </div>
           </div>
-          <form
-            className="create-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void create();
-            }}
-          >
-            <label>
-              Playlist name
-              <input
-                value={name}
-                placeholder={defaultName}
-                maxLength={100}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <RetentionPicker value={retention} onChange={setRetention} />
-            <button className="primary" disabled={!canCreate || busy}>
-              {busy ? "Requesting…" : "Create playlist →"}
-            </button>
-          </form>
-          <p className="disclosure">
-            We ask Spotify to hide the playlist from your profile and search.
-            Anyone with its link can still access it. Spotify acknowledges the
-            request; hiding cannot be independently verified. The query and
-            expiry date appear in Spotify’s description. Playlists are
-            snapshots. Regenerate replaces manual track edits; expiry removes
-            the playlist from Your Library. Pin it to keep it.
-          </p>
         </>
       )}
       {error && (

@@ -31,11 +31,11 @@ test("private landing has an accessible connection path and responsive layout", 
   ).toBe(true);
   await page.getByRole("link", { name: "Privacy", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Privacy, plainly." }),
+    page.getByRole("heading", { name: "Privacy", exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Terms", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "A personal workspace." }),
+    page.getByRole("heading", { name: "Terms of use", exact: true }),
   ).toBeVisible();
 });
 test("unknown callback errors cannot inject text and forbidden access remains honest", async ({

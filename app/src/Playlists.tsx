@@ -244,10 +244,9 @@ export function Playlists({
         ? "3 calendar months"
         : "1 calendar month";
   return (
-    <section aria-labelledby="playlists-title">
+    <section className="playlists-page" aria-labelledby="playlists-title">
       <div className="section-heading">
         <div>
-          <div className="eyebrow">READY FOR THE MOMENT</div>
           <h2 id="playlists-title">Your playlists</h2>
         </div>
         <button
@@ -291,7 +290,7 @@ export function Playlists({
       {!data && !error && <p role="status">Loading playlists…</p>}
       {data?.playlists.length === 0 && (
         <div className="empty-state">
-          <h3>A little less clutter</h3>
+          <h3>No playlists yet</h3>
           <p>
             Playlists you create here will appear here, with their expiry date
             and a way to keep the good ones.
@@ -299,18 +298,23 @@ export function Playlists({
         </div>
       )}
       {!!data?.playlists.length && (
-        <div className="extension-setting">
-          <RetentionPicker
-            pinned={false}
-            label="Extend / Unpin for"
-            value={period}
-            onChange={setPeriod}
-          />
-          <p className="muted">
-            Extend resets the clock; Unpin starts a new one. Regenerate uses the
-            existing retention and keeps your current Spotify name.
-          </p>
-        </div>
+        <details className="retention-settings">
+          <summary>
+            Extend / Unpin retention <strong>{periodLabel}</strong>
+          </summary>
+          <div className="extension-setting">
+            <RetentionPicker
+              pinned={false}
+              label="Extend / Unpin for"
+              value={period}
+              onChange={setPeriod}
+            />
+            <p className="muted">
+              Extend resets the clock; Unpin starts a new one. Regenerate uses
+              the existing retention and keeps your current Spotify name.
+            </p>
+          </div>
+        </details>
       )}
       <div className="playlist-grid">
         {data?.playlists.map((item) => (
@@ -325,10 +329,6 @@ export function Playlists({
                       ? "Removal awaiting confirmation"
                       : "Queued / working"}
               </span>
-              <span className="muted">
-                {item.trackCount} songs
-                {item.status !== "ready" ? " targeted" : ""}
-              </span>
             </div>
             <h3>{item.name}</h3>
             <p className="query-summary">{renderQuery(item.query.root)}</p>
@@ -341,7 +341,14 @@ export function Playlists({
                 before regeneration.
               </p>
             )}
-            <p className="expiry">{expiryText(item.expiresOn)}</p>
+            <div className="playlist-facts">
+              {" "}
+              <span className="muted">
+                {item.trackCount} songs
+                {item.status !== "ready" ? " targeted" : ""}
+              </span>
+              <p className="expiry">{expiryText(item.expiresOn)}</p>
+            </div>
             <p className="muted">Created {date(item.createdAt)}</p>
             {item.blockedBy && (
               <p className="notice">{blockMessage[item.blockedBy]}</p>
