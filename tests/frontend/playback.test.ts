@@ -529,3 +529,22 @@ it("scope recovery survives synchronous SDK errors while disconnecting the faile
   expect(player.disconnect).toHaveBeenCalledTimes(1);
   expect(start).not.toHaveBeenCalled();
 });
+it("SDK ready cannot leave a pending connect promise unbounded", async () => {
+  window.Spotify = {
+    Player: class {
+      constructor() {
+        return player;
+      }
+    },
+  } as unknown as SpotifySDK;
+  player.connect.mockImplementation(() => {
+    player.listeners.get("ready")?.({ device_id: device });
+    return new Promise(() => {});
+  });
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(12000);
+  await pending;
+  expect(views.at(-1)?.status).toBe("error");
+  expect(start).not.toHaveBeenCalled();
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});

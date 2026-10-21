@@ -86,6 +86,7 @@ export class QueuePlayer {
   private status: ListenStatus = "idle";
   private timer: ReturnType<typeof setTimeout> | undefined;
   private deadline: ReturnType<typeof setTimeout> | undefined;
+  private connectionDeadline: ReturnType<typeof setTimeout> | undefined;
   private polling: ReturnType<typeof setInterval> | undefined;
   private remaining = 20000;
   private audibleSince: number | undefined;
@@ -137,6 +138,7 @@ export class QueuePlayer {
     this.abort.abort();
     this.clearAudioTimer();
     clearTimeout(this.deadline);
+    clearTimeout(this.connectionDeadline);
     clearInterval(this.polling);
     this.stopDevice();
   }
@@ -145,6 +147,7 @@ export class QueuePlayer {
     this.emit("error", message, enable);
     this.clearAudioTimer();
     clearTimeout(this.deadline);
+    clearTimeout(this.connectionDeadline);
     clearInterval(this.polling);
     this.accepted = false;
     this.operation++;
@@ -429,9 +432,19 @@ export class QueuePlayer {
         await Promise.all([
           ready,
           verifiedGrant,
-          player.connect().then((connected) => {
-            if (!connected) throw new Error("connect_failed");
-          }),
+          Promise.race([
+            player.connect(),
+            new Promise<boolean>((_, reject) => {
+              this.connectionDeadline = setTimeout(
+                () => reject(new Error("connect_timeout")),
+                12000,
+              );
+            }),
+          ])
+            .then((connected) => {
+              if (!connected) throw new Error("connect_failed");
+            })
+            .finally(() => clearTimeout(this.connectionDeadline)),
         ]);
         if (this.dead || operation !== this.operation) return;
         if (!warm) {
