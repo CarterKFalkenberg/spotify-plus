@@ -2487,3 +2487,76 @@ test("failed artwork refresh retries within its deadline and a stalled retry pre
     0,
   );
 });
+
+test("long-tag suggestions fit the playlist contract while explicit names and full queries survive edits", async ({
+  page,
+}) => {
+  const longTags = [
+    { ...tag(1), name: `Alpha${"a".repeat(65)}` },
+    { ...tag(2), name: `Beta${"🚗".repeat(50)}` },
+  ];
+  const unbounded = longTags.map((item) => item.name).join(" + ");
+  expect([...unbounded].length).toBeGreaterThan(100);
+  const calls = await mock(page, async (route, path) => {
+    if (path !== "/api/tags") return false;
+    await route.fulfill({ json: { tags: longTags, hasMore: false, revision } });
+    return true;
+  });
+  await page.goto("/");
+  await builder(page);
+  async function add(index: number) {
+    await page
+      .getByLabel("Add All of tag", { exact: true })
+      .fill(index ? "Beta" : "Alpha");
+    await page
+      .getByRole("option", {
+        name: `${longTags[index]!.name} 3 songs`,
+        exact: true,
+      })
+      .click();
+  }
+  for (const custom of [false, true]) {
+    await add(0);
+    await add(1);
+    await details(page);
+    const name = page.getByLabel("Playlist name", { exact: true });
+    expect([...(await name.inputValue())]).toHaveLength(100);
+    if (custom) {
+      await name.fill("My explicit name");
+      await chooseStep(page);
+      await page
+        .getByRole("button", {
+          name: `Remove ${longTags[1]!.name} from all`,
+          exact: true,
+        })
+        .click();
+      await add(1);
+      await details(page);
+      await expect(name).toHaveValue("My explicit name");
+    }
+    await page
+      .getByRole("button", { name: "Create playlist →", exact: true })
+      .click();
+    await expect(
+      page.getByText("Playlist request accepted.", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Make another playlist", exact: true })
+      .click();
+  }
+  const creates = calls
+    .filter((call) => call.path === "/api/playlists" && call.body)
+    .map((call) => call.body);
+  expect(creates).toHaveLength(2);
+  expect([...creates[0].name]).toHaveLength(100);
+  expect(creates[0].name).toBe([...unbounded].slice(0, 100).join(""));
+  expect(creates[1].name).toBe("My explicit name");
+  for (const request of creates)
+    expect(request.query).toEqual({
+      version: 1,
+      root: {
+        op: "and",
+        children: longTags.map((item) => ({ op: "tag", tagId: item.id })),
+      },
+    });
+});

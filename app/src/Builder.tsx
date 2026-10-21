@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   compileQueryBuilder,
+  CONTRACT_LIMITS,
   parseCreatePlaylist,
   type QueryBuilder,
   type QueryPreviewResponse,
@@ -115,11 +116,15 @@ export function Builder({
   const key = query ? JSON.stringify(query) : "";
   const queryRef = useRef(key);
   queryRef.current = key;
-  const defaultName =
+  const suggestedName =
     [...buckets.all, ...buckets.any].map((t) => t.name).join(" + ") ||
     (buckets.none.length
       ? `Without ${buckets.none.map((t) => t.name).join(", ")}`
       : "My playlist");
+  const defaultName = [...suggestedName.normalize("NFC")]
+    .slice(0, CONTRACT_LIMITS.playlistNameLength)
+    .join("")
+    .trimEnd();
   function edit(bucket: keyof QueryBuilder, items: readonly TagDTO[]) {
     version.current++;
     setResult(null);
@@ -540,7 +545,7 @@ export function Builder({
                   <input
                     value={name ?? defaultName}
                     placeholder={defaultName}
-                    maxLength={100}
+                    maxLength={CONTRACT_LIMITS.playlistNameLength}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </label>
