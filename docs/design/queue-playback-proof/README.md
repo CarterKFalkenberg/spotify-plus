@@ -2,7 +2,7 @@
 
 These screenshots use fictional songs, drawn fixture artwork, a synthetic library API and a simulated Spotify SDK. They prove the rendered flow and controlled state transitions; they do not establish real audio, browser DRM support, Spotify permissions, or human phone/tagging-speed acceptance. All unrecognized nonlocal requests were blocked.
 
-Before: `954b15ecfd877782c05af7f0f368ac34c2c248bf`. After: `962df1ea3ceb6349ce93ce8e57f9c716c4f43446`; the reviewed proof commit preserves the identical app Git tree. The [manifest](manifest.json) records source identities, viewport sizes and screenshot SHA-256 digests.
+Before: `954b15ecfd877782c05af7f0f368ac34c2c248bf`. After: `8e6e2595155f3807f7244bf151e46aa95c880e2c`; the reviewed proof commit preserves the identical app Git tree. The [manifest](manifest.json) records source identities, viewport sizes and screenshot SHA-256 digests.
 
 The new control starts at one-third into the song. The flow below shows explicit Play, confirmed sampling with Pause, automatic pause after 20 seconds, and Play more continuing until paused. Source tests additionally cover lifecycle cancellation, delayed/ambiguous responses, missing permission, bounded pause confirmation and disconnect.
 
@@ -10,8 +10,8 @@ The new control starts at one-third into the song. The flow below shows explicit
 
 Matched viewport: 1440 × 1000. Before offers Open in Spotify; after adds optional listening while preserving tags and navigation.
 
-| Before | After the 20-second sample |
-| --- | --- |
+| Before                                            | After the 20-second sample                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- |
 | ![Before desktop light](before-desktop-light.png) | ![After desktop light, automatically paused](after-desktop-light-paused.png) |
 
 ### Play → sample → Play more
@@ -26,8 +26,8 @@ Matched viewport: 1440 × 1000. Before offers Open in Spotify; after adds option
 
 Matched viewport: 1440 × 1000. Before offers Open in Spotify; after adds optional listening while preserving tags and navigation.
 
-| Before | After the 20-second sample |
-| --- | --- |
+| Before                                          | After the 20-second sample                                                 |
+| ----------------------------------------------- | -------------------------------------------------------------------------- |
 | ![Before desktop dark](before-desktop-dark.png) | ![After desktop dark, automatically paused](after-desktop-dark-paused.png) |
 
 ### Play → sample → Play more
@@ -42,8 +42,8 @@ Matched viewport: 1440 × 1000. Before offers Open in Spotify; after adds option
 
 Matched viewport: 390 × 844. Before offers Open in Spotify; after adds optional listening while preserving tags and navigation.
 
-| Before | After the 20-second sample |
-| --- | --- |
+| Before                                        | After the 20-second sample                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------ |
 | ![Before phone light](before-phone-light.png) | ![After phone light, automatically paused](after-phone-light-paused.png) |
 
 ### Play → sample → Play more
@@ -58,8 +58,8 @@ Matched viewport: 390 × 844. Before offers Open in Spotify; after adds optional
 
 Matched viewport: 390 × 844. Before offers Open in Spotify; after adds optional listening while preserving tags and navigation.
 
-| Before | After the 20-second sample |
-| --- | --- |
+| Before                                      | After the 20-second sample                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------- |
 | ![Before phone dark](before-phone-dark.png) | ![After phone dark, automatically paused](after-phone-dark-paused.png) |
 
 ### Play → sample → Play more
