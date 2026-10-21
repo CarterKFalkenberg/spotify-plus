@@ -21,6 +21,7 @@ export type Group = {
   selection: Extract<ReturnType<typeof parseSelection>, { kind: "filter" }>;
 };
 export type Search = {
+  artworkPending: boolean;
   revision: LibraryRevision;
   totalTracks: number;
   nextCursor: string | null;
@@ -43,6 +44,10 @@ function choice<T extends string>(value: unknown, choices: readonly T[]): T {
     throw new ApiError("invalid_response");
   return value as T;
 }
+function boolean(value: unknown): boolean {
+  if (typeof value !== "boolean") throw new ApiError("invalid_response");
+  return value;
+}
 function count(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new ApiError("invalid_response");
@@ -64,6 +69,8 @@ export function search(value: unknown): Search {
   const v = object(value),
     base = {
       revision: parseLibraryRevision(v.revision),
+      artworkPending:
+        v.artworkPending === undefined ? false : boolean(v.artworkPending),
       totalTracks: count(v.totalTracks),
       nextCursor: cursor(v.nextCursor),
     };

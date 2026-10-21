@@ -189,6 +189,7 @@ export interface ArtistGroupDTO {
 }
 export type LibrarySearchResponse =
   & {
+    readonly artworkPending: boolean;
     readonly revision: LibraryRevision;
     readonly totalTracks: number;
     readonly nextCursor: string | null;

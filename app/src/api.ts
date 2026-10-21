@@ -214,6 +214,8 @@ export function librarySearch(value: unknown): LibrarySearchResponse {
   const v = obj(value),
     base = {
       revision: parseLibraryRevision(v.revision),
+      artworkPending:
+        v.artworkPending === undefined ? false : bool(v.artworkPending),
       totalTracks: count(v.totalTracks),
       nextCursor: cursor(v.nextCursor),
     };

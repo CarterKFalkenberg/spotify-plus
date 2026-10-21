@@ -38,21 +38,23 @@ $$;
 alter function public.app_library_search(bigint,jsonb) rename to app_library_search_before_artwork;
 create function public.app_library_search(p_epoch bigint,p_request jsonb) returns jsonb
  language plpgsql security definer set search_path='' as $$
- declare result jsonb; rows jsonb:='[]'; g jsonb; image text;
+ declare result jsonb; rows jsonb:='[]'; g jsonb; image text; artwork_pending boolean:=false;
  begin
   perform 1 from app.account where epoch=p_epoch for update;
   result:=public.app_library_search_before_artwork(p_epoch,p_request);
-  if result->>'groupBy' is null then return result; end if;
+  if result->>'groupBy' is null then return result||jsonb_build_object('artworkPending',false); end if;
   for g in select value from jsonb_array_elements(result->'groups') loop
    image:=null;
-   if result->>'groupBy'='artist' then image:=app.request_artwork(p_epoch,'artist',g->>'artistId');
+   if result->>'groupBy'='artist' then
+    image:=app.request_artwork(p_epoch,'artist',g->>'artistId');
+    artwork_pending:=artwork_pending or exists(select 1 from app.artwork a where a.epoch=p_epoch and a.kind='artist' and a.spotify_id=g->>'artistId' and a.pending);
    elsif result->>'groupBy'='album' then
     select m.artwork_url into image from app.filter_keys(p_request->'filter') k join app.track_metadata m using(track_key)
      where app.album_identity(m.album)=g->>'value' and m.artwork_url is not null order by m.track_key limit 1;
    end if;
    rows:=rows||jsonb_build_array(g||jsonb_build_object('artworkUrl',image));
   end loop;
-  return result||jsonb_build_object('groups',rows);
+  return result||jsonb_build_object('groups',rows,'artworkPending',artwork_pending);
  end;
 $$;
 alter function app.playlist_dto(app.playlists) rename to playlist_dto_before_artwork;

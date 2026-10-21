@@ -16,6 +16,7 @@ begin
  if p_action='artwork' then
   insert into app.artwork(epoch,kind,spotify_id,url,pending,refresh_after)
    select epoch,'artist',repeat('x',22),'https://images.test/synthetic',false,now()+interval '1 hour' from app.account where state='connected';
+  perform public.app_job_enqueue('artwork',(select epoch from app.account where singleton),'{}',1000);
  elsif p_action='reset_pacing' then
   update app.spotify_pacing set next_at='-infinity',cooldown_until='-infinity',cooldown_kind=null where singleton;
  elsif p_action='retry_playlists' then
@@ -36,6 +37,8 @@ begin
  end if;
  return jsonb_build_object(
   'guardUntouched',exists(select 1 from app.rest_guard_probe where id=1 and value=0),
+  'artworkSeeded',exists(select 1 from app.artwork where kind='artist' and spotify_id=repeat('x',22) and url='https://images.test/synthetic'),
+  'artworkFinished',exists(select 1 from app.jobs where kind='artwork' and state='done'),
   'artworkCount',(select count(*) from app.artwork),
   'credentials',exists(select 1 from app.credentials),
   'sessions',(select count(*) from app.sessions),

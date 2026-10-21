@@ -9,6 +9,7 @@ create table artwork_proof(k text primary key,v jsonb);
 insert into artwork_proof values('search',public.app_library_search(1,'{"filter":{"membership":"active","search":"","untagged":false,"newOnly":false,"artistId":null},"groupBy":"artist","limit":10,"cursor":null}'));
 select pg_temp.assert((select v->'groups'->0->'artworkUrl'='null'::jsonb from artwork_proof where k='search'),'missing artist art never borrows album cover');
 select pg_temp.assert((select count(*)=1 from app.artwork where kind='artist'),'visible artist scheduled');
+select pg_temp.assert((select v->'artworkPending'='true'::jsonb from artwork_proof where k='search'),'first artist page signals pending hydration without revision changes');
 select app.request_artwork(1,'artist',repeat('a',22));
 select pg_temp.assert((select count(*)=1 from app.jobs where kind='artwork' and state='queued'),'repeated browsing deduplicates jobs');
 insert into artwork_proof values('job',public.app_job_claim());
@@ -16,6 +17,7 @@ select pg_temp.assert(public.app_artwork_work(1,(select (v->>'id')::uuid from ar
 select pg_temp.assert(public.app_artwork_work(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job'))->>'spotifyId'=repeat('a',22),'leased artwork target');
 select pg_temp.assert(public.app_artwork_commit(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job'),'artist',repeat('a',22),'https://images.test/artist'),'artwork checkpoint');
 select pg_temp.assert(app.request_artwork(1,'artist',repeat('a',22))='https://images.test/artist','cached actual artist URL');
+select pg_temp.assert(public.app_library_search(1,'{"filter":{"membership":"active","search":"","untagged":false,"newOnly":false,"artistId":null},"groupBy":"artist","limit":10,"cursor":null}')->'artworkPending'='false'::jsonb,'resolved artwork stops pending signal');
 update app.artwork set refresh_after=now()-interval '1 second' where spotify_id=repeat('a',22);
 select pg_temp.assert(app.request_artwork(1,'artist',repeat('a',22)) is null,'expired artwork is hidden while pending refresh');
 select pg_temp.assert(app.request_artwork(1,'playlist',repeat('z',22)) is null and not exists(select 1 from app.artwork where kind='playlist'),'unmanaged playlist never queues');
@@ -29,6 +31,7 @@ select pg_temp.assert((select refresh_after>now()+interval '4 minutes' and refre
 select pg_temp.assert(public.app_artwork_commit(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job'),'artist',repeat('a',22),'https://images.test/artist'),'drain final pending image');
 select pg_temp.assert(public.app_artwork_work(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job')) is null,'empty read finishes atomically');
 select pg_temp.assert((select state='done' from app.jobs where id=(select (v->>'id')::uuid from artwork_proof where k='job')),'empty read committed completion');
+select pg_temp.assert((select last_job_at=now() from app.runtime_health where singleton),'atomic artwork completion records job health');
 update app.artwork set refresh_after=now()-interval '1 second' where spotify_id=repeat('a',22);
 select app.request_artwork(1,'artist',repeat('a',22));
 select pg_temp.assert((select count(*)=1 from app.jobs where kind='artwork' and state='queued'),'browse after empty read creates runnable successor without another browse');

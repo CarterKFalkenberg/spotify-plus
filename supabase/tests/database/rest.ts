@@ -564,8 +564,26 @@ try {
     (await raw("app_library_status", { p_epoch: epoch }, input.anonKey))
       .status === 401,
   );
+  phase = "artwork_empty_finish";
+  const artworkFixture = await fixture("artwork");
+  check(
+    artworkFixture.artworkSeeded === true &&
+      typeof artworkFixture.artworkCount === "number" &&
+      artworkFixture.artworkCount >= 1,
+  );
+  const artworkJob = await db.rpc<
+    { id: string; kind: string; leaseToken: string }
+  >("app_job_claim");
+  check(artworkJob.kind === "artwork");
+  check(
+    await db.rpc("app_artwork_work", {
+      p_epoch: epoch,
+      p_id: artworkJob.id,
+      p_lease: artworkJob.leaseToken,
+    }) === null,
+  );
+  check((await fixture("inspect")).artworkFinished === true);
   phase = "disconnect_and_purge";
-  check((await fixture("artwork")).artworkCount === 1);
   await db.rpc("app_oauth_start", {
     p_state_hash: "f".repeat(64),
     p_browser_hash: "g".repeat(64),
