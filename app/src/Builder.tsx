@@ -339,6 +339,19 @@ export function Builder({
               ) : (
                 <strong>Preview needs attention</strong>
               )}
+              {!initialComplete ? (
+                <p className="builder-readiness">
+                  Your first import is still being verified. You can choose tags
+                  and review songs now; playlist creation unlocks when the
+                  complete library is ready.
+                </p>
+              ) : matched && !matched.generationReady ? (
+                <p className="builder-readiness">
+                  Library verification is still in progress. You can review
+                  these songs; playlist creation unlocks when verification
+                  finishes.
+                </p>
+              ) : null}
             </div>
             <div
               className="query-composer builder-stage"
@@ -511,12 +524,6 @@ export function Builder({
               data-step="details"
               hidden={step !== 2 || submitted}
             >
-              {!initialComplete && (
-                <p className="notice">
-                  Your first import is still being verified. Browse and tag now;
-                  playlist creation unlocks after the complete library is ready.
-                </p>
-              )}
               <div className="create-heading">
                 <h3>Playlist details</h3>
               </div>

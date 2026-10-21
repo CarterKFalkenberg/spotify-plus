@@ -234,6 +234,7 @@ export function Library({
   ]);
   const artworkPending = data?.artworkPending ?? false;
   const artworkKey = JSON.stringify([filter, grouped, groupBy, sort, cursor]);
+  // The absolute deadline also runs when a refresh fails or stays in flight.
   useEffect(() => {
     if (!artworkPending) {
       artworkWindow.current = null;
@@ -245,24 +246,46 @@ export function Library({
       artworkWindow.current = { key: artworkKey, startedAt: Date.now() };
       setArtworkTimedOut(false);
     }
-    if (Date.now() - artworkWindow.current.startedAt >= 60_000) {
+    const remaining = 60_000 - (Date.now() - artworkWindow.current.startedAt);
+    if (remaining <= 0) {
       setArtworkTimedOut(true);
       return;
     }
-    const remaining = 60_000 - (Date.now() - artworkWindow.current.startedAt);
-    const timer = setTimeout(
-      () => {
-        if (
-          !artworkWindow.current ||
-          Date.now() - artworkWindow.current.startedAt >= 60_000
-        )
-          setArtworkTimedOut(true);
-        else setArtworkAttempt((value) => value + 1);
-      },
-      Math.min(3_000, remaining),
-    );
+    const timer = setTimeout(() => {
+      if (artworkWindow.current?.key === artworkKey) setArtworkTimedOut(true);
+    }, remaining);
     return () => clearTimeout(timer);
-  }, [data, artworkPending, artworkKey, active, visible]);
+  }, [artworkPending, artworkKey, active, visible, artworkAttempt]);
+  // A settled failure is another bounded retry opportunity, not a stalled loop.
+  useEffect(() => {
+    if (
+      !artworkPending ||
+      !active ||
+      !visible ||
+      loadingPage ||
+      artworkTimedOut ||
+      requestInFlight.current
+    )
+      return;
+    const timer = setTimeout(() => {
+      const waiting = artworkWindow.current;
+      if (
+        waiting?.key === artworkKey &&
+        Date.now() - waiting.startedAt < 60_000 &&
+        !requestInFlight.current
+      )
+        setArtworkAttempt((value) => value + 1);
+    }, 3_000);
+    return () => clearTimeout(timer);
+  }, [
+    data,
+    artworkPending,
+    artworkKey,
+    active,
+    visible,
+    loadingPage,
+    artworkTimedOut,
+  ]);
   useEffect(() => {
     const controller = new AbortController();
     setKnownTags([]);

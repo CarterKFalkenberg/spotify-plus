@@ -596,6 +596,11 @@ test("import browsing stays available while create is gated; manual sync and new
   await page.goto("/");
   await builder(page);
   await choose(page);
+  await expect(page.locator(".query-feedback")).toContainText("2 songs");
+  await expect(page.locator(".builder-readiness")).toBeVisible();
+  await expect(page.locator(".builder-readiness")).toContainText(
+    "Your first import is still being verified",
+  );
   await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(page.getByText(/2 of 3 imported/)).toBeVisible();
   await syncControls(page);
@@ -653,7 +658,7 @@ test("playlist deletion needs explicit confirmation and saved lifecycle statuses
     page.getByText("Removal awaiting confirmation", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Queued / working", { exact: true }),
+    page.getByText("Preparing playlist", { exact: true }),
   ).toBeVisible();
   await managePlaylist(page);
   await page
@@ -2300,9 +2305,9 @@ test("artwork wait stops after one minute and an explicit check restarts it", as
     await route.fulfill({ json: artworkGroups(true) });
     return true;
   });
+  await page.clock.install();
   await page.goto("/");
   await artistView(page);
-  await page.clock.install();
   await page.clock.runFor(65_000);
   await expect(
     page.getByRole("button", { name: "Check artwork", exact: true }),
@@ -2384,4 +2389,101 @@ test("playlist cover art stays contained on phones and broken covers preserve Sp
       page.getByLabel("Search your library", { exact: true }),
     ).toBeVisible();
   }
+});
+
+test("failed artwork refresh retries within its deadline and a stalled retry preserves page and draft", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  const cursor = "synthetic-art-page-two";
+  let phase = "initial",
+    requests = 0,
+    release: (() => void) | null = null;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const calls = await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    const body = route.request().postDataJSON();
+    requests++;
+    if (body.cursor && phase === "fail") {
+      phase = "hold";
+      await route.fulfill({ status: 503, json: { error: "unavailable" } });
+      return true;
+    }
+    if (body.cursor && (phase === "hold" || phase === "held")) {
+      phase = "held";
+      await blocked;
+      try {
+        await route.fulfill({ json: artworkGroups(true) });
+      } catch {
+        /* The explicit retry cancels this old request. */
+      }
+      return true;
+    }
+    await route.fulfill({
+      json: {
+        ...artworkGroups(!!body.cursor && phase !== "recover"),
+        totalGroups: 2,
+        nextCursor: body.cursor ? null : cursor,
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await artistView(page);
+  const paging = page.getByRole("navigation", { name: "Library pages top" });
+  await paging.getByRole("button", { name: "Next page →" }).click();
+  await expect(paging).toContainText("Page 2");
+  await page
+    .getByRole("button", {
+      name: "Tag all 3 songs by Synthetic Artist",
+      exact: true,
+    })
+    .click();
+  const draft = page.getByLabel("Add tag to selection", { exact: true });
+  await draft.fill("preserve this draft");
+  await page.clock.install();
+  phase = "fail";
+  await page.clock.runFor(4_000);
+  await expect.poll(() => phase).toBe("hold");
+  await page.clock.runFor(4_000);
+  await expect.poll(() => phase).toBe("held");
+  const heldCount = requests;
+  await page.clock.runFor(65_000);
+  await expect(
+    page.getByRole("button", { name: "Check artwork", exact: true }),
+  ).toBeVisible();
+  expect(requests).toBe(heldCount);
+  await expect(paging).toContainText("Page 2");
+  await expect(draft).toHaveValue("preserve this draft");
+  phase = "recover";
+  await page
+    .getByRole("button", { name: "Check artwork", exact: true })
+    .click();
+  await page.clock.runFor(500);
+  await expect(page.locator(".artwork-status")).toHaveCount(0);
+  await expect(paging).toContainText("Page 2");
+  await expect(draft).toHaveValue("preserve this draft");
+  release!();
+  await page.clock.runFor(15_000);
+  await expect(page.locator(".artwork-status")).toHaveCount(0);
+  expect(requests).toBe(heldCount + 1);
+  expect(
+    calls
+      .filter((call) => call.path === "/api/library/search")
+      .slice(1)
+      .every((call) => call.body.cursor === cursor),
+  ).toBe(true);
+  expect(calls.filter((call) => call.path === "/api/tag-actions")).toHaveLength(
+    0,
+  );
 });

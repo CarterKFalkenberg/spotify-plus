@@ -312,7 +312,7 @@ export function Playlists({
                     ? "Incomplete — retry"
                     : item.status === "removing"
                       ? "Removal awaiting confirmation"
-                      : "Queued / working"}
+                      : "Preparing playlist"}
                 </span>
               )}
             </div>
@@ -331,7 +331,7 @@ export function Playlists({
               {" "}
               <span className="muted">
                 {item.trackCount} {item.trackCount === 1 ? "song" : "songs"}
-                {item.status !== "ready" ? " targeted" : ""}
+                {item.status !== "ready" ? " selected" : ""}
               </span>
               <p className="expiry">{expiryText(item.expiresOn)}</p>
             </div>
