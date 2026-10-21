@@ -24,6 +24,17 @@ select public.app_playlist_list(1);
 select pg_temp.assert((select count(*)=1 from app.artwork where kind='playlist'),'managed playlist list schedules cover');
 select pg_temp.assert(public.app_artwork_commit(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job'),'playlist',repeat('p',22),null),'missing playlist image commits null');
 select pg_temp.assert((select refresh_after>now()+interval '4 minutes' and refresh_after<=now()+interval '5 minutes' and url is null and not pending from app.artwork where kind='playlist'),'null image has bounded retry TTL');
+-- Deterministic interleaving: worker sees empty, browser requests fresh work,
+-- then the old worker's separate acknowledgement arrives. Work must stay runnable.
+select pg_temp.assert(public.app_artwork_commit(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job'),'artist',repeat('a',22),'https://images.test/artist'),'drain final pending image');
+select pg_temp.assert(public.app_artwork_work(1,(select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job')) is null,'empty read finishes atomically');
+select pg_temp.assert((select state='done' from app.jobs where id=(select (v->>'id')::uuid from artwork_proof where k='job')),'empty read committed completion');
+update app.artwork set refresh_after=now()-interval '1 second' where spotify_id=repeat('a',22);
+select app.request_artwork(1,'artist',repeat('a',22));
+select pg_temp.assert((select count(*)=1 from app.jobs where kind='artwork' and state='queued'),'browse after empty read creates runnable successor without another browse');
+select pg_temp.assert(not public.app_job_finish((select (v->>'id')::uuid from artwork_proof where k='job'),(select (v->>'leaseToken')::uuid from artwork_proof where k='job'),'done'),'late old acknowledgement cannot finish successor');
+insert into artwork_proof values('successor',public.app_job_claim());
+select pg_temp.assert(public.app_artwork_work(1,(select (v->>'id')::uuid from artwork_proof where k='successor'),(select (v->>'leaseToken')::uuid from artwork_proof where k='successor'))->>'spotifyId'=repeat('a',22),'successor processes new pending target');
 update app.track_metadata set removed_at=now()-interval '91 days' where track_key=repeat('1',64);
 select app.library_maintenance();
 select pg_temp.assert(not exists(select 1 from app.artwork where kind='artist'),'metadata purge removes artist artwork');

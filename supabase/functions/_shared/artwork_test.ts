@@ -115,7 +115,7 @@ Deno.test("artwork stale lease prevents remote reads; quota remains retryable wi
       job,
       Date.now() + 80000,
     ),
-    { done: true },
+    null,
   );
   equal(calls, 0);
   const runner = artworkJobs({

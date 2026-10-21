@@ -26,7 +26,8 @@ export function artworkJobs(input: {
         p_id: job.id,
         p_lease: job.leaseToken,
       });
-      if (!target) return { done: true };
+      // SQL atomically finishes an empty queue, or rejects the stale lease.
+      if (!target) return null;
       let url: string | null;
       try {
         const result = target.kind === "artist"

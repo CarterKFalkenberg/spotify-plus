@@ -77,6 +77,7 @@ $$;
 
 create function public.app_artwork_work(p_epoch bigint,p_id uuid,p_lease uuid) returns jsonb
  language plpgsql security definer set search_path='' as $$
+ declare target jsonb;
  begin
   perform 1 from app.account where epoch=p_epoch and state='connected' for update;
   if not found then return null; end if;
@@ -84,9 +85,15 @@ create function public.app_artwork_work(p_epoch bigint,p_id uuid,p_lease uuid) r
    and lease_token=p_lease and lease_until>clock_timestamp() for update;
   if not found then return null; end if;
   perform public.app_job_renew(p_id,p_lease);
-  return (select jsonb_build_object('kind',a.kind,'spotifyId',a.spotify_id) from app.artwork a
+  select jsonb_build_object('kind',a.kind,'spotifyId',a.spotify_id) into target from app.artwork a
    where a.epoch=p_epoch and a.pending and app.artwork_relevant(p_epoch,a.kind,a.spotify_id)
-   order by a.requested_at desc,a.kind,a.spotify_id limit 1);
+   order by a.requested_at desc,a.kind,a.spotify_id limit 1;
+  if target is null then
+   -- Finish under the same account/job locks as the empty read. A later browse
+   -- must see a finished job and enqueue a successor for newly pending targets.
+   perform public.app_job_finish(p_id,p_lease,'done');
+  end if;
+  return target;
  end;
 $$;
 create function public.app_artwork_commit(p_epoch bigint,p_id uuid,p_lease uuid,p_kind text,p_spotify_id text,p_url text) returns boolean
