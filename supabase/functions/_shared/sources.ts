@@ -104,6 +104,9 @@ export function createSourcesRunner(input: {
       let snapshot: string | null = null;
       if (checkpoint.sourceId) {
         const before = await client.getPlaylist(checkpoint.sourceId);
+        if (before.ownerId !== checkpoint.accountId && !before.collaborative) {
+          return await finish(null, "forbidden");
+        }
         snapshot = before.snapshotId;
         if (checkpoint.snapshotId && checkpoint.snapshotId !== snapshot) {
           return await finish(snapshot);
