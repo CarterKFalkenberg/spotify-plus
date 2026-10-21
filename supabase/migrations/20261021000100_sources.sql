@@ -367,6 +367,9 @@ create function public.app_source_finish(p_epoch bigint,p_id uuid,p_lease uuid,p
   -- Unchanged snapshots avoid all item reads; otherwise validate the complete walk
   -- against both metadata snapshots. Counts alone do not establish a snapshot.
   if r.snapshot_id is null and exists(select 1 from app.sources where epoch=p_epoch and id=r.source_id and snapshot_id=p_snapshot and last_synced_at is not null) then
+   if exists(select 1 from app.sources where epoch=p_epoch and id=r.source_id and latest_completed_run_id is distinct from p_id) then
+    update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch;
+   end if;
    update app.sources set available=true,error_code=null,last_synced_at=now(),latest_completed_run_id=p_id where epoch=p_epoch and id=r.source_id;
    return jsonb_build_object('done',true);
   end if;

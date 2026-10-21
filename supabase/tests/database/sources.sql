@@ -44,8 +44,10 @@ select pg_temp.assert((select present from app.track_tags where track_key=repeat
 -- old arrivals without making content requests or republishing an inflight ID.
 insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('99999999-9999-4999-8999-999999999999',1,'source_sync','running','88888888-8888-4888-8888-888888888888',now()+interval '1 hour');
 insert into app.source_scans(job_id,epoch,source_id) values('99999999-9999-4999-8999-999999999999',1,repeat('p',22));
+create temp table unchanged_revision as select library_revision from app.library_state where singleton;
 select public.app_source_finish(1,'99999999-9999-4999-8999-999999999999','88888888-8888-4888-8888-888888888888','snapshot-two');
 select pg_temp.assert((select latest_completed_run_id='99999999-9999-4999-8999-999999999999' from app.sources where id=repeat('p',22)),'unchanged verified snapshot advances latest source cohort');
+select pg_temp.assert((select l.library_revision>r.library_revision from app.library_state l cross join unchanged_revision r where l.singleton),'cohort change invalidates revision-bound latest-sync cursors and selections');
 -- Forbidden reads never clear membership; unavailable status is explicit.
 insert into app.source_memberships values(1,repeat('p',22),repeat('2',64),now());
 select app.refresh_source_pool(1);
