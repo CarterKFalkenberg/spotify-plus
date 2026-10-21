@@ -76,15 +76,15 @@ Deno.test("source contracts bind explicit IDs, reject unknown fields and bound l
       { ids: ["bad"], enabled: false },
       { ids: [sourceId], enabled: true, filter: {} },
     ]
-  ) await rejects(async () => sourceSelection(v));
+  ) await rejects(() => Promise.resolve(sourceSelection(v)));
   for (
     const q of ["limit=101", "offset=-1", "search=a&search=b", "unknown=a"]
   ) {
-    await rejects(async () =>
-      sourcesList(new URL(`https://synthetic.example/?${q}`))
+    await rejects(() =>
+      Promise.resolve(sourcesList(new URL(`https://synthetic.example/?${q}`)))
     );
   }
-  await rejects(async () => emptySourceRequest({ query: "hidden" }));
+  await rejects(() => Promise.resolve(emptySourceRequest({ query: "hidden" })));
 });
 Deno.test("source projection skips local and episode entries, separates unresolved coverage and preserves rich versions", async () => {
   const p = await sourcePage({
@@ -130,9 +130,9 @@ Deno.test("unchanged playlist snapshot skips content reads and disabled source r
       }),
       annotationBox: box,
       spotify: () => ({
-        getPlaylist: async () => {
+        getPlaylist: () => {
           reads++;
-          return metadata;
+          return Promise.resolve(metadata);
         },
         getPlaylistItemsPage: () => {
           throw Error("content fetched");
@@ -171,15 +171,16 @@ Deno.test("source walk validates before and after snapshots with bounded50item p
       throw Error("unexpected RPC");
     }),
     spotify: () => ({
-      getPlaylist: async () => ({
-        ...metadata,
-        snapshotId: done || calls.includes("app_source_page_commit")
-          ? "changed"
-          : "snapshot",
-      }),
-      getPlaylistItemsPage: async (_id, query) => {
+      getPlaylist: () =>
+        Promise.resolve({
+          ...metadata,
+          snapshotId: done || calls.includes("app_source_page_commit")
+            ? "changed"
+            : "snapshot",
+        }),
+      getPlaylistItemsPage: (_id, query) => {
         equal(query, { offset: 0, limit: 50 });
-        return {
+        return Promise.resolve({
           offset: 0,
           limit: 50,
           nextOffset: null,
@@ -191,7 +192,7 @@ Deno.test("source walk validates before and after snapshots with bounded50item p
             type: "track",
             track,
           }],
-        };
+        });
       },
       getCurrentUserPlaylistsPage: () => {
         throw Error("unexpected");
@@ -226,7 +227,7 @@ Deno.test("selection and lease are rechecked before content; access failure reco
         throw Error("unexpected RPC");
       }),
       spotify: () => ({
-        getPlaylist: async () => metadata,
+        getPlaylist: () => Promise.resolve(metadata),
         getPlaylistItemsPage: () => {
           content++;
           throw new SpotifyError(

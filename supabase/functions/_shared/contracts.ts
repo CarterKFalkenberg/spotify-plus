@@ -154,10 +154,16 @@ export interface TrackMetadataDTO {
   readonly spotifyUrl: string | null;
   readonly playableUri: string | null;
   readonly likedAt: string;
+  readonly addedAt?: string;
   readonly removedAt: string | null;
   readonly acknowledgedAt: string | null;
 }
 export interface TrackDTO extends TrackAnnotationDTO {
+  readonly sources?: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly kind: "liked" | "playlist";
+  }[];
   readonly metadata: TrackMetadataDTO | null;
 }
 export interface TagDTO {
