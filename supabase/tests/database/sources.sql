@@ -56,6 +56,47 @@ do $$ declare r app.sync_runs; j app.jobs; begin
 end $$;
 select pg_temp.assert((select removed_at is null from app.track_metadata where track_key=repeat('2',64)),'liked global reconciliation preserves playlist-only active track');
 select pg_temp.assert(not exists(select 1 from app.source_memberships where source_id='liked'),'completed empty liked reconciles liked only');
+
+-- A rescan whose playlist date differs from the preserved liked date does not
+-- turn an acknowledged overlapping song into a false arrival.
+insert into app.source_memberships values(1,'liked',repeat('1',64),'2026-01-01'),(1,repeat('p',22),repeat('1',64),'2026-02-02') on conflict(epoch,source_id,track_key) do update set added_at=excluded.added_at;
+update app.track_metadata set liked_at='2026-01-01',removed_at=null,acknowledged_at=now() where track_key=repeat('1',64);
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
+delete from app.source_seen where job_id='11111111-1111-4111-8111-111111111111';
+create function pg_temp.source_row(k text,missing boolean default false) returns jsonb language sql as $$
+ select jsonb_build_array(jsonb_build_object('trackKey',repeat(k,64),'spotifyId',repeat(k,22),'title','Synthetic track '||k,'artists','[]'::jsonb,'album','Synthetic album','durationMs',1000,'explicit',false,'likedAt','2026-02-02T00:00:00Z','addedAtMissing',missing));
+$$;
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'ack-snapshot',pg_temp.source_row('1'),0,0);
+select pg_temp.assert((select acknowledged_at is not null and liked_at='2026-01-01' from app.track_metadata where track_key=repeat('1',64)),'unrelated playlist rescan preserves acknowledgment and actual liked date');
+-- Missing remote dates persist the first successful discovery date, including
+-- repeated rescan/restart. A known prior date also survives a missing response.
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
+delete from app.source_seen where job_id='11111111-1111-4111-8111-111111111111';
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'missing-snapshot',pg_temp.source_row('3',true),0,0);
+create temp table first_discovery as select added_at from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('3',64);
+select pg_temp.assert((select added_at=now() from first_discovery),'missing addition date is first discovery rather than epoch');
+-- Simulate the next day without sleeping inside this rollback transaction.
+update first_discovery set added_at=added_at-interval '1 day';
+update app.source_memberships set added_at=(select added_at from first_discovery) where source_id=repeat('p',22) and track_key=repeat('3',64);
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
+delete from app.source_seen where job_id='11111111-1111-4111-8111-111111111111';
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'missing-snapshot-two',pg_temp.source_row('3',true),0,0);
+select pg_temp.assert((select sm.added_at=d.added_at from app.source_memberships sm cross join first_discovery d where sm.source_id=repeat('p',22) and sm.track_key=repeat('3',64)),'missing date stays stable across repeated scans');
+-- Discovery records followed playlists rather than silently filtering them.
+insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('44444444-4444-4444-8444-444444444444',1,'source_discovery','running','55555555-5555-4555-8555-555555555555',now()+interval '1 hour');
+insert into app.source_scans(job_id,epoch) values('44444444-4444-4444-8444-444444444444',1);
+select public.app_source_discovery_commit(1,'44444444-4444-4444-8444-444444444444','55555555-5555-4555-8555-555555555555',0,1,1,null,jsonb_build_array(jsonb_build_object('id',repeat('f',22),'name','Synthetic followed','total',7,'eligible',false)));
+select pg_temp.assert(exists(select 1 from app.sources where id=repeat('f',22)),'followed playlist remains visible pending actual access proof');
+select public.app_source_discovery_commit(1,'44444444-4444-4444-8444-444444444444','55555555-5555-4555-8555-555555555555',0,1,1,null,jsonb_build_array(jsonb_build_object('id',repeat('f',22),'name','Synthetic followed','total',7,'eligible',false)));
+update app.jobs set state='done' where id is not null and kind='source_sync';
+insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('66666666-6666-4666-8666-666666666666',1,'source_sync','running','77777777-7777-4777-8777-777777777777',now()+interval '1 hour');
+insert into app.source_scans(job_id,epoch,source_id) values('66666666-6666-4666-8666-666666666666',1,repeat('f',22));
+select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'unknown access first import gates generation');
+select public.app_source_finish(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',null,'forbidden');
+select pg_temp.assert(exists(select 1 from app.sources where id=repeat('f',22) and enabled and not available and error_code='forbidden'),'confirmed inaccessible followed source remains visible with preference intact');
+select pg_temp.assert((public.app_library_status(1)->>'initialSyncComplete')::boolean,'confirmed unavailable first source no longer blocks completed accessible pool');
+select public.app_source_page_commit(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',0,2,1,1,'recovered-snapshot',pg_temp.source_row('4'),0,0);
+select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'recovered access gates generation during incomplete first walk');
 select public.app_disconnect(1);
 select public.app_disconnect_finish(2);
 select pg_temp.assert(not exists(select 1 from app.sources) and not exists(select 1 from app.source_memberships),'disconnect clears source metadata and memberships');

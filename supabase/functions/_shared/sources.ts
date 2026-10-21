@@ -12,6 +12,7 @@ import {
   SpotifyError,
   type SpotifyPage,
   type SpotifyPlaylistItem,
+  type SpotifySavedTrack,
 } from "./spotify.ts";
 interface Checkpoint {
   offset: number;
@@ -30,9 +31,9 @@ export async function sourcePage(
 ) {
   let skipped = 0;
   let unresolved = 0;
-  const items = [];
+  const items: (SpotifySavedTrack & { addedAtMissing: boolean })[] = [];
   for (const item of page.items) {
-    if (item.isLocal || item.type === "episode") {
+    if (item.isLocal || item.track?.isLocal || item.type === "episode") {
       skipped++;
       continue;
     }
@@ -42,12 +43,18 @@ export async function sourcePage(
     }
     items.push({
       track: item.track,
+      // Placeholder is transport-only. SQL persists a stable first-discovery
+      // timestamp for the explicit missing marker, or retains its known date.
       addedAt: item.addedAt ?? "1970-01-01T00:00:00Z",
+      addedAtMissing: item.addedAt === null,
     });
   }
   const result = await libraryPage({ ...page, items }, key);
   return {
-    rows: result.rows,
+    rows: result.rows.map((row, index) => ({
+      ...row,
+      addedAtMissing: items[index].addedAtMissing,
+    })),
     skipped,
     unresolved: unresolved + result.unresolved,
   };
@@ -104,9 +111,6 @@ export function createSourcesRunner(input: {
       let snapshot: string | null = null;
       if (checkpoint.sourceId) {
         const before = await client.getPlaylist(checkpoint.sourceId);
-        if (before.ownerId !== checkpoint.accountId && !before.collaborative) {
-          return await finish(null, "forbidden");
-        }
         snapshot = before.snapshotId;
         if (checkpoint.snapshotId && checkpoint.snapshotId !== snapshot) {
           return await finish(snapshot);

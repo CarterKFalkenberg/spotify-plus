@@ -164,3 +164,33 @@ Deno.test("source OAuth missing scope or denial preserves old grant without conn
     equal(tokenRequests, denied ? 0 : 1);
   }
 });
+Deno.test("only explicit source selections permit up to256KiB from actual body bytes", async () => {
+  let selections = 0;
+  const api = createApi({
+    config,
+    box,
+    db: database((name, args) => {
+      if (name === "app_session") return { epoch: 1, state: "connected" };
+      equal(name, "app_sources_selection");
+      equal((args.p_ids as string[]).length, 10000);
+      selections++;
+      return { changedCount: 10000 };
+    }),
+  });
+  const body = {
+    ids: Array.from(
+      { length: 10000 },
+      (_, i) => i.toString(36).padStart(22, "0"),
+    ),
+    enabled: true,
+  };
+  equal((await api(req("/api/sources/selection", body))).status, 200);
+  equal((await api(req("/api/sources/sync", body))).status, 400);
+  equal(
+    (await api(
+      req("/api/sources/selection", { ...body, padding: "x".repeat(20000) }),
+    )).status,
+    400,
+  );
+  equal(selections, 1);
+});
