@@ -249,3 +249,62 @@ Deno.test("selection and lease are rechecked before content; access failure reco
     equal(finishes, reason === "forbidden" ? 1 : 0);
   }
 });
+Deno.test("large source imports checkpoint at50items and five pages per invocation then resume exact offset", async () => {
+  const state = { ...await fixture(), snapshotId: null as string | null };
+  let contentCalls = 0;
+  let metadataCalls = 0;
+  const runner = createSourcesRunner({
+    annotationBox: box,
+    wait: () => Promise.resolve(),
+    db: database((name, args) => {
+      if (name === "app_source_job_state") return { ...state };
+      if (name === "app_job_renew") return true;
+      if (name === "app_source_page_commit") {
+        equal(args.p_offset, state.offset);
+        equal((args.p_rows as unknown[]).length, 50);
+        equal(args.p_received, 50);
+        state.offset += 50;
+        state.snapshotId = "snapshot";
+        return { done: false, terminal: false };
+      }
+      throw Error("unexpected RPC");
+    }),
+    spotify: () => ({
+      getPlaylist: () => {
+        metadataCalls++;
+        return Promise.resolve(metadata);
+      },
+      getPlaylistItemsPage: (_id, query) => {
+        contentCalls++;
+        equal(query, { offset: state.offset, limit: 50 });
+        return Promise.resolve({
+          offset: state.offset,
+          limit: 50,
+          total: 10000,
+          nextOffset: state.offset + 50,
+          items: Array.from({ length: 50 }, (_, i) => ({
+            addedAt: "2026-01-01T00:00:00Z",
+            uri: track.uri,
+            isLocal: false,
+            type: "track" as const,
+            track: {
+              ...track,
+              id: (state.offset + i).toString(36).padStart(22, "0"),
+            },
+          })),
+        });
+      },
+      getCurrentUserPlaylistsPage: () => {
+        throw Error("unexpected");
+      },
+    }),
+  });
+  equal(await runner(job, Date.now() + 80000), { done: false, retryMs: 1000 });
+  equal(state.offset, 250);
+  equal(contentCalls, 5);
+  equal(metadataCalls, 1);
+  equal(await runner(job, Date.now() + 80000), { done: false, retryMs: 1000 });
+  equal(state.offset, 500);
+  equal(contentCalls, 10);
+  equal(metadataCalls, 2);
+});
