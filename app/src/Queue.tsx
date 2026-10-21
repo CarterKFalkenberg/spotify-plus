@@ -22,6 +22,7 @@ import {
   type Sort,
 } from "./fast-api";
 import { emptyFilter, TrackSummary } from "./Library";
+import { QueuePlayback } from "./QueuePlayback";
 import { TagPicker } from "./TagPicker";
 import {
   queueShortcut,
@@ -35,6 +36,7 @@ import {
 export function Queue({
   refresh,
   active,
+  playbackAllowed,
   status,
   source,
   onChanged,
@@ -42,6 +44,7 @@ export function Queue({
 }: {
   refresh: number;
   active: boolean;
+  playbackAllowed: boolean;
   status: LibraryStatusDTO | null;
   source: FastFilter | Selection | null;
   onChanged: () => void;
@@ -661,6 +664,14 @@ export function Queue({
                 ? new Date(current.metadata.likedAt).toLocaleDateString()
                 : ""}
             </p>
+            <QueuePlayback
+              key={current.trackKey}
+              trackKey={current.trackKey}
+              available={
+                !!current.metadata?.playableUri && !!current.metadata.durationMs
+              }
+              active={active && playbackAllowed && (!mobile || sheet)}
+            />
             {current.metadata?.spotifyUrl && (
               <a
                 className="queue-spotify"

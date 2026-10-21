@@ -75,12 +75,12 @@ No manual `supabase link` is needed now. The runner passes these values through 
 
 1. Sign in to the [Developer Dashboard](https://developer.spotify.com/dashboard) with your Premium account; accept its terms.
 2. Create `Spotify Song Tagger`. Description: `Personal tags for my Liked Songs and private playlists that expire. Never changes my Liked Songs.`
-3. Choose **Web API**, keep Development Mode, and leave Playback SDK/mobile integrations unchecked.
+3. Choose **Web API**, keep Development Mode. For optional queue listening under the October 21 decision, enable **Web Playback SDK** in the same app; mobile native integrations remain unused.
 4. Register exactly `http://127.0.0.1:3000/auth/spotify/callback` for setup/local use.
 5. Register your exact hosted `appUrl` followed by `/auth/spotify/callback`, e.g. `https://spotify-plus.YOUR-SUBDOMAIN.workers.dev/auth/spotify/callback`. No wildcard, `localhost`, or HTTP hosted callback. [Redirect requirements](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri).
 6. If asked for Website, enter the HTTPS origin. The build publishes `/privacy` and `/terms`; configure policy links when those pages exist. Do not describe the placeholder as an already-published policy.
 7. Settings → Users Management → Add new user: your name and **Spotify account email**. Add yourself even though you own the app, and allowlist no one else. [Development mode](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
-8. Set `spotifyClientId` from the dashboard. PKCE needs no client secret. The helper requests scopes; they are not selected in the dashboard. See [SPOTIFY-API.md](SPOTIFY-API.md).
+8. Set `spotifyClientId` from the dashboard. PKCE needs no client secret. The bootstrap helper keeps its original scopes. Optional **Enable playback** consent separately requests streaming/control plus `user-read-email` and `user-read-private`, under the October 21 human-approved SDK exception; the app does not store or display those profile fields. Earlier streaming/control-only grants require Enable playback again. Scopes are not selected in the dashboard. See [SPOTIFY-API.md](SPOTIFY-API.md).
 9. Own Spotify profile → Share → Copy link: take the ID after `/user/`, without query parameters, as `spotifyExpectedUserId`. The helper checks the initial browser account; the app then binds to Spotify's immutable `account_id`.
 
 ## 5. Configuration and credentials

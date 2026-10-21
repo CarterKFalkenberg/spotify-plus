@@ -12,7 +12,7 @@ import { Queue } from "./Queue";
 import { Vocabulary } from "./Vocabulary";
 import type { FastFilter } from "./fast-api";
 import { usePageActivity, useVisiblePolling } from "./useVisiblePolling";
-export function Workspace() {
+export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
   const [mobile, setMobile] = useState(
     () => matchMedia("(max-width:640px)").matches,
   );
@@ -265,6 +265,7 @@ export function Workspace() {
       <div hidden={tab !== "queue"}>
         {(visited.has("queue") || (visible && tab === "queue")) && (
           <Queue
+            playbackAllowed={playbackAllowed}
             active={visible && tab === "queue"}
             refresh={refreshFor("queue")}
             status={status}

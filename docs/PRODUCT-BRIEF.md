@@ -1,6 +1,6 @@
 # Spotify Song Tagger — Product Brief
 
-Amendment: the October 11, 2026 [accepted publication decision](DECISIONS.md#playlist-publication-requirement--october-11-2026) resolves “private playlist” below as hidden from profile/search, without link-access restrictions. The original brief is retained below.
+Amendment: the October 11, 2026 [accepted publication decision](DECISIONS.md#playlist-publication-requirement--october-11-2026) resolves “private playlist” below as hidden from profile/search, without link-access restrictions. The October 21 [queue-listening decision](DECISIONS.md#queue-listening-in-the-webpage--october-21-2026) additionally authorizes optional in-webpage SDK listening for tagging. Its later [explicit SDK profile-scope exception](DECISIONS.md#optional-sdk-profile-scope-exception--october-21-2026) permits email/private scopes only in optional playback consent, without app storage/display of those fields; this supersedes the corresponding original prohibition below. The original brief is retained below.
 
 I'm starting this project fresh. This document is the complete product intent; everything about how it gets built is yours to decide.
 

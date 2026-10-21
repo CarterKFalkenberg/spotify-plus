@@ -28,6 +28,17 @@ export class ApiError extends Error {
   }
 }
 const messages: Record<string, string> = {
+  playback_target_unavailable:
+    "Spotify could not find this song or browser player. Try again or open Spotify.",
+  playback_unconfirmed:
+    "Spotify did not confirm whether playback started. Check Spotify before trying again.",
+  playback_service_error:
+    "Spotify reported a playback service error. Check Spotify before trying again.",
+  playback_control_unavailable:
+    "The app could not prepare playback safely. Try again later or open Spotify.",
+  playback_required: "Enable playback to listen here.",
+  track_unavailable: "This song is unavailable for playback.",
+  playback_cooldown: "Spotify is busy. Wait before trying playback again.",
   stale_revision: "Your library changed. Refresh the results and try again.",
   unknown_tag: "A tag in this query no longer exists. Update your selection.",
   initial_sync_incomplete:

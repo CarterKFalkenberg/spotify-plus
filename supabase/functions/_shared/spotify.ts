@@ -12,6 +12,13 @@ export const SPOTIFY_SCOPES = Object.freeze(
   ] as const,
 );
 
+export const PLAYBACK_SCOPES = Object.freeze([
+  "streaming",
+  "user-modify-playback-state",
+  "user-read-email",
+  "user-read-private",
+]);
+
 const API = "https://api.spotify.com/v1";
 const ID = /^[A-Za-z0-9]{22}$/;
 const TRACK_URI = /^spotify:track:[A-Za-z0-9]{22}$/;
@@ -20,6 +27,7 @@ const SPACING_MS = 500;
 const QUOTA_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 export type SpotifyErrorKind =
+  | "playback_required"
   | "guard"
   | "authentication"
   | "forbidden"
@@ -146,7 +154,8 @@ type Operation =
   | "append"
   | "description"
   | "contains"
-  | "remove";
+  | "remove"
+  | "play";
 type Result =
   | { artworkUrl: string | null }
   | { accountId: string; id: string }
@@ -241,6 +250,24 @@ function prepare(input: SpotifyRequest): Prepared {
       params.set("offset", String(offset));
       params.set("limit", String(limit));
     } else if (operation !== "contains") keys(query, []);
+  } else if (method === "PUT" && path === "/me/player/play") {
+    operation = "play";
+    keys(query, ["device_id"]);
+    requireGuard(
+      text(query.device_id) && /^[A-Za-z0-9_-]{20,128}$/.test(query.device_id),
+    );
+    params.set("device_id", query.device_id);
+    requireGuard(record(body));
+    keys(body, ["uris", "position_ms"]);
+    requireGuard(
+      Array.isArray(body.uris) && body.uris.length === 1 &&
+        text(body.uris[0]) && TRACK_URI.test(body.uris[0]),
+    );
+    requireGuard(integer(body.position_ms) && body.position_ms <= 86400000);
+    serialized = JSON.stringify({
+      uris: [...body.uris],
+      position_ms: body.position_ms,
+    });
   } else if (method === "POST" && path === "/me/playlists") {
     operation = "create";
     keys(query, []);
@@ -413,7 +440,7 @@ export class SpotifyClient {
           );
         }
         const empty = request.operation === "description" ||
-          request.operation === "remove";
+          request.operation === "remove" || request.operation === "play";
         const status =
           request.operation === "create" || request.operation === "append"
             ? 201
@@ -496,6 +523,14 @@ export class SpotifyClient {
     }
   }
 
+  startPlayback(deviceId: string, uri: string, positionMs: number) {
+    return this.request({
+      method: "PUT",
+      path: "/me/player/play",
+      query: { device_id: deviceId },
+      body: { uris: [uri], position_ms: positionMs },
+    }) as Promise<void>;
+  }
   getArtistArtwork(id: string) {
     return this.request({ method: "GET", path: `/artists/${id}` }) as Promise<
       { artworkUrl: string | null }
