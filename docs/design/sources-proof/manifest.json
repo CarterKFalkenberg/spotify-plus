@@ -1,0 +1,131 @@
+{
+  "issue": 72,
+  "syntheticOnly": true,
+  "realSpotifyMetadata": false,
+  "comparison": "Historical navigation baseline and new Sources capability; different scenes and fictional datasets, not matched same-view comparisons.",
+  "afterSourceHead": "c91ac94dd026c479c55aa2ccab972195ed9ed92d",
+  "afterAppTree": "095f6b43edee219244146136d9091670afe3a699",
+  "before": [
+    {
+      "file": "before-desktop-light.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-light/desktop-library.png",
+      "capturedAt": "2026-10-21T15:30:36.010Z",
+      "name": "desktop-library",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "documentHeight": 1889,
+      "sha256": "b2d6c674d59d0ca4e2ef2de4ab338e5ada92ab04ed4969ab9f98c9a20930efda"
+    },
+    {
+      "file": "before-mobile-light.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-light/390-builder-choose.png",
+      "capturedAt": "2026-10-21T15:30:36.010Z",
+      "name": "390-builder-choose",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "documentHeight": 847,
+      "sha256": "420619fce0ac440102adf4f4977b4bc7fd53f7a0b63f80f759def9edbf943e20"
+    },
+    {
+      "file": "before-desktop-dark.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-dark/desktop-library.png",
+      "capturedAt": "2026-10-21T15:30:35.313Z",
+      "name": "desktop-library",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "documentHeight": 1889,
+      "sha256": "366e75c40d7e1c2b619bfb39ca1eb3a1008ae67ef4666526c222e8f45adc74c7"
+    },
+    {
+      "file": "before-mobile-dark.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-dark/390-builder-choose.png",
+      "capturedAt": "2026-10-21T15:30:35.313Z",
+      "name": "390-builder-choose",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "documentHeight": 847,
+      "sha256": "a3209ecd9c23e291aaba9b438274c65146429548a764fd16299c999f069fa0af"
+    }
+  ],
+  "after": [
+    {
+      "file": "after-desktop-light.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "pixels": {
+        "width": 1440,
+        "height": 2012
+      },
+      "sha256": "597f6ea100d5336017558ffda6d0b4a17bf5e8a626790523445f965e2938688a",
+      "fullPage": true
+    },
+    {
+      "file": "after-mobile-light.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "deviceScaleFactor": 3,
+      "pixels": {
+        "width": 1170,
+        "height": 6810
+      },
+      "sha256": "309977e83bc4434d6c29e505002a9801bc63f48e4b2cde93ce95036bf203f640",
+      "fullPage": true
+    },
+    {
+      "file": "after-desktop-dark.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "pixels": {
+        "width": 1440,
+        "height": 2012
+      },
+      "sha256": "e3554925f586b9de6fc6ca3806d039a1d1c49197910ca57c61a0532db30ea0dc",
+      "fullPage": true
+    },
+    {
+      "file": "after-mobile-dark.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "deviceScaleFactor": 3,
+      "pixels": {
+        "width": 1170,
+        "height": 6810
+      },
+      "sha256": "9274c0fc4d99fc5e8a266a05f7d66abe8d5facda5acf304b8f674e2e03d14f39",
+      "fullPage": true
+    }
+  ],
+  "captureHarness": "tests/browser/sources.spec.ts",
+  "captureHarnessSha256": "87999117e1c12e4eedd996a06377921258c654d71a7400c15488760d9839eb67",
+  "recordedAt": "2026-10-21T23:50:49.322544+00:00"
+}

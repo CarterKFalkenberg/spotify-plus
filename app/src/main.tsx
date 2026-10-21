@@ -169,8 +169,8 @@ function Home() {
             Your own tags.
           </h1>
           <p>
-            Organize Liked Songs and make temporary playlists from the music you
-            already keep.
+            Organize songs from Liked Songs and your playlists. Make temporary
+            playlists from the music you already keep.
           </p>
         </div>
       )}
@@ -454,9 +454,10 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
         <>
           <h2>For your personal library</h2>
           <p>
-            This private app is for one owner to organize their Liked Songs. It
-            is not affiliated with or endorsed by Spotify. Listening uses
-            Spotify, including optional playback in this webpage.
+            This private app is for one owner to organize songs from Liked Songs
+            and their Spotify playlists. It is not affiliated with or endorsed
+            by Spotify. Listening uses Spotify, including optional playback in
+            this webpage.
           </p>
           <h2>Your Liked Songs stay yours</h2>
           <p>

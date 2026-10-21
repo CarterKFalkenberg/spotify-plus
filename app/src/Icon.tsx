@@ -2,6 +2,7 @@ export function Icon({
   name,
 }: {
   name:
+    | "sources"
     | "queue"
     | "library"
     | "builder"
@@ -13,6 +14,7 @@ export function Icon({
     | "decade";
 }) {
   const paths = {
+    sources: "M3 4h8l3 3h9v14H3zM8 12h10M13 9v8",
     artist: "M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0M5 21v-2a7 7 0 0 1 14 0v2",
     album: "M3 3h20v18H3zM18 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0M13 12h.01",
     playlist: "M5 5h16M5 10h16M5 15h9M19 15v7m-3-3 3 3 3-3",

@@ -60,12 +60,16 @@ export function RetentionPicker({
 }
 export function Builder({
   initialComplete,
+  poolEmpty = false,
+  onSources,
   refresh,
   onCreated,
   onViewPlaylists,
   onTagLibrary,
 }: {
   initialComplete: boolean;
+  poolEmpty?: boolean;
+  onSources?: () => void;
   refresh: number;
   onCreated: () => void;
   onViewPlaylists: () => void;
@@ -219,6 +223,12 @@ export function Builder({
   }
   return (
     <section className="builder" aria-labelledby="builder-title">
+      {poolEmpty && (
+        <p className="notice">
+          Your enabled song pool is empty.{" "}
+          <button onClick={onSources}>Choose Sources</button>
+        </p>
+      )}
       <div className="section-heading">
         <div>
           <h2 id="builder-title">Make a playlist</h2>
@@ -346,9 +356,9 @@ export function Builder({
               )}
               {!initialComplete ? (
                 <p className="builder-readiness">
-                  Your first import is still being verified. You can choose tags
-                  and review songs now; playlist creation unlocks when the
-                  complete library is ready.
+                  Your enabled sources are still being imported and verified.
+                  You can choose tags and review songs now; playlist creation
+                  unlocks when the complete library is ready.
                 </p>
               ) : matched && !matched.generationReady ? (
                 <p className="builder-readiness">
@@ -452,7 +462,7 @@ export function Builder({
                   <>
                     <div className="preview-heading">
                       <div>
-                        <span>Matching songs · newest liked first</span>
+                        <span>Matching songs · newest added first</span>
                       </div>
                       <span className="preview-label">Preview</span>
                     </div>
