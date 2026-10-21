@@ -287,7 +287,10 @@ export function Sources({
                       : source.managed
                         ? "App-generated playlist"
                         : "Spotify playlist"}{" "}
-                    · {source.trackCount.toLocaleString()} songs
+                    ·{" "}
+                    {source.lastSyncedAt !== null || source.importedCount > 0
+                      ? `${source.uniqueCount.toLocaleString()} ${source.uniqueCount === 1 ? "song" : "songs"}${source.lastSyncedAt === null ? " imported so far" : ""}`
+                      : `${source.trackCount.toLocaleString()} items reported`}
                   </p>
                   <p className="source-status">{state(source)}</p>
                   <small>

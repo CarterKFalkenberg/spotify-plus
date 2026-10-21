@@ -21,19 +21,21 @@ function source(n: number) {
     enabled: n !== 2,
     available: n !== 3,
     managed: n === 2,
-    trackCount: 84 + n,
-    uniqueCount: 70,
-    importedCount: n === 4 ? 36 : 84 + n,
+    trackCount: n === 1 ? 100 : 84 + n,
+    uniqueCount: n === 0 ? 84 : n === 4 ? 30 : n === 6 ? 0 : 70,
+    importedCount: n === 4 ? 36 : n === 6 ? 0 : n === 1 ? 100 : 84 + n,
     skippedCount: n === 1 ? 2 : 0,
     syncStatus:
       n === 4
         ? "syncing"
-        : n === 5
-          ? "error"
-          : n === 2
-            ? "disabled"
-            : "complete",
-    lastSyncedAt: "2026-10-21T12:00:00Z",
+        : n === 6
+          ? "pending"
+          : n === 5
+            ? "error"
+            : n === 2
+              ? "disabled"
+              : "complete",
+    lastSyncedAt: n === 6 ? null : "2026-10-21T12:00:00Z",
     errorCode: n === 5 ? "unavailable" : null,
   };
 }
@@ -257,6 +259,22 @@ for (const theme of ["light", "dark"] as const)
     await mock(page, { importing: true });
     await appearance(page, theme);
     await expect(page.getByText("140 unique songs enabled")).toBeVisible();
+    const deduplicated = page.locator(".source-row").filter({
+      has: page.getByRole("heading", {
+        name: "Synthetic Night Drive",
+        exact: true,
+      }),
+    });
+    await expect(deduplicated).toContainText("Spotify playlist · 70 songs");
+    await expect(deduplicated).not.toContainText("100 songs");
+    const pending = page.locator(".source-row").filter({
+      has: page.getByRole("heading", {
+        name: "Synthetic Collection 6",
+        exact: true,
+      }),
+    });
+    await expect(pending).toContainText("90 items reported");
+    await expect(pending).not.toContainText("90 songs");
     await expect(
       page.getByText("Unavailable in Spotify · last known count"),
     ).toBeVisible();
