@@ -82,6 +82,17 @@ update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0
 delete from app.source_seen where job_id='11111111-1111-4111-8111-111111111111';
 select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'missing-snapshot-two',pg_temp.source_row('3',true),0,0);
 select pg_temp.assert((select sm.added_at=d.added_at from app.source_memberships sm cross join first_discovery d where sm.source_id=repeat('p',22) and sm.track_key=repeat('3',64)),'missing date stays stable across repeated scans');
+-- Repeated occurrences use the latest addition date within this walk, independent
+-- of order; a later complete walk may move it back when the newer occurrence left.
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
+delete from app.source_seen where job_id='11111111-1111-4111-8111-111111111111';
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,2,2,null,'duplicates-snapshot',jsonb_set(pg_temp.source_row('5'),'{0,likedAt}','"2026-03-03T00:00:00Z"')||pg_temp.source_row('5'),0,0);
+select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','duplicates-snapshot');
+select pg_temp.assert((select added_at='2026-03-03' from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('5',64)),'reverse-order duplicate retains latest date within verified walk');
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'older-only-snapshot',pg_temp.source_row('5'),0,0);
+select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','older-only-snapshot');
+select pg_temp.assert((select added_at='2026-02-02' from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('5',64)),'subsequent verified walk can move date backward after latest occurrence removal');
 -- Discovery records followed playlists rather than silently filtering them.
 insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('44444444-4444-4444-8444-444444444444',1,'source_discovery','running','55555555-5555-4555-8555-555555555555',now()+interval '1 hour');
 insert into app.source_scans(job_id,epoch) values('44444444-4444-4444-8444-444444444444',1);
