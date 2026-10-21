@@ -29,6 +29,11 @@ class Player implements WebPlayer {
     this.listeners.set(event, callback);
     return true;
   }
+  removeListener(event: string, callback?: (value: any) => void) {
+    if (!callback || this.listeners.get(event) === callback)
+      this.listeners.delete(event);
+    return true;
+  }
   state(paused = false, position = 60000, track = uri) {
     this.current = {
       paused,
@@ -865,4 +870,148 @@ it("a changed command during backoff prevents a second start without needing an 
   await vi.advanceTimersByTimeAsync(500);
   await pending;
   expect(start).toHaveBeenCalledTimes(1);
+});
+
+describe("one page SDK player across queue songs", () => {
+  let constructions: number;
+  let sdkToken: (callback: (token: string) => void) => void;
+  beforeEach(() => {
+    constructions = 0;
+    window.Spotify = {
+      Player: class {
+        constructor(options: {
+          getOAuthToken: (callback: (token: string) => void) => void;
+        }) {
+          constructions++;
+          sdkToken = options.getOAuthToken;
+          return player;
+        }
+      },
+    } as unknown as SpotifySDK;
+    // Model the real SDK's shared iframe: another INIT produces a descriptor
+    // that does not belong to the retained first streamer, so start rejects.
+    start.mockImplementation(async () => {
+      if (constructions !== 1)
+        throw new ApiError("playback_target_unavailable", 404);
+      return { uri, positionMs: 60000, durationMs: 180000 };
+    });
+  });
+  function replace(key = "b".repeat(64)) {
+    controller.destroy();
+    controller = new QueuePlayer(key, { token, start }, (view) =>
+      views.push(view),
+    );
+  }
+  it("reconnects the same instance through Next/Previous and inactive queue reentry", async () => {
+    for (const key of ["a", "b", "a", "a"]) {
+      if (constructions) replace(key.repeat(64));
+      await controller.play();
+      player.state();
+      expect(views.at(-1)?.status).toBe("snippet");
+      await controller.pause();
+      expect(views.at(-1)?.status).toBe("paused");
+    }
+    expect(constructions).toBe(1);
+    expect(player.connect).toHaveBeenCalledTimes(4);
+    expect(start).toHaveBeenCalledTimes(4);
+    expect(player.disconnect).toHaveBeenCalledTimes(3);
+    expect(token).toHaveBeenCalledTimes(4);
+  });
+  it("detaches old listeners before pause/disconnect and ignores saved late callbacks", async () => {
+    await controller.play();
+    const ready = player.listeners.get("ready")!;
+    const notReady = player.listeners.get("not_ready")!;
+    const state = player.listeners.get("player_state_changed")!;
+    player.pause.mockImplementationOnce(async () => {
+      expect(player.listeners.size).toBe(0);
+    });
+    replace();
+    await controller.play();
+    player.state();
+    const disconnects = player.disconnect.mock.calls.length;
+    ready({ device_id: "late-old-device-1234567890" });
+    notReady({});
+    state(null);
+    expect(views.at(-1)?.status).toBe("snippet");
+    expect(player.disconnect).toHaveBeenCalledTimes(disconnects);
+    expect(start.mock.calls.at(-1)?.[1]).toBe(device);
+  });
+  it("routes token refresh to the current owner and fences a previous owner's late token", async () => {
+    await controller.play();
+    sdkToken(vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    let resolve!: (token: string) => void;
+    token.mockImplementationOnce(() => new Promise((yes) => (resolve = yes)));
+    const oldCallback = vi.fn();
+    sdkToken(oldCallback);
+    replace();
+    await controller.play();
+    resolve("synthetic-stale-access");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldCallback).not.toHaveBeenCalled();
+    const currentCallback = vi.fn();
+    sdkToken(currentCallback);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(currentCallback).toHaveBeenCalledWith("synthetic-access");
+    controller.destroy();
+    const count = token.mock.calls.length;
+    sdkToken(vi.fn());
+    expect(token).toHaveBeenCalledTimes(count);
+  });
+  it("activates in the new click but waits for the old disconnect dispatch before connecting", async () => {
+    await controller.play();
+    let release!: () => void;
+    player.disconnect.mockImplementationOnce(
+      () => new Promise<void>((yes) => (release = yes)),
+    );
+    replace();
+    const playing = controller.play();
+    expect(player.activateElement).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    release();
+    await playing;
+    expect(player.connect).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+  it("ignores a previous owner's late connection rejection after the replacement starts", async () => {
+    let reject!: (error: Error) => void;
+    player.connect.mockImplementationOnce(() => {
+      player.listeners.get("ready")?.({ device_id: device });
+      return new Promise((_, no) => (reject = no));
+    });
+    const oldPlay = controller.play();
+    await vi.advanceTimersByTimeAsync(0);
+    replace();
+    await controller.play();
+    player.state();
+    const disconnects = player.disconnect.mock.calls.length;
+    reject(new Error("synthetic-late-connection"));
+    await oldPlay;
+    expect(views.at(-1)?.status).toBe("snippet");
+    expect(player.disconnect).toHaveBeenCalledTimes(disconnects);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+  it("does not reconnect when the previous disconnect dispatch rejects", async () => {
+    await controller.play();
+    player.disconnect.mockImplementationOnce(() =>
+      Promise.reject(new Error("synthetic-disconnect-failure")),
+    );
+    replace();
+    await controller.play();
+    expect(views.at(-1)?.status).toBe("error");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+  it("bounds a stuck disconnect dispatch and never starts a canceled replacement", async () => {
+    await controller.play();
+    player.disconnect.mockImplementationOnce(() => new Promise(() => {}));
+    replace();
+    const playing = controller.play();
+    await vi.advanceTimersByTimeAsync(12000);
+    await playing;
+    expect(views.at(-1)?.status).toBe("error");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
 });

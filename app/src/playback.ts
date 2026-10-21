@@ -9,8 +9,9 @@ export interface PlaybackState {
 }
 export interface WebPlayer {
   addListener(event: string, listener: (value: any) => void): boolean;
+  removeListener(event: string, listener?: (value: any) => void): boolean;
   connect(): Promise<boolean>;
-  disconnect(): void;
+  disconnect(): void | Promise<void>;
   activateElement(): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
@@ -53,6 +54,105 @@ export function loadSDK(): Promise<SpotifySDK> {
   });
   return loading;
 }
+// The SDK shares one iframe across Player constructors. Reinitializing it replaces
+// its client while retaining its original streamer, so reuse one Player/document.
+// A lease keeps each queue controller's callbacks and credentials exclusive.
+interface PlayerOptions {
+  name: string;
+  getOAuthToken: (callback: (token: string) => void) => void;
+  volume: number;
+}
+interface SDKHolder {
+  player: WebPlayer;
+  owner?: WebPlayer | undefined;
+  token?: PlayerOptions["getOAuthToken"] | undefined;
+  disconnected: Promise<void>;
+}
+const players = new WeakMap<Window, SDKHolder>();
+function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
+  let holder = players.get(window);
+  if (!holder) {
+    const created: SDKHolder = {
+      player: undefined as unknown as WebPlayer,
+      disconnected: Promise.resolve(),
+    };
+    created.player = new sdk.Player({
+      ...options,
+      getOAuthToken: (callback) => {
+        const owner = created.owner;
+        created.token?.((token) => {
+          if (created.owner === owner) callback(token);
+        });
+      },
+    });
+    players.set(window, created);
+    holder = created;
+  }
+  holder.owner?.disconnect();
+  const shared = holder;
+  const listeners: Array<[string, (value: any) => void]> = [];
+  const current = () => shared.owner === lease;
+  const lease: WebPlayer = {
+    addListener(event, listener) {
+      if (!current()) return false;
+      const guarded = (value: any) => {
+        if (current()) listener(value);
+      };
+      listeners.push([event, guarded]);
+      return shared.player.addListener(event, guarded);
+    },
+    removeListener(event) {
+      if (!current()) return false;
+      for (const [name, listener] of listeners)
+        if (name === event) shared.player.removeListener(name, listener);
+      return true;
+    },
+    async connect() {
+      await shared.disconnected;
+      return current() ? shared.player.connect() : false;
+    },
+    disconnect() {
+      if (!current()) return;
+      shared.owner = undefined;
+      shared.token = undefined;
+      for (const [event, listener] of listeners) {
+        try {
+          shared.player.removeListener(event, listener);
+        } catch {
+          /* Ownership guards still fence callbacks; stopping must proceed. */
+        }
+      }
+      listeners.length = 0;
+      // Pause and disconnect only this local SDK player, after detaching the old
+      // owner. Both messages precede any later lease's connect dispatch.
+      try {
+        void shared.player.pause().catch(() => {});
+      } catch {
+        /* Disconnect still proceeds after an SDK pause failure. */
+      }
+      // Public API documents void; current SDK returns its dispatch promise.
+      // The next controller's existing connection deadline bounds this barrier.
+      try {
+        shared.disconnected = Promise.resolve(shared.player.disconnect());
+      } catch {
+        shared.disconnected = Promise.reject(new Error("connect_failed"));
+      }
+      // A rejected teardown must prevent reconnect, but release itself has no
+      // awaiting caller. Keep the rejection handled until the next connect.
+      void shared.disconnected.catch(() => {});
+      return shared.disconnected;
+    },
+    activateElement: () =>
+      current() ? shared.player.activateElement() : Promise.resolve(),
+    pause: () => (current() ? shared.player.pause() : Promise.resolve()),
+    resume: () => (current() ? shared.player.resume() : Promise.resolve()),
+    getCurrentState: () =>
+      current() ? shared.player.getCurrentState() : Promise.resolve(null),
+  };
+  shared.owner = lease;
+  shared.token = options.getOAuthToken;
+  return lease;
+}
 export type ListenStatus =
   | "idle"
   | "loading"
@@ -77,8 +177,8 @@ interface Transport {
     signal: AbortSignal,
   ): Promise<{ uri: string; positionMs: number; durationMs: number }>;
 }
-// One controller owns one SDK device and one queue song. Destroying it invalidates
-// every promise/listener before disconnecting, including a late accepted start.
+// One controller exclusively leases the page SDK player for one queue song.
+// Destroying it invalidates callbacks before disconnecting the local device.
 export class QueuePlayer {
   private player: WebPlayer | undefined;
   private dead = false;
@@ -121,12 +221,6 @@ export class QueuePlayer {
   private stopDevice() {
     const player = this.player;
     if (!player) return;
-    // pause is scoped to this local SDK device; no remote pause endpoint exists.
-    try {
-      void player.pause().catch(() => {});
-    } catch {
-      /* SDK failure must not expose a provider exception. */
-    }
     try {
       player.disconnect();
     } catch {
@@ -371,7 +465,7 @@ export class QueuePlayer {
             this.failure(error);
           },
         );
-        const player = new sdk.Player({
+        const player = ownPlayer(sdk, {
           name: "Song Tagger",
           volume: 0.7,
           getOAuthToken: (callback) => {
@@ -399,10 +493,7 @@ export class QueuePlayer {
           );
           this.deadline = timeout;
           player.addListener("ready", (value: { device_id: string }) => {
-            if (this.dead || this.status === "error") {
-              player.disconnect();
-              return;
-            }
+            if (this.dead || this.status === "error") return;
             if (
               !value ||
               typeof value.device_id !== "string" ||

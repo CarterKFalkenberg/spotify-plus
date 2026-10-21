@@ -2004,7 +2004,13 @@ async function syntheticPlayer(page: Page) {
         current_track: { uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa" },
       },
     };
-    const counters = { connections: 0, pauses: 0, resumes: 0, disconnects: 0 };
+    const counters = {
+      constructions: 0,
+      connections: 0,
+      pauses: 0,
+      resumes: 0,
+      disconnects: 0,
+    };
     (window as any).__syntheticPlayer = { counters, state };
     window.Spotify = {
       Player: class {
@@ -2012,10 +2018,16 @@ async function syntheticPlayer(page: Page) {
         constructor(options: {
           getOAuthToken: (callback: (token: string) => void) => void;
         }) {
+          counters.constructions++;
           options.getOAuthToken(() => {});
         }
         addListener(event: string, callback: (v: any) => void) {
           this.listeners.set(event, callback);
+          return true;
+        }
+        removeListener(event: string, callback?: (v: any) => void) {
+          if (!callback || this.listeners.get(event) === callback)
+            this.listeners.delete(event);
           return true;
         }
         async connect() {
@@ -2118,6 +2130,16 @@ test("queue listening is explicit, confirms audio, pauses after20s and continues
     )
     .toBe(1);
   expect(starts).toBe(1);
+  await page.getByRole("button", { name: "← Previous", exact: true }).click();
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  expect(starts).toBe(2);
+  expect(tokens).toBe(2);
+  expect(
+    await page.evaluate(
+      () => (window as any).__syntheticPlayer.counters.constructions,
+    ),
+  ).toBe(1);
 });
 test("mobile sheet close disconnects its player and scope upgrade leaves tagging available", async ({
   page,
