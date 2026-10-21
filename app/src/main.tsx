@@ -400,16 +400,24 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
           <h2>What is stored</h2>
           <p>
-            Authorization credentials are encrypted on the server. The app
-            caches the track metadata needed for tagging, store your tags and
-            playlist queries, and keep three encrypted daily annotation backups.
-            Spotify artwork remains hosted by Spotify. Spotify content is not
-            sent to AI services.
+            Authorization credentials stored by the app are encrypted on the
+            server. The app caches the track metadata needed for tagging, stores
+            your tags and playlist queries, and keeps three encrypted daily
+            annotation backups. Spotify artwork remains hosted by Spotify.
+            Spotify content is not sent to AI services.
           </p>
           <p>
             Removed-track metadata is scheduled for deletion after 90 days. Tags
             and a minimal keyed identifier are kept so re-liking a song can
             restore your annotations.
+          </p>
+          <h2>Optional listening</h2>
+          <p>
+            Optional listening in this webpage uses Spotify’s Web Playback SDK.
+            When you choose Play, a short-lived Spotify access token is held in
+            browser memory; refresh credentials stay encrypted on the server.
+            Spotify receives playback requests and handles SDK playback under
+            its own service policies.
           </p>
           <h2>Disconnect and delete</h2>
           <p>
@@ -435,8 +443,8 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           <h2>Hosting</h2>
           <p>
             The app runs on Supabase Free and Cloudflare Workers Free. Their
-            service operation and retention policies also apply. No analytics,
-            advertising, or tracking cookies are used; the secure session cookie
+            service operation and retention policies also apply. This app adds
+            no analytics or advertising tracking. Its secure session cookie
             keeps you signed in.
           </p>
         </>
@@ -445,8 +453,8 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           <h2>For your personal library</h2>
           <p>
             This private app is for one owner to organize their Liked Songs. It
-            is not affiliated with or endorsed by Spotify. Listening happens in
-            Spotify.
+            is not affiliated with or endorsed by Spotify. Listening uses
+            Spotify, including optional playback in this webpage.
           </p>
           <h2>Your Liked Songs stay yours</h2>
           <p>
@@ -480,7 +488,7 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
         </>
       )}
-      <p className="muted">Updated October 11, 2026</p>
+      <p className="muted">Updated October 21, 2026</p>
     </article>
   );
 }
