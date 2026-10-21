@@ -168,6 +168,7 @@ export interface TagDTO {
 }
 export type WorkBlock = "reconnect" | "rateLimited" | "quota" | "unavailable";
 export interface LibraryStatusDTO {
+  readonly sourcesRevision?: string;
   readonly revision: LibraryRevision;
   readonly initialSyncComplete: boolean;
   readonly syncPhase: "idle" | "importing" | "verifying";

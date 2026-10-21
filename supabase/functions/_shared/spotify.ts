@@ -12,6 +12,8 @@ export const SPOTIFY_SCOPES = Object.freeze(
   ] as const,
 );
 
+export const SOURCE_SCOPES = Object.freeze(["playlist-read-collaborative"]);
+
 export const PLAYBACK_SCOPES = Object.freeze([
   "streaming",
   "user-modify-playback-state",
@@ -119,6 +121,7 @@ export interface SpotifyPlaylistItem {
   uri: string | null;
   isLocal: boolean;
   type: "track" | "episode" | "unavailable";
+  track?: SpotifyTrack | null;
 }
 
 export interface SpotifyPlaylist {
@@ -131,6 +134,7 @@ export interface SpotifyPlaylist {
   ownerId: string;
   snapshotId: string;
   total: number;
+  artworkUrl?: string | null;
 }
 
 export interface SpotifyRequest {
@@ -799,9 +803,12 @@ function normalizePlaylist(value: unknown): SpotifyPlaylist {
       : decodePlaylistDescription(value.description),
     public: value.public,
     collaborative: value.collaborative,
-    ownerId: value.owner.id,
+    ownerId: text(value.owner.account_id)
+      ? value.owner.account_id
+      : value.owner.id,
     snapshotId: value.snapshot_id,
     total: collection.total,
+    artworkUrl: imageArtwork(value.images).artworkUrl,
   };
 }
 
@@ -828,7 +835,15 @@ function normalizePlaylistItem(value: unknown): SpotifyPlaylistItem {
       new RegExp(`^spotify:${type}:[A-Za-z0-9]{22}$`).test(item.uri)
     ? item.uri
     : null;
-  return { addedAt: value.added_at, uri, isLocal, type };
+  return {
+    addedAt: value.added_at,
+    uri,
+    isLocal,
+    type,
+    track: type === "track" && !isLocal && record(item.album)
+      ? normalizeTrack(item)
+      : null,
+  };
 }
 
 function validTimestamp(value: unknown): value is string {

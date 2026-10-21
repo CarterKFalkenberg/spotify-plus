@@ -22,6 +22,7 @@ import {
 } from "../_shared/http.ts";
 import {
   PLAYBACK_SCOPES,
+  SOURCE_SCOPES,
   SPOTIFY_SCOPES,
   SpotifyClient,
   SpotifyError,
@@ -130,7 +131,11 @@ export function createApi(
     });
     return accepted ? session : null;
   }
-  async function beginOAuth(playback = false) {
+  async function beginOAuth(
+    playback = false,
+    sources = false,
+    retainedScopes: string[] = [],
+  ) {
     const state = opaqueToken(),
       browser = opaqueToken(),
       verifier = opaqueToken();
@@ -139,7 +144,11 @@ export function createApi(
       p_state_hash: stateHash,
       p_browser_hash: await sha256(browser),
       p_encrypted_verifier: await box.encrypt(
-        playback ? { verifier, playback: true } : verifier,
+        sources
+          ? { verifier, sources: true, retainedScopes }
+          : playback
+          ? { verifier, playback: true, retainedScopes }
+          : verifier,
         `oauth:${stateHash}`,
       ),
     });
@@ -151,7 +160,14 @@ export function createApi(
       state,
       code_challenge_method: "S256",
       code_challenge: await pkceChallenge(verifier),
-      scope: [...SPOTIFY_SCOPES, ...(playback ? PLAYBACK_SCOPES : [])].join(
+      scope: [
+        ...new Set([
+          ...SPOTIFY_SCOPES,
+          ...(playback ? PLAYBACK_SCOPES : []),
+          ...(sources ? SOURCE_SCOPES : []),
+          ...retainedScopes,
+        ]),
+      ].join(
         " ",
       ),
       show_dialog: "true",
@@ -263,7 +279,12 @@ export function createApi(
         const code = url.searchParams.get("code");
         if (!code || code.length > 4096) return authFailure("invalid_callback");
         const verifierRecord = await box.decrypt<
-          string | { verifier: string; playback: boolean }
+          string | {
+            verifier: string;
+            playback?: boolean;
+            sources?: boolean;
+            retainedScopes?: string[];
+          }
         >(
           grant.encryptedVerifier,
           `oauth:${stateHash}`,
@@ -273,6 +294,12 @@ export function createApi(
           : verifierRecord.verifier;
         const playback = typeof verifierRecord !== "string" &&
           verifierRecord.playback === true;
+        const sources = typeof verifierRecord !== "string" &&
+          verifierRecord.sources === true;
+        const retainedScopes = typeof verifierRecord !== "string" &&
+            Array.isArray(verifierRecord.retainedScopes)
+          ? verifierRecord.retainedScopes
+          : [];
         const tokens = await exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
@@ -285,7 +312,12 @@ export function createApi(
         );
         if (
           !tokens.refreshToken ||
-          [...SPOTIFY_SCOPES, ...(playback ? PLAYBACK_SCOPES : [])].some((
+          [
+            ...SPOTIFY_SCOPES,
+            ...(playback ? PLAYBACK_SCOPES : []),
+            ...(sources ? SOURCE_SCOPES : []),
+            ...retainedScopes,
+          ].some((
             scope,
           ) => !tokens.scopes?.includes(scope))
         ) return authFailure("missing_scopes");
@@ -344,6 +376,30 @@ export function createApi(
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
         req.headers.get("Origin") !== config.origin
       ) return json({ error: "invalid_origin" }, 403);
+      if (path === "/api/sources/enable" && req.method === "POST") {
+        const body = await readJson(req);
+        if (Object.keys(body).length) throw new ContractError("parameters");
+        if (session.state !== "connected") {
+          return json({ error: "reconnect" }, 409);
+        }
+        const granted = await new OwnerTokens(
+          db,
+          box,
+          session.epoch,
+          config.clientId,
+          request,
+          now,
+        ).getGrantedScopes();
+        const retained = PLAYBACK_SCOPES.every((scope) =>
+            granted.includes(scope)
+          )
+          ? [...PLAYBACK_SCOPES]
+          : [];
+        const auth = await beginOAuth(false, true, retained);
+        return json({ url: auth.url }, 200, {
+          "Set-Cookie": cookie(OAUTH_COOKIE, auth.browser, 600),
+        });
+      }
       if (path.startsWith("/api/playback/") && req.method === "POST") {
         const body = await readJson(req);
         if (session.state !== "connected") {
@@ -351,7 +407,20 @@ export function createApi(
         }
         if (path === "/api/playback/enable") {
           if (Object.keys(body).length) throw new Error("invalid_input");
-          const auth = await beginOAuth(true);
+          const granted = await new OwnerTokens(
+            db,
+            box,
+            session.epoch,
+            config.clientId,
+            request,
+            now,
+          ).getGrantedScopes();
+          const retained = SOURCE_SCOPES.every((scope) =>
+              granted.includes(scope)
+            )
+            ? [...SOURCE_SCOPES]
+            : [];
+          const auth = await beginOAuth(true, false, retained);
           return json({ url: auth.url }, 200, {
             "Set-Cookie": cookie(OAUTH_COOKIE, auth.browser, 600),
           });
@@ -439,7 +508,25 @@ export function createApi(
         session.epoch,
         db,
       );
-      if (library) return library;
+      if (library) {
+        if (path === "/api/sources" && req.method === "GET") {
+          const granted = await new OwnerTokens(
+            db,
+            box,
+            session.epoch,
+            config.clientId,
+            request,
+            now,
+          ).getGrantedScopes();
+          return json({
+            ...await library.json(),
+            collaborativeConsentRequired: !SOURCE_SCOPES.every((scope) =>
+              granted.includes(scope)
+            ),
+          });
+        }
+        return library;
+      }
       const playlist = await playlistApi(
         req,
         path,
