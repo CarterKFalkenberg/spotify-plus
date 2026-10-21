@@ -31,26 +31,43 @@ export function ThemeControl() {
     };
   }, [theme]);
   return (
-    <label className="theme-control">
-      Appearance
-      <select
-        aria-label="Appearance"
-        value={theme}
-        onChange={(event) => {
-          const next = event.target.value as Theme;
-          setTheme(next);
-          applyTheme(next);
-          try {
-            localStorage.setItem(key, next);
-          } catch {
-            /* The current choice still applies. */
-          }
-        }}
-      >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-    </label>
+    <details className="theme-control">
+      <summary aria-label="Appearance" title="Appearance">
+        <svg
+          viewBox="0 0 24 24"
+          width="21"
+          height="21"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 4v16a8 8 0 0 0 0-16" fill="currentColor" stroke="none" />
+        </svg>
+      </summary>
+      <fieldset className="theme-options">
+        <legend>Appearance</legend>
+        {(["system", "light", "dark"] as const).map((choice) => (
+          <label key={choice}>
+            <input
+              type="radio"
+              name="appearance"
+              checked={theme === choice}
+              onChange={() => {
+                setTheme(choice);
+                applyTheme(choice);
+                try {
+                  localStorage.setItem(key, choice);
+                } catch {
+                  /* Current visit still works. */
+                }
+              }}
+            />
+            {choice.slice(0, 1).toUpperCase() + choice.slice(1)}
+          </label>
+        ))}
+      </fieldset>
+    </details>
   );
 }

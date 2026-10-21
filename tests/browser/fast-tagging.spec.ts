@@ -1,3 +1,9 @@
+import {
+  appearance as chooseAppearance,
+  details,
+  chooseStep,
+  managePlaylist,
+} from "./flows";
 import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
 const id = (n: number) =>
@@ -56,7 +62,11 @@ async function mock(
   });
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:4173") return route.abort();
+    if (
+      url.origin !==
+      (process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173")
+    )
+      return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname,
       body = route.request().postData() ? route.request().postDataJSON() : null;
@@ -287,9 +297,7 @@ async function vocabulary(page: Page) {
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Tags", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Tag vocabulary" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your tags" })).toBeVisible();
 }
 test("queue input letters, number slots, navigation, skip and modified help are independent of saves", async ({
   page,
@@ -385,6 +393,12 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
       .locator(".quick-slots")
       .getByRole("button", { name: "1 mood:soft", exact: true }),
   ).toBeVisible();
+  if (
+    !(await page
+      .locator(".queue-settings")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page.locator(".queue-settings > summary").click();
   await page.getByLabel("Queue order").selectOption("latest");
   await expect
     .poll(() =>
@@ -393,6 +407,12 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
       ),
     )
     .toBe(true);
+  if (
+    !(await page
+      .locator(".queue-settings")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page.locator(".queue-settings > summary").click();
   await page.getByLabel("Queue order").selectOption("random");
   await expect
     .poll(() =>
@@ -414,7 +434,10 @@ test("browser ranges, tri-state fill/clear and opaque album facets use exact fro
   const calls = await mock(page);
   await page.goto("/");
   await browser(page);
-  await page.getByLabel("Group rows").selectOption("none");
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Songs", exact: true })
+    .click();
   await page.getByLabel("Select Synthetic song 1").check();
   await page
     .getByLabel("Select Synthetic song 3")
@@ -727,6 +750,12 @@ test("membership removals before the focused row keep that song current; delayed
   deferred.replied = false;
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect.poll(() => !!deferred.release).toBe(true);
+  if (
+    !(await page
+      .locator(".queue-settings")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page.locator(".queue-settings > summary").click();
   await page.getByLabel("Queue order").selectOption("oldest");
   await expect(page.locator(".mobile-track")).toHaveCount(3);
   deferred.release?.();
@@ -1450,7 +1479,9 @@ test("first-run bulk tag action fits the unscrolled desktop workspace", async ({
   await page.setViewportSize({ width: 1280, height: 800 });
   await mock(page);
   await page.goto("/");
-  const bulkInput = page.getByLabel("Tag all 3 songs by Synthetic Artist");
+  const bulkInput = page.getByRole("button", {
+    name: "Tag all 3 songs by Synthetic Artist",
+  });
   await expect(bulkInput).toBeVisible();
   expect(
     await bulkInput.evaluate(
@@ -1628,9 +1659,7 @@ for (const appearance of ["light", "dark"] as const)
       localStorage.setItem("tagger-guidance-dismissed", "yes"),
     );
     await page.goto("/");
-    await page
-      .getByLabel("Appearance", { exact: true })
-      .selectOption(appearance);
+    await chooseAppearance(page, appearance);
     const next = page.getByRole("button", { name: "Next →", exact: true });
     const previous = page.getByRole("button", {
       name: "← Previous",
@@ -1679,9 +1708,7 @@ for (const appearance of ["light", "dark"] as const)
     await page.setViewportSize({ width: 320, height: 844 });
     await mock(page, { failAction: true });
     await page.goto("/");
-    await page
-      .getByLabel("Appearance", { exact: true })
-      .selectOption(appearance);
+    await chooseAppearance(page, appearance);
     await page
       .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "New arrivals 2" })
@@ -1720,9 +1747,7 @@ for (const appearance of ["light", "dark"] as const)
     ).toBeVisible();
     await assertReadableSurface(page);
     await page.goto("/");
-    await page
-      .getByLabel("Appearance", { exact: true })
-      .selectOption(appearance);
+    await chooseAppearance(page, appearance);
     await vocabulary(page);
     await expect(page.locator(".vocabulary-list article")).toHaveCount(3);
     await assertReadableSurface(page);

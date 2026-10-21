@@ -17,6 +17,7 @@ import {
   rejectsIntent,
   ApiError,
 } from "./api";
+import { CollectionArtwork } from "./Library";
 import { RetentionPicker } from "./Builder";
 import { useVisiblePolling } from "./useVisiblePolling";
 import {
@@ -74,7 +75,7 @@ export function Playlists({
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ManagedPlaylistDTO | null>(null);
-  const [period, setPeriod] = useState<Retention>("month");
+  const [periods, setPeriods] = useState<Record<string, Retention>>({});
   const lookupConflict = useRef<string | null>(null);
   const resolvedTags = useRef<string | null>(null);
   const activeLookup = useRef<AbortController | null>(null);
@@ -201,7 +202,10 @@ export function Playlists({
           expectedRevision: item.revision,
           action,
           ...(action === "extend" || action === "unpin"
-            ? { retention: period as "week" | "month" | "threeMonths" }
+            ? {
+                retention: (periods[item.id] ?? "month") as
+                  "week" | "month" | "threeMonths",
+              }
             : {}),
         } as PlaylistActionRequest);
       intents.current.set(item.id, intent);
@@ -237,10 +241,10 @@ export function Playlists({
     data !== null &&
     (!data.lastCleanupAt ||
       Date.now() - Date.parse(data.lastCleanupAt) > 86400000);
-  const periodLabel =
-    period === "week"
+  const periodLabel = (id: string) =>
+    periods[id] === "week"
       ? "1 week"
-      : period === "threeMonths"
+      : periods[id] === "threeMonths"
         ? "3 calendar months"
         : "1 calendar month";
   return (
@@ -297,38 +301,26 @@ export function Playlists({
           </p>
         </div>
       )}
-      {!!data?.playlists.length && (
-        <details className="retention-settings">
-          <summary>
-            Extend / Unpin retention <strong>{periodLabel}</strong>
-          </summary>
-          <div className="extension-setting">
-            <RetentionPicker
-              pinned={false}
-              label="Extend / Unpin for"
-              value={period}
-              onChange={setPeriod}
-            />
-            <p className="muted">
-              Extend resets the clock; Unpin starts a new one. Regenerate uses
-              the existing retention and keeps your current Spotify name.
-            </p>
-          </div>
-        </details>
-      )}
       <div className="playlist-grid">
         {data?.playlists.map((item) => (
           <article className="playlist-card" key={item.id}>
+            <CollectionArtwork
+              url={
+                (item as ManagedPlaylistDTO & { artworkUrl?: string | null })
+                  .artworkUrl
+              }
+              kind="playlist"
+            />
             <div className="playlist-card-top">
-              <span className={`pill ${item.status}`}>
-                {item.status === "ready"
-                  ? "Ready"
-                  : item.status === "incomplete"
+              {item.status !== "ready" && (
+                <span className={`pill ${item.status}`}>
+                  {item.status === "incomplete"
                     ? "Incomplete — retry"
                     : item.status === "removing"
                       ? "Removal awaiting confirmation"
                       : "Queued / working"}
-              </span>
+                </span>
+              )}
             </div>
             <h3>{item.name}</h3>
             <p className="query-summary">{renderQuery(item.query.root)}</p>
@@ -383,55 +375,70 @@ export function Playlists({
                       Retry
                     </button>
                   )}
-                  {item.status === "ready" && (
-                    <>
-                      <button
-                        disabled={!!busy}
-                        onClick={() =>
-                          void act(
-                            item,
-                            item.retention === "pinned" ? "unpin" : "pin",
-                          )
+                  <details className="playlist-manage">
+                    <summary>
+                      Manage <span className="sr-only">{item.name}</span>
+                    </summary>
+                    <div className="playlist-management">
+                      <RetentionPicker
+                        pinned={false}
+                        label={`Extend / Unpin for ${item.name}`}
+                        value={periods[item.id] ?? "month"}
+                        onChange={(value) =>
+                          setPeriods((old) => ({ ...old, [item.id]: value }))
                         }
-                      >
-                        {item.retention === "pinned" ? "Unpin" : "Pin"}
-                      </button>
-                      {item.retention !== "pinned" && (
+                      />
+                      {item.status === "ready" && (
+                        <>
+                          <button
+                            disabled={!!busy}
+                            onClick={() =>
+                              void act(
+                                item,
+                                item.retention === "pinned" ? "unpin" : "pin",
+                              )
+                            }
+                          >
+                            {item.retention === "pinned" ? "Unpin" : "Pin"}
+                          </button>
+                          {item.retention !== "pinned" && (
+                            <button
+                              disabled={!!busy}
+                              onClick={() => void act(item, "extend")}
+                            >
+                              Extend
+                            </button>
+                          )}
+                          <span className="retention-hint">
+                            {item.retention === "pinned"
+                              ? `Unpin keeps it for ${periodLabel(item.id)} from today.`
+                              : `Extend keeps it for ${periodLabel(item.id)} from today. Pin keeps it until you unpin.`}
+                          </span>
+                          <button
+                            disabled={
+                              !!busy ||
+                              queryTagIds(item.query.root).some((id) =>
+                                missingTags.includes(id),
+                              )
+                            }
+                            onClick={() => void act(item, "regenerate")}
+                          >
+                            Regenerate
+                          </button>
+                        </>
+                      )}
+                      {(item.status === "ready" ||
+                        item.status === "incomplete") && (
                         <button
+                          className="text-button"
                           disabled={!!busy}
-                          onClick={() => void act(item, "extend")}
+                          onClick={() => setConfirm(item)}
                         >
-                          Extend
+                          Delete now
                         </button>
                       )}
-                      <span className="retention-hint">
-                        {item.retention === "pinned"
-                          ? `Unpin keeps it for ${periodLabel} from today.`
-                          : `Extend keeps it for ${periodLabel} from today. Pin keeps it until you unpin.`}
-                      </span>
-                      <button
-                        disabled={
-                          !!busy ||
-                          queryTagIds(item.query.root).some((id) =>
-                            missingTags.includes(id),
-                          )
-                        }
-                        onClick={() => void act(item, "regenerate")}
-                      >
-                        Regenerate
-                      </button>
-                    </>
-                  )}
-                  {(item.status === "ready" ||
-                    item.status === "incomplete") && (
-                    <button
-                      className="text-button"
-                      disabled={!!busy}
-                      onClick={() => setConfirm(item)}
-                    >
-                      Delete now
-                    </button>
-                  )}
+                    </div>
+                  </details>
                 </>
               )}
             </div>

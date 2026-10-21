@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import type {
   LibraryFilter,
@@ -31,6 +32,27 @@ export const emptyFilter: LibraryFilter = {
   newOnly: false,
   artistId: null,
 };
+export function CollectionArtwork({
+  url,
+  kind,
+}: {
+  url?: string | null | undefined;
+  kind: "artist" | "album" | "playlist" | "decade";
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  return (
+    <div className={`collection-artwork ${kind}`}>
+      {url && !failed ? (
+        <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        <span aria-label={`${kind} artwork unavailable`} role="img">
+          <Icon name={kind} />
+        </span>
+      )}
+    </div>
+  );
+}
 export function TrackSummary({
   track,
   link = true,
@@ -95,11 +117,13 @@ export function Library({
   const [groupBy, setGroupBy] = useState<Facet>("artist");
   const [sort, setSort] = useState<Sort>("newest");
   const anchor = useRef<string | null>(null);
+  const pageHistory = useRef<(string | null)[]>([]);
   useEffect(() => {
     if (artistId) {
       setFilter((v) => ({ ...v, artistId }));
       setGrouped(false);
       setCursor(null);
+      pageHistory.current = [];
       setSelection(null);
     }
   }, [artistId, artistJump]);
@@ -127,6 +151,7 @@ export function Library({
     setGrouped(!newOnly && !matchMedia("(max-width:640px)").matches);
     setData(null);
     setCursor(null);
+    pageHistory.current = [];
     setSelection(null);
   }, [newOnly]);
   useEffect(() => {
@@ -138,7 +163,13 @@ export function Library({
       void api(
         "/library/search",
         search,
-        { filter, groupBy: grouped ? groupBy : null, sort, cursor, limit: 50 },
+        {
+          filter,
+          groupBy: grouped ? groupBy : null,
+          sort,
+          cursor,
+          limit: grouped ? 12 : 30,
+        },
         controller.signal,
       )
         .then((value) => {
@@ -174,6 +205,7 @@ export function Library({
             if (lookupConflict.current !== key) {
               lookupConflict.current = key;
               setCursor(null);
+              pageHistory.current = [];
               onChanged();
             }
           }
@@ -186,6 +218,7 @@ export function Library({
     setData(null);
     setFilter(next);
     setCursor(null);
+    pageHistory.current = [];
     setSelection(null);
   }
   async function mutate(
@@ -207,6 +240,7 @@ export function Library({
         message: `${kind === "add" ? "Added" : "Removed"} “${result.tag.name}” ${kind === "add" ? "to" : "from"} ${result.changedCount} songs.`,
       });
       setCursor(null);
+      pageHistory.current = [];
       onChanged();
     } catch (error) {
       setError(errorMessage(error));
@@ -222,7 +256,7 @@ export function Library({
         <div>
           <h2 id="library-title">Your library</h2>
         </div>
-        <span className="muted">Tags save as you go</span>
+        <span className="muted">Browse together. Tag together.</span>
       </div>
       {guidance && (
         <aside className="guidance">
@@ -250,6 +284,35 @@ export function Library({
           </button>
         </aside>
       )}
+      <p className="section-intro">
+        Find a song, or tag a whole artist, album, or decade in one move.
+      </p>
+      <nav className="library-browse" aria-label="Browse library">
+        {(["none", "artist", "album", "decade"] as const).map((view) => (
+          <button
+            key={view}
+            aria-pressed={
+              view === "none" ? !grouped : grouped && groupBy === view
+            }
+            onClick={() => {
+              setGrouped(view !== "none");
+              if (view !== "none") setGroupBy(view);
+              setData(null);
+              setCursor(null);
+              pageHistory.current = [];
+              setSelection(null);
+            }}
+          >
+            {view === "none"
+              ? "Songs"
+              : view === "artist"
+                ? "Artists"
+                : view === "album"
+                  ? "Albums"
+                  : "Decades"}
+          </button>
+        ))}
+      </nav>
       <div className="library-filters">
         <label className="search-label">
           Search your library
@@ -296,6 +359,7 @@ export function Library({
             onChange={(e) => {
               setSort(e.target.value as Sort);
               setCursor(null);
+              pageHistory.current = [];
               setSelection(null);
             }}
           >
@@ -306,24 +370,6 @@ export function Library({
                 {v}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="desktop-bulk">
-          Group rows
-          <select
-            value={grouped ? groupBy : "none"}
-            onChange={(e) => {
-              setGrouped(e.target.value !== "none");
-              if (e.target.value !== "none")
-                setGroupBy(e.target.value as Facet);
-              setCursor(null);
-              setSelection(null);
-            }}
-          >
-            <option value="none">No grouping</option>
-            <option value="artist">Artist</option>
-            <option value="album">Album</option>
-            <option value="decade">Decade</option>
           </select>
         </label>
         <button
@@ -369,6 +415,7 @@ export function Library({
           <button
             onClick={() => {
               setCursor(null);
+              pageHistory.current = [];
               onChanged();
             }}
           >
@@ -385,6 +432,13 @@ export function Library({
               {data.groupBy !== null
                 ? ` · ${data.totalGroups} ${data.groupBy === "artist" ? "artists" : data.groupBy === "album" ? "albums" : "decades"}`
                 : ""}
+              <small className="page-range">
+                Page {pageHistory.current.length + 1} · Showing{" "}
+                {data.groupBy === null
+                  ? data.tracks.length
+                  : data.groups.length}{" "}
+                {data.groupBy === null ? "songs" : "groups"}
+              </small>
             </span>
             {data.totalTracks > 0 && (
               <button
@@ -452,27 +506,42 @@ export function Library({
             <div className="artist-grid">
               {data.groups.map((group) => (
                 <article className="artist-card" key={group.value}>
-                  <div className="artist-monogram" aria-hidden="true">
-                    {group.name.slice(0, 1)}
-                  </div>
+                  <a
+                    className="group-artwork-link"
+                    href={
+                      groupBy === "artist"
+                        ? `https://open.spotify.com/artist/${group.value}`
+                        : `https://open.spotify.com/search/${encodeURIComponent(group.name)}`
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${group.name} in Spotify`}
+                  >
+                    <CollectionArtwork
+                      url={
+                        (group as typeof group & { artworkUrl?: string | null })
+                          .artworkUrl
+                      }
+                      kind={
+                        groupBy === "artist"
+                          ? "artist"
+                          : groupBy === "album"
+                            ? "album"
+                            : "decade"
+                      }
+                    />
+                  </a>
                   <h3>{group.name}</h3>
                   <p>
                     {group.trackCount} songs · {group.taggedCount} tagged
                   </p>
-                  <div className="desktop-bulk">
-                    <TagPicker
-                      label={`Tag all ${group.trackCount} songs by ${group.name}`}
-                      onCreate={(name) => mutate(name, group.selection, "add")}
-                      disabled={busy}
-                      onChoose={(tag) => mutate(tag, group.selection, "add")}
-                    />
-                    <button
-                      className="compact"
-                      onClick={() => setSelection(group.selection)}
-                    >
-                      Select group
-                    </button>
-                  </div>
+                  <button
+                    className="compact desktop-bulk group-select"
+                    aria-label={`Tag all ${group.trackCount} songs by ${group.name}`}
+                    onClick={() => setSelection(group.selection)}
+                  >
+                    Tag {group.trackCount} songs
+                  </button>
                   <button
                     className="compact group-browse"
                     onClick={() => {
@@ -609,15 +678,25 @@ export function Library({
               All artists
             </button>
           )}
-          {data.nextCursor && (
-            <button onClick={() => setCursor(data.nextCursor)}>
-              Next results
-            </button>
-          )}
-          {cursor && (
-            <button className="compact" onClick={() => setCursor(null)}>
-              Back to first results
-            </button>
+          {(data.nextCursor || cursor) && (
+            <nav className="result-pagination" aria-label="Library pages">
+              <button
+                disabled={!cursor}
+                onClick={() => setCursor(pageHistory.current.pop() ?? null)}
+              >
+                ← Previous page
+              </button>
+              <span>Page {pageHistory.current.length + 1}</span>
+              <button
+                disabled={!data.nextCursor}
+                onClick={() => {
+                  pageHistory.current.push(cursor);
+                  setCursor(data.nextCursor);
+                }}
+              >
+                Next page →
+              </button>
+            </nav>
           )}
         </>
       )}

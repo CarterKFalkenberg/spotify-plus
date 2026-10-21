@@ -137,11 +137,9 @@ export function Vocabulary({
     <section className="vocabulary-page" aria-labelledby="vocabulary-title">
       <div className="section-heading">
         <div>
-          <h2 id="vocabulary-title">Tag vocabulary</h2>
+          <h2 id="vocabulary-title">Your tags</h2>
         </div>
-        <span className="muted">
-          Rename and merge keep stored queries connected.
-        </span>
+        <span className="muted">Your words for your music.</span>
       </div>
       <div className="library-filters">
         <label className="search-label">
@@ -238,7 +236,7 @@ export function Vocabulary({
                 setTarget(null);
               }}
             >
-              Manage <span aria-hidden="true">↗</span>
+              Edit <span aria-hidden="true">⋯</span>
             </button>
             {mergeMode && (
               <label className="merge-source">

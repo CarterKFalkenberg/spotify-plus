@@ -1,3 +1,4 @@
+import { appearance as chooseAppearance } from "./flows";
 import { test, expect } from "@playwright/test";
 import { assertReadableSurface } from "./visual-assertions";
 
@@ -14,29 +15,33 @@ test("appearance follows the system until an explicit choice, persists and appli
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
-  await expect(page.getByLabel("Appearance", { exact: true })).toHaveValue(
-    "system",
-  );
+  await expect(
+    page.getByRole("radio", {
+      name: "System",
+      exact: true,
+      includeHidden: true,
+    }),
+  ).toBeChecked();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await assertReadableSurface(page);
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await assertReadableSurface(page);
-  await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+  await chooseAppearance(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
-  await expect(page.getByLabel("Appearance", { exact: true })).toHaveValue(
-    "dark",
-  );
+  await expect(
+    page.getByRole("radio", { name: "Dark", exact: true, includeHidden: true }),
+  ).toBeChecked();
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
   await page.getByRole("link", { name: "Privacy", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await assertReadableSurface(page);
-  await page.getByLabel("Appearance", { exact: true }).selectOption("light");
+  await chooseAppearance(page, "light");
   await assertReadableSurface(page);
-  await page.getByLabel("Appearance", { exact: true }).selectOption("system");
+  await chooseAppearance(page, "system");
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
@@ -54,11 +59,15 @@ test("invalid or inaccessible storage still allows a working system preference a
   });
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
-  await expect(page.getByLabel("Appearance", { exact: true })).toHaveValue(
-    "system",
-  );
+  await expect(
+    page.getByRole("radio", {
+      name: "System",
+      exact: true,
+      includeHidden: true,
+    }),
+  ).toBeChecked();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.getByLabel("Appearance", { exact: true }).selectOption("light");
+  await chooseAppearance(page, "light");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
@@ -88,12 +97,16 @@ test("reading storage can fail without blocking connection or appearance control
   });
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
-  await expect(page.getByLabel("Appearance", { exact: true })).toHaveValue(
-    "system",
-  );
+  await expect(
+    page.getByRole("radio", {
+      name: "System",
+      exact: true,
+      includeHidden: true,
+    }),
+  ).toBeChecked();
   await expect(
     page.getByRole("link", { name: "Connect Spotify" }),
   ).toBeVisible();
-  await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+  await chooseAppearance(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });

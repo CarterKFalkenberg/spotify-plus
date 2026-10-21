@@ -83,9 +83,13 @@ export function Builder({
   const [name, setName] = useState("");
   const [retention, setRetention] = useState<Retention>("month");
   const [busy, setBusy] = useState(false);
-  const [previewExpanded, setPreviewExpanded] = useState(
-    () => !matchMedia("(max-width:640px)").matches,
-  );
+  const [step, setStep] = useState<0 | 1 | 2>(0);
+  const [refinements, setRefinements] = useState(false);
+  const stageHeading = useRef<HTMLHeadingElement>(null);
+  function go(next: 0 | 1 | 2) {
+    setStep(next);
+    requestAnimationFrame(() => stageHeading.current?.focus());
+  }
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const [paging, setPaging] = useState(false);
   const [pending, setPending] = useState<CreatePlaylistRequest | null>(
@@ -117,6 +121,7 @@ export function Builder({
     setResult(null);
     setError("");
     setSubmitted(false);
+    setStep(0);
     setBuckets((v) => ({ ...v, [bucket]: items }));
   }
   useEffect(() => {
@@ -190,6 +195,7 @@ export function Builder({
         sessionStorage.removeItem(intentKey);
         setPending(null);
         setResult(null);
+        setStep(0);
       }
       setReconnect(
         error instanceof ApiError &&
@@ -213,8 +219,35 @@ export function Builder({
         </span>
       </div>
       <p className="section-intro">
-        Combine your tags, review the songs, then create a snapshot in Spotify.
+        Your tags become a playlist. Choose a mood, check the songs, and decide
+        how long to keep it.
       </p>
+      {!pending && !submitted && (
+        <>
+          <ol className="builder-steps" aria-label="Playlist progress">
+            {["Choose tags", "Review songs", "Name & keep"].map(
+              (label, index) => (
+                <li
+                  key={label}
+                  aria-current={step === index ? "step" : undefined}
+                >
+                  <span>{index + 1}</span>
+                  {label}
+                </li>
+              ),
+            )}
+          </ol>
+          <h3 className="builder-stage-title" tabIndex={-1} ref={stageHeading}>
+            {
+              [
+                "What do you want to hear?",
+                "Does this sound right?",
+                "Make it yours",
+              ][step]
+            }
+          </h3>
+        </>
+      )}
       {!key && !pending && (
         <p className="builder-start">
           Need tags first?{" "}
@@ -281,18 +314,23 @@ export function Builder({
               ) : (
                 <strong>Preview needs attention</strong>
               )}
-              <a
-                href="#playlist-preview"
-                onClick={() => setPreviewExpanded(true)}
-              >
-                Review songs ↓
-              </a>
             </div>
-            <div className="query-composer">
-              <h3 className="composer-title">Match your tags</h3>
+            <div
+              className="query-composer builder-stage"
+              data-step="choose"
+              hidden={step !== 0 || submitted}
+            >
+              <p className="composer-title">
+                Start with tags every song should have. Refine the match if you
+                need to.
+              </p>
               <div className="query-buckets">
                 {(["all", "any", "none"] as const).map((bucket) => (
-                  <div className="query-bucket" key={bucket}>
+                  <div
+                    className="query-bucket"
+                    key={bucket}
+                    hidden={bucket !== "all" && !refinements}
+                  >
                     <div className="bucket-heading">
                       <h3>
                         {bucket === "all"
@@ -335,15 +373,27 @@ export function Builder({
                     />
                   </div>
                 ))}
+                <button
+                  className="text-button refine-query"
+                  aria-expanded={refinements}
+                  onClick={() => setRefinements(!refinements)}
+                >
+                  {refinements
+                    ? "Hide refinements"
+                    : "Refine with Any of / None of"}
+                  {!refinements && buckets.any.length + buckets.none.length > 0
+                    ? ` · ${buckets.any.length + buckets.none.length} tags`
+                    : ""}
+                </button>
               </div>
             </div>
-            <details
-              className="preview-panel"
+            <section
+              className="preview-panel builder-stage"
+              data-step="review"
+              hidden={step !== 1 || submitted}
               id="playlist-preview"
-              open={previewExpanded}
-              onToggle={(event) => setPreviewExpanded(event.currentTarget.open)}
             >
-              <summary>Review matching songs</summary>
+              <h3 className="sr-only">Review matching songs</h3>
               {!key ? (
                 <div className="empty-state">
                   <h3>Choose your first tag</h3>
@@ -434,8 +484,12 @@ export function Builder({
                   </>
                 )
               )}
-            </details>
-            <div className="playlist-setup">
+            </section>
+            <div
+              className="playlist-setup builder-stage"
+              data-step="details"
+              hidden={step !== 2 || submitted}
+            >
               {!initialComplete && (
                 <p className="notice">
                   Your first import is still being verified. Browse and tag now;
@@ -446,6 +500,7 @@ export function Builder({
                 <h3>Playlist details</h3>
               </div>
               <form
+                id="create-playlist-form"
                 className="create-form"
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -462,9 +517,6 @@ export function Builder({
                   />
                 </label>
                 <RetentionPicker value={retention} onChange={setRetention} />
-                <button className="primary" disabled={!canCreate || busy}>
-                  {busy ? "Requesting…" : "Create playlist →"}
-                </button>
               </form>
               <p className="disclosure">
                 We ask Spotify to hide the playlist from your profile and
@@ -477,6 +529,40 @@ export function Builder({
               </p>
             </div>
           </div>
+          {!submitted && (
+            <div className="builder-navigation">
+              <button
+                disabled={step === 0 || busy}
+                onClick={() => go(step === 2 ? 1 : 0)}
+              >
+                ← Back
+              </button>
+              {step < 2 ? (
+                <button
+                  key="continue"
+                  type="button"
+                  className="primary"
+                  disabled={busy || (step === 0 ? !key : !canCreate)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    go(step === 0 ? 1 : 2);
+                  }}
+                >
+                  {step === 0 ? "Review songs →" : "Continue →"}
+                </button>
+              ) : (
+                <button
+                  className="primary"
+                  key="create"
+                  type="submit"
+                  form="create-playlist-form"
+                  disabled={!canCreate || busy}
+                >
+                  {busy ? "Requesting…" : "Create playlist →"}
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
       {error && (

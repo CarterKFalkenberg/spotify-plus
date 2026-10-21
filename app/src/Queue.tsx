@@ -539,23 +539,35 @@ export function Queue({
           {tagged.size} tagged this session ·{" "}
           {status ? status.activeCount - status.untaggedCount : 0} songs tagged
         </span>
-        <label className="desktop-bulk queue-order">
-          Queue order
-          <select
-            value={source ? "filter" : mode}
-            onChange={(e) => {
-              seed.current = crypto.randomUUID();
-              setMode(e.target.value);
-            }}
-            disabled={!!source}
-          >
-            <option value="newest">Untagged · newest liked first</option>
-            <option value="oldest">Untagged · oldest first</option>
-            <option value="latest">New since last completed sync</option>
-            <option value="random">Untagged · random</option>
-            {source && <option value="filter">Sent from library filter</option>}
-          </select>
-        </label>
+        <details className="queue-settings desktop-bulk">
+          <summary>Queue settings</summary>
+          <div>
+            {" "}
+            <label className="desktop-bulk queue-order">
+              Queue order
+              <select
+                value={source ? "filter" : mode}
+                onChange={(e) => {
+                  seed.current = crypto.randomUUID();
+                  setMode(e.target.value);
+                }}
+                disabled={!!source}
+              >
+                <option value="newest">Untagged · newest liked first</option>
+                <option value="oldest">Untagged · oldest first</option>
+                <option value="latest">New since last completed sync</option>
+                <option value="random">Untagged · random</option>
+                {source && (
+                  <option value="filter">Sent from library filter</option>
+                )}
+              </select>
+            </label>
+            <p className="muted">
+              Quick tags use your frequent tags. Pin a session’s shortcuts from
+              Edit quick tags beside the slots.
+            </p>
+          </div>
+        </details>
       </div>
       {error && !sheet && (
         <p role="alert" className="notice">
@@ -637,7 +649,7 @@ export function Queue({
             </div>
           )}
           <div className="queue-identity">
-            <TrackSummary track={current} />
+            <TrackSummary track={current} link={false} />
             <p className="queue-details">
               {current.metadata?.releaseDate?.slice(0, 4) ?? "Year unavailable"}{" "}
               ·{" "}
@@ -649,6 +661,16 @@ export function Queue({
                 ? new Date(current.metadata.likedAt).toLocaleDateString()
                 : ""}
             </p>
+            {current.metadata?.spotifyUrl && (
+              <a
+                className="queue-spotify"
+                href={current.metadata.spotifyUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in Spotify ↗
+              </a>
+            )}
           </div>
           <div className="tagging-desk">
             <div className="current-tags-heading">
@@ -744,11 +766,6 @@ export function Queue({
             )}
           </div>
           <div className="queue-actions">
-            {current.metadata?.acknowledgedAt === null && (
-              <button disabled={busy} onClick={() => void markReviewed()}>
-                Mark arrival reviewed
-              </button>
-            )}
             <button
               className="queue-previous"
               disabled={index === 0 || busy}
@@ -767,37 +784,37 @@ export function Queue({
               Skip · requeue
             </button>
           </div>
-          <div className="queue-tools">
-            {current.metadata?.spotifyUrl && (
-              <a
-                href={current.metadata.spotifyUrl}
-                target="_blank"
-                rel="noreferrer"
+          <details className="queue-tool-disclosure">
+            <summary>Song actions &amp; shortcuts</summary>
+            <div className="queue-tools">
+              {current.metadata?.acknowledgedAt === null && (
+                <button disabled={busy} onClick={() => void markReviewed()}>
+                  Mark arrival reviewed
+                </button>
+              )}
+
+              <button
+                className="desktop-bulk"
+                disabled={!current.metadata?.artists[0]?.id}
+                onClick={() =>
+                  current.metadata?.artists[0]?.id &&
+                  onArtist(current.metadata.artists[0].id)
+                }
               >
-                Open in Spotify ↗
-              </a>
-            )}
-            <button
-              className="desktop-bulk"
-              disabled={!current.metadata?.artists[0]?.id}
-              onClick={() =>
-                current.metadata?.artists[0]?.id &&
-                onArtist(current.metadata.artists[0].id)
-              }
-            >
-              Browse this artist
-            </button>
-            <button
-              className="desktop-bulk"
-              disabled={busy}
-              onClick={() => void removeLast().catch(() => {})}
-            >
-              Remove last-applied tag
-            </button>
-            <button className="desktop-bulk" onClick={() => setHelp(true)}>
-              Hotkey help
-            </button>
-          </div>
+                Browse this artist
+              </button>
+              <button
+                className="desktop-bulk"
+                disabled={busy}
+                onClick={() => void removeLast().catch(() => {})}
+              >
+                Remove last-applied tag
+              </button>
+              <button className="desktop-bulk" onClick={() => setHelp(true)}>
+                Hotkey help
+              </button>
+            </div>
+          </details>
           {!!actions.length && (
             <div role="status" className="queue-feedback">
               {savedFeedback}

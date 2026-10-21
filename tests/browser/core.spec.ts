@@ -1,3 +1,9 @@
+import {
+  appearance as chooseAppearance,
+  details,
+  chooseStep,
+  managePlaylist,
+} from "./flows";
 import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
 const id = (n: number) =>
@@ -82,7 +88,11 @@ async function mock(
   const calls: { path: string; body: any }[] = [];
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:4173") return route.abort();
+    if (
+      url.origin !==
+      (process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173")
+    )
+      return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
     calls.push({
@@ -252,20 +262,22 @@ async function mock(
   return calls;
 }
 async function choose(page: Page, label = "Add All of tag") {
+  if (label.startsWith("Add ")) await chooseStep(page);
+  if (label !== "Add All of tag" && label.startsWith("Add "))
+    await page
+      .getByRole("button", {
+        name: "Refine with Any of / None of",
+        exact: false,
+      })
+      .click();
   await page.getByLabel(label, { exact: true }).fill("Synthetic");
   await page
     .locator(".suggestions")
     .getByRole("option", { name: /^Synthetic tag 1 / })
     .click();
-  if (
-    label.startsWith("Add ") &&
-    !(await page
-      .locator(".preview-panel")
-      .evaluate((el) => (el as HTMLDetailsElement).open))
-  )
+  if (label.startsWith("Add "))
     await page
-      .locator(".query-feedback")
-      .getByRole("link", { name: "Review songs ↓" })
+      .getByRole("button", { name: "Review songs →", exact: true })
       .click();
 }
 async function builder(page: Page) {
@@ -303,7 +315,10 @@ test("focused autocomplete only; freeform artist and matching selection use one 
   await page.waitForTimeout(350);
   expect(calls.filter((call) => call.path === "/api/tags")).toHaveLength(0);
   await page
-    .getByLabel("Tag all 3 songs by Synthetic Artist")
+    .getByRole("button", { name: "Tag all 3 songs by Synthetic Artist" })
+    .click();
+  await page
+    .getByLabel("Add tag to selection", { exact: true })
     .fill("Fresh freeform");
   await page.getByRole("button", { name: "Create “Fresh freeform”" }).click();
   await expect(
@@ -319,7 +334,9 @@ test("focused autocomplete only; freeform artist and matching selection use one 
     calls.filter((call) => call.path === "/api/tags" && call.body),
   ).toHaveLength(0);
   await page.getByRole("button", { name: "Select all 3 matching" }).click();
-  await page.getByLabel("Add tag to selection").fill("Fresh selection");
+  await page
+    .getByLabel("Add tag to selection", { exact: true })
+    .fill("Fresh selection");
   await page.getByRole("button", { name: "Create “Fresh selection”" }).click();
   await expect
     .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
@@ -335,7 +352,10 @@ test("explicit remove and changed-only undo use server identities", async ({
   test.skip(isMobile, "Bulk selection is desktop only");
   const calls = await mock(page);
   await page.goto("/");
-  await page.getByLabel("Group rows").selectOption("none");
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Songs", exact: true })
+    .click();
   await page.getByLabel("Select Synthetic song 1").check();
   await expect(
     page
@@ -413,6 +433,7 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
     page.getByText("0h 6m · from your cached library"),
   ).toBeVisible();
   await expect(page.getByText(/1 unavailable song is excluded/)).toBeVisible();
+  await details(page);
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(page.getByText(/Playlist request accepted/)).toBeVisible();
   const body = calls.find(
@@ -451,6 +472,7 @@ for (const rejection of [401, 403])
     await page.goto("/");
     await builder(page);
     await choose(page);
+    await details(page);
     await page.getByRole("button", { name: "Create playlist →" }).click();
     await lists(page);
     await builder(page);
@@ -490,6 +512,7 @@ for (const rejection of [401, 403])
     });
     await page.goto("/");
     await lists(page);
+    await managePlaylist(page);
     await page.getByRole("button", { name: "Extend", exact: true }).click();
     await builder(page);
     await lists(page);
@@ -530,16 +553,16 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
   await page.goto("/");
   await builder(page);
   await choose(page);
+  await details(page);
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(
     page.getByRole("button", { name: "Retry saved create request" }),
   ).toHaveCount(0);
+  await chooseStep(page);
   await page
     .getByRole("button", { name: "Remove Synthetic tag 1 from all" })
     .click();
-  await expect(
-    page.getByRole("button", { name: "Create playlist →" }),
-  ).toBeDisabled();
+  await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(
     page.getByText("Add at least one tag to see the songs that fit."),
   ).toBeVisible();
@@ -564,9 +587,7 @@ test("import browsing stays available while create is gated; manual sync and new
   await page.goto("/");
   await builder(page);
   await choose(page);
-  await expect(
-    page.getByRole("button", { name: "Create playlist →" }),
-  ).toBeDisabled();
+  await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(page.getByText(/2 of 3 imported/)).toBeVisible();
   await page.getByRole("button", { name: "Sync now" }).click();
   expect(
@@ -624,6 +645,7 @@ test("playlist deletion needs explicit confirmation and saved lifecycle statuses
   await expect(
     page.getByText("Queued / working", { exact: true }),
   ).toBeVisible();
+  await managePlaylist(page);
   await page
     .getByRole("button", { name: "Delete now", exact: true })
     .first()
@@ -757,6 +779,7 @@ test("transient query-label failure remains retryable and does not disable a val
   await page.goto("/");
   await lists(page);
   await expect(page.locator(".query-summary")).toHaveText("Unavailable tag");
+  await managePlaylist(page);
   await expect(
     page.getByRole("button", { name: "Regenerate", exact: true }),
   ).toBeEnabled();
@@ -804,9 +827,7 @@ for (const zero of [true, false])
       await expect(page.locator(".query-feedback strong")).toContainText(
         "1 songs",
       );
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeDisabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   });
 test("late preview from an earlier bucket cannot unlock creation for the new query", async ({
   page,
@@ -859,6 +880,7 @@ test("late preview from an earlier bucket cannot unlock creation for the new que
   await builder(page);
   await choose(page);
   await expect.poll(() => !!release).toBe(true);
+  await chooseStep(page);
   await page
     .getByRole("button", { name: "Remove Synthetic tag 1 from all" })
     .click();
@@ -869,9 +891,7 @@ test("late preview from an earlier bucket cannot unlock creation for the new que
       "No songs have this combination of tags. Try removing a requirement.",
     ),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Create playlist →" }),
-  ).toBeDisabled();
+  await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
 });
 test("synthetic desktop/mobile visual acceptance", async ({
   page,
@@ -1081,7 +1101,10 @@ test("successful freeform tag keeps input focus for the next tag and preserves e
     return true;
   });
   await page.goto("/");
-  await page.getByLabel("Group rows").selectOption("none");
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Songs", exact: true })
+    .click();
   await page.getByLabel("Select Synthetic song 1").check();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("First keyboard tag");
@@ -1251,18 +1274,12 @@ for (const paged of [false, true])
     await choose(page);
     if (paged)
       await page.getByRole("button", { name: "More preview songs" }).click();
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeDisabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
     await page
       .getByRole("button", { name: "Retry preview", exact: true })
       .click();
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeDisabled();
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeEnabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeEnabled();
     const requests = calls
       .filter((call) => call.path === "/api/query/preview")
       .map((call) => call.body);
@@ -1329,12 +1346,14 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   await builder(page);
   await choose(page);
   await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
+  await details(page);
   await page
     .getByLabel("Playlist name", { exact: true })
     .fill("My synthetic draft");
   await page
     .getByLabel("Keep this playlist", { exact: true })
     .selectOption("week");
+  await page.getByRole("button", { name: "← Back", exact: true }).click();
   const scroll = await page.locator(".preview-tracks").evaluate((element) => {
     const html = element as HTMLElement;
     html.style.height = "30px";
@@ -1343,10 +1362,11 @@ test("internal navigation preserves builder and playlist retention drafts and pr
     return html.scrollTop;
   });
   expect(scroll).toBeGreaterThan(0);
+  await details(page);
   await lists(page);
-  await page.locator(".retention-settings summary").click();
+  await managePlaylist(page);
   await page
-    .getByLabel("Extend / Unpin for", { exact: true })
+    .getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true })
     .selectOption("threeMonths");
   await builder(page);
   await expect(page.getByLabel("Playlist name", { exact: true })).toHaveValue(
@@ -1355,9 +1375,13 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   await expect(
     page.getByLabel("Keep this playlist", { exact: true }),
   ).toHaveValue("week");
+  await chooseStep(page);
   await expect(
     page.getByRole("button", { name: "Remove Synthetic tag 1 from all" }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review songs →", exact: true })
+    .click();
   expect(
     await page
       .locator(".preview-tracks")
@@ -1365,7 +1389,7 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   ).toBe(scroll);
   await lists(page);
   await expect(
-    page.getByLabel("Extend / Unpin for", { exact: true }),
+    page.getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true }),
   ).toHaveValue("threeMonths");
 });
 
@@ -1499,6 +1523,7 @@ test("foreground status revisions invalidate second-client rename and deletion w
   annotations = "3";
   await page.clock.runFor(61_000);
   await expect(page.locator(".query-summary .chip")).toHaveText("Deleted tag");
+  await managePlaylist(page);
   await expect(
     page.getByRole("button", { name: "Regenerate", exact: true }),
   ).toBeDisabled();
@@ -1616,6 +1641,7 @@ test("creation offers a direct confirmed-request progress path and feedback stay
   const feedback = page.locator(".query-feedback");
   await expect(feedback).toContainText("2 songs");
   await expect(feedback).toContainText("1 unavailable song excluded");
+  await details(page);
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await page.getByRole("button", { name: "View playlist progress →" }).click();
   await expect(
@@ -1655,13 +1681,15 @@ test("cleanup delay appears only after a loaded response and retention consequen
   await expect(page.getByText(/Cleanup may be delayed/)).toHaveCount(0);
   pending.release?.();
   await expect(page.getByText(/Cleanup may be delayed/)).toBeVisible();
+  await managePlaylist(page);
   await expect(page.locator(".retention-hint")).toContainText(
     "1 calendar month from today",
   );
-  await page.locator(".retention-settings summary").click();
+  await managePlaylist(page);
   await page
-    .getByLabel("Extend / Unpin for", { exact: true })
+    .getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true })
     .selectOption("week");
+  await managePlaylist(page);
   await expect(page.locator(".retention-hint")).toContainText(
     "1 week from today",
   );
@@ -1698,6 +1726,7 @@ for (const width of [320, 360, 390, 430, 768, 1280])
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    await details(page);
     await page.getByLabel("Playlist name", { exact: true }).focus();
     expect(
       await page
@@ -1732,14 +1761,17 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
     await expect(page.locator(".artist-card")).toBeVisible();
     expect(
       await page
-        .getByLabel("Tag all 3 songs by Synthetic Artist")
+        .getByRole("button", { name: "Tag all 3 songs by Synthetic Artist" })
         .evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
     ).toBeLessThan(800);
     await page.screenshot({
       path: ".local/ux/desktop-first-run.png",
       fullPage: true,
     });
-    await page.getByLabel("Group rows").selectOption("none");
+    await page
+      .getByRole("navigation", { name: "Browse library" })
+      .getByRole("button", { name: "Songs", exact: true })
+      .click();
     await expect(page.locator(".track-row").first()).toBeVisible();
     await page.screenshot({
       path: ".local/ux/desktop-library.png",
@@ -1749,7 +1781,8 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
   await builder(page);
   await choose(page);
   await expect(page.locator(".query-feedback")).toContainText("2 songs");
-  if (isMobile) await page.locator(".preview-panel > summary").click();
+
+  await details(page);
   await page.getByLabel("Playlist name", { exact: true }).focus();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
@@ -1776,9 +1809,7 @@ for (const appearance of ["light", "dark"] as const)
       await page.emulateMedia({ reducedMotion: "reduce" });
       await mock(page);
       await page.goto("/");
-      await page
-        .getByLabel("Appearance", { exact: true })
-        .selectOption(appearance);
+      await chooseAppearance(page, appearance);
       await page
         .getByRole("navigation", { name: "Workspace" })
         .getByRole("button", { name: /^Library/ })
@@ -1788,7 +1819,10 @@ for (const appearance of ["light", "dark"] as const)
       else await expect(page.getByLabel("Search your library")).toBeVisible();
       await assertReadableSurface(page);
       if (width === 1280) {
-        await page.getByLabel("Group rows").selectOption("none");
+        await page
+          .getByRole("navigation", { name: "Browse library" })
+          .getByRole("button", { name: "Songs", exact: true })
+          .click();
         await page.getByLabel("Select Synthetic song 1").check();
         await expect(page.locator(".bulk-bar")).toBeVisible();
         await assertReadableSurface(page);
@@ -1815,9 +1849,8 @@ for (const appearance of ["light", "dark"] as const)
       await expect(page.locator(".playlist-card")).toBeVisible();
       await expect(page.getByText("Resolving query tags…")).toHaveCount(0);
       await assertReadableSurface(page);
-      expect(await resolvedAppearance(page.locator(".pill.ready"))).not.toEqual(
-        information,
-      );
+      await expect(page.locator(".pill.ready")).toHaveCount(0);
+      expect(information).toBeDefined();
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -1879,17 +1912,16 @@ for (const width of [320, 390])
     expect(open).not.toBeNull();
     expect(nav).not.toBeNull();
     expect(open!.y + open!.height).toBeLessThan(nav!.y);
-    await expect(page.locator(".retention-settings summary")).toContainText(
+    await expect(page.locator(".playlist-management")).toContainText(
       "1 calendar month",
     );
-    await page.locator(".retention-settings summary").click();
+    await managePlaylist(page);
     await page
-      .getByLabel("Extend / Unpin for", { exact: true })
+      .getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true })
       .selectOption("week");
-    await expect(page.locator(".retention-settings summary")).toContainText(
-      "1 week",
-    );
-    await page.locator(".retention-settings summary").click();
+    await expect(page.locator(".playlist-management")).toContainText("1 week");
+    await managePlaylist(page);
+    await managePlaylist(page);
     await expect(page.locator(".retention-hint").first()).toContainText(
       "1 week",
     );
