@@ -266,6 +266,7 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
   update app.sync_runs set reported_total=r.reported_total,received_count=received_count+p_received,skipped_count=skipped_count+coalesce((p_head->>'skipped')::integer,0),invalid_pass=r.invalid_pass,
    next_offset=coalesce(p_next_offset,p_offset+p_received),first_head=case when p_offset=0 then p_head else first_head end
    where id=r.id returning * into r;
+  update app.sources set imported_count=r.received_count,track_count=r.reported_total,skipped_count=r.skipped_count where epoch=p_epoch and id='liked';
   if changed then update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch; end if;
   perform app.refresh_source_pool(p_epoch);
   if p_next_offset is not null then return jsonb_build_object('done',false,'retryMs',0); end if;
@@ -422,7 +423,11 @@ create function app.purge_product_data() returns void language plpgsql set searc
 $$;
 alter function app.library_status() rename to liked_library_status;
 create function app.library_status() returns jsonb language sql stable set search_path='' as $$
- select app.liked_library_status()||jsonb_build_object('sourcesRevision',(select sources_revision::text from app.library_state where singleton),'activeCount',(select count(*) from app.filter_keys('{"membership":"active","search":"","untagged":false,"newOnly":false}'::jsonb)),
+ select app.liked_library_status()||jsonb_build_object('sourcesRevision',(select sources_revision::text from app.library_state where singleton),
+ 'syncPhase',case when exists(select 1 from app.sources where enabled and last_synced_at is null) then 'importing'
+  when exists(select 1 from app.sources where id='liked' and enabled) then app.liked_library_status()->>'syncPhase' else 'idle' end,
+ 'importedCount',(select coalesce(sum(imported_count),0) from app.sources where enabled),
+ 'reportedTotal',(select coalesce(sum(track_count),0) from app.sources where enabled),'activeCount',(select count(*) from app.filter_keys('{"membership":"active","search":"","untagged":false,"newOnly":false}'::jsonb)),
  'newCount',(select count(*) from app.filter_keys('{"membership":"active","search":"","untagged":false,"newOnly":true}'::jsonb)),
  'untaggedCount',(select count(*) from app.filter_keys('{"membership":"active","search":"","untagged":true,"newOnly":false}'::jsonb)));
 $$;
