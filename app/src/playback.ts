@@ -93,7 +93,8 @@ export class QueuePlayer {
   private missingSince: number | undefined;
   private accepted = false;
   private operation = 0;
-  private pollingBusy = false;
+  private notificationRevision = 0;
+  private pollingBusy: { operation: number; revision: number } | undefined;
   constructor(
     private readonly trackKey: string,
     private readonly transport: Transport,
@@ -206,7 +207,7 @@ export class QueuePlayer {
     }
     if (!["starting", "snippet", "more"].includes(this.status)) {
       // Late unsolicited playback after a manual/automatic pause is never resumed.
-      void this.player?.pause().catch(() => {});
+      void this.pause();
       return;
     }
     clearTimeout(this.deadline);
@@ -218,23 +219,60 @@ export class QueuePlayer {
       }, this.remaining);
     }
   }
+  private async readCurrentState(operation: number) {
+    const revision = this.notificationRevision;
+    try {
+      const state = await this.player?.getCurrentState();
+      if (
+        !this.dead &&
+        operation === this.operation &&
+        revision === this.notificationRevision
+      )
+        this.state(state ?? null);
+    } catch (error) {
+      if (
+        !this.dead &&
+        operation === this.operation &&
+        revision === this.notificationRevision
+      )
+        throw error;
+    }
+  }
   private watch() {
     if (this.polling) return;
     this.polling = setInterval(() => {
-      if (this.dead || this.pollingBusy) return;
-      this.pollingBusy = true;
-      const timeout = setTimeout(
-        () => this.fail("The player disconnected. Try again."),
-        2000,
-      );
+      if (this.dead) return;
+      const ticket = {
+        operation: this.operation,
+        revision: this.notificationRevision,
+      };
+      if (
+        this.pollingBusy?.operation === ticket.operation &&
+        this.pollingBusy.revision === ticket.revision
+      )
+        return;
+      this.pollingBusy = ticket;
+      const current = () =>
+        !this.dead &&
+        this.accepted &&
+        this.status !== "error" &&
+        ticket.operation === this.operation &&
+        ticket.revision === this.notificationRevision;
+      const timeout = setTimeout(() => {
+        if (current()) this.fail("The player disconnected. Try again.");
+      }, 2000);
       const player = this.player;
       void Promise.resolve()
         .then(() => player?.getCurrentState())
-        .then((state) => this.state(state ?? null))
-        .catch(() => this.fail("The player disconnected. Try again."))
+        .then((state) => {
+          if (current()) this.state(state ?? null);
+        })
+        .catch(() => {
+          if (current()) this.fail("The player disconnected. Try again.");
+        })
         .finally(() => {
           clearTimeout(timeout);
-          this.pollingBusy = false;
+          if (this.pollingBusy === ticket) this.pollingBusy = undefined;
         });
     }, 500);
   }
@@ -324,7 +362,10 @@ export class QueuePlayer {
         });
         player.addListener(
           "player_state_changed",
-          (state: PlaybackState | null) => this.state(state),
+          (state: PlaybackState | null) => {
+            this.notificationRevision++;
+            this.state(state);
+          },
         );
         for (const event of [
           "initialization_error",
@@ -388,7 +429,7 @@ export class QueuePlayer {
       }
       if (this.dead || operation !== this.operation) return;
       this.watch();
-      this.state(await this.player.getCurrentState());
+      await this.readCurrentState(operation);
     } catch (e) {
       if (!this.dead && operation === this.operation) this.failure(e);
     }
@@ -407,7 +448,7 @@ export class QueuePlayer {
     try {
       await this.player.pause();
       if (this.dead || operation !== this.operation) return;
-      this.state(await this.player.getCurrentState());
+      await this.readCurrentState(operation);
     } catch {
       if (!this.dead && operation === this.operation)
         this.fail("Pause could not be confirmed. The player was disconnected.");

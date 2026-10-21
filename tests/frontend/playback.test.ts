@@ -178,6 +178,8 @@ describe("queue listening", () => {
     player.state();
     await controller.pause();
     player.state();
+    expect(views.at(-1)?.status).toBe("pausing");
+    await vi.advanceTimersByTimeAsync(0);
     expect(views.at(-1)?.status).toBe("paused");
     expect(player.pause).toHaveBeenCalledTimes(2);
     await controller.play();
@@ -254,4 +256,123 @@ it("an unresolved SDK state read during Play more disconnects within its deadlin
   await vi.advanceTimersByTimeAsync(3000);
   expect(views.at(-1)?.status).toBe("error");
   expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+
+it("a paused poll resolving after Play more cannot undo the newer resume", async () => {
+  await prepare();
+  await controller.play();
+  player.state();
+  await controller.pause();
+  const paused = structuredClone(player.current!);
+  let resolve!: (state: PlaybackState) => void;
+  player.getCurrentState.mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  await vi.advanceTimersByTimeAsync(500);
+  await controller.play();
+  expect(views.at(-1)?.status).toBe("more");
+  resolve(paused);
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(views.at(-1)?.status).toBe("more");
+  expect(player.pause).toHaveBeenCalledTimes(1);
+  expect(player.disconnect).not.toHaveBeenCalled();
+});
+it.each(["paused", "rejected", "pending"] as const)(
+  "a poll invalidated by a newer SDK notification ignores its %s outcome",
+  async (outcome) => {
+    await prepare();
+    await controller.play();
+    player.state();
+    await controller.pause();
+    await controller.play();
+    let resolve!: (state: PlaybackState) => void;
+    let reject!: (error: Error) => void;
+    player.getCurrentState.mockImplementationOnce(
+      () =>
+        new Promise((yes, no) => {
+          resolve = yes;
+          reject = no;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    player.state(); // A notification supersedes the snapshot that the poll requested.
+    if (outcome === "paused") resolve({ ...player.current!, paused: true });
+    if (outcome === "rejected") reject(new Error("synthetic stale read"));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(views.at(-1)?.status).toBe("more");
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    expect(player.disconnect).not.toHaveBeenCalled();
+    // A pending obsolete read must not keep the replacement polling slot busy.
+    expect(player.getCurrentState.mock.calls.length).toBeGreaterThan(5);
+  },
+);
+it("rejected suppression of unsolicited playing disconnects instead of claiming paused", async () => {
+  await prepare();
+  await controller.play();
+  player.state();
+  await controller.pause();
+  player.pause.mockRejectedValue(new Error("synthetic pause failure"));
+  player.state();
+  expect(views.at(-1)?.status).toBe("pausing");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+it("repeated unsolicited playing cannot extend a permanently pending pause deadline", async () => {
+  await prepare();
+  await controller.play();
+  player.state();
+  await controller.pause();
+  player.pause.mockImplementation(() => new Promise(() => {}));
+  player.state();
+  expect(views.at(-1)?.status).toBe("pausing");
+  await vi.advanceTimersByTimeAsync(1000);
+  player.state();
+  await vi.advanceTimersByTimeAsync(999);
+  player.state();
+  expect(player.pause).toHaveBeenCalledTimes(2);
+  expect(player.disconnect).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+
+it("an obsolete poll cleanup cannot release a newer in-flight polling ticket", async () => {
+  await prepare();
+  await controller.play();
+  player.state();
+  await controller.pause();
+  await controller.play();
+  const initialReads = player.getCurrentState.mock.calls.length;
+  let oldResolve!: (state: PlaybackState) => void;
+  let currentResolve!: (state: PlaybackState) => void;
+  player.getCurrentState
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          oldResolve = resolve;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          currentResolve = resolve;
+        }),
+    );
+  await vi.advanceTimersByTimeAsync(500);
+  player.state();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(player.getCurrentState).toHaveBeenCalledTimes(initialReads + 2);
+  oldResolve({ ...player.current!, paused: true });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(player.getCurrentState).toHaveBeenCalledTimes(initialReads + 2);
+  expect(views.at(-1)?.status).toBe("more");
+  currentResolve(player.current!);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(player.getCurrentState).toHaveBeenCalledTimes(initialReads + 3);
+  expect(player.pause).toHaveBeenCalledTimes(1);
+  expect(player.disconnect).not.toHaveBeenCalled();
 });
