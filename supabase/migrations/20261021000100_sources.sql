@@ -139,6 +139,14 @@ create function public.app_sources_selection(p_epoch bigint,p_ids jsonb,p_enable
   update app.sources set enabled=p_enabled where epoch=p_epoch and id in(select jsonb_array_elements_text(p_ids)) and enabled is distinct from p_enabled;
   get diagnostics changed=row_count;
   if changed>0 then
+   -- Retention may purge metadata while preserving opaque annotations and source
+   -- membership. Re-enabling that source must rehydrate before generation, even
+   -- when Spotify still reports the previously verified snapshot.
+   if p_enabled then
+    update app.sources s set last_synced_at=null where s.epoch=p_epoch and s.id in(select jsonb_array_elements_text(p_ids))
+     and exists(select 1 from app.source_memberships sm where sm.epoch=s.epoch and sm.source_id=s.id
+      and not exists(select 1 from app.track_metadata m where m.track_key=sm.track_key));
+   end if;
    update app.library_state set library_revision=library_revision+1,sources_revision=sources_revision+1 where singleton and epoch=p_epoch;
    perform app.refresh_source_pool(p_epoch);
    if p_enabled then

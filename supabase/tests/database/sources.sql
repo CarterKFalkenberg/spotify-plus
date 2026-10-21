@@ -105,6 +105,25 @@ update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0
 select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'older-only-snapshot',pg_temp.source_row('5'),0,0);
 select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','older-only-snapshot');
 select pg_temp.assert((select added_at='2026-02-02' from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('5',64)),'subsequent verified walk can move date backward after latest occurrence removal');
+-- A disabled source may retain only opaque identities after the metadata
+-- retention window. Re-enable must gate and rehydrate despite an unchanged
+-- provider snapshot, while retaining user tags and saved source preferences.
+insert into app.track_tags(track_key,tag_id,present) values(repeat('5',64),'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+select public.app_sources_selection(1,jsonb_build_array(repeat('p',22)),false);
+update app.track_metadata set removed_at=now()-interval '91 days' where track_key=repeat('5',64);
+select app.library_maintenance();
+select pg_temp.assert(not exists(select 1 from app.track_metadata where track_key=repeat('5',64)) and exists(select 1 from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('5',64)),'retention purges provider metadata but keeps confirmed opaque membership');
+select public.app_sources_selection(1,jsonb_build_array(repeat('p',22)),true);
+select pg_temp.assert((select last_synced_at is null and enabled and snapshot_id='older-only-snapshot' from app.sources where id=repeat('p',22)),'re-enable invalidates completeness only while retaining verified remote marker');
+select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'generation gates until retained membership metadata rehydrates');
+insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('12121212-1212-4212-8212-121212121212',1,'source_sync','running','13131313-1313-4313-8313-131313131313',now()+interval '1 hour');
+insert into app.source_scans(job_id,epoch,source_id) values('12121212-1212-4212-8212-121212121212',1,repeat('p',22));
+select pg_temp.assert(public.app_source_job_state(1,'12121212-1212-4212-8212-121212121212','13131313-1313-4313-8313-131313131313','synthetic-key')->'previousSnapshotId'='null'::jsonb,'missing metadata suppresses unchanged snapshot skip');
+select public.app_source_page_commit(1,'12121212-1212-4212-8212-121212121212','13131313-1313-4313-8313-131313131313',0,1,1,null,'older-only-snapshot',pg_temp.source_row('5'),0,0);
+select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'page write alone cannot certify rehydrated source');
+select public.app_source_finish(1,'12121212-1212-4212-8212-121212121212','13131313-1313-4313-8313-131313131313','older-only-snapshot');
+select pg_temp.assert((public.app_library_status(1)->>'initialSyncComplete')::boolean and (select removed_at is null from app.track_metadata where track_key=repeat('5',64)),'unchanged provider snapshot full walk restores complete active pool');
+select pg_temp.assert((select present from app.track_tags where track_key=repeat('5',64)),'rehydration restores original tag assignments');
 -- Discovery records followed playlists rather than silently filtering them.
 insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('44444444-4444-4444-8444-444444444444',1,'source_discovery','running','55555555-5555-4555-8555-555555555555',now()+interval '1 hour');
 insert into app.source_scans(job_id,epoch) values('44444444-4444-4444-8444-444444444444',1);
