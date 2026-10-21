@@ -1,3 +1,5 @@
+import { ApiError } from "./api";
+
 // Provider payloads stay inside this module. Only fixed statuses reach React.
 export interface PlaybackState {
   paused: boolean;
@@ -504,6 +506,7 @@ export class QueuePlayer {
       // Called synchronously from the explicit click, before the first await.
       const activation = activated ?? this.player.activateElement();
       this.emit("starting");
+      const startupUntil = this.now() + 12000;
       this.deadline = setTimeout(
         () => this.fail("Playback did not start. Try again or open Spotify."),
         12000,
@@ -514,11 +517,50 @@ export class QueuePlayer {
         this.continuous = true;
         await this.player.resume();
       } else {
-        const result = await this.transport.start(
-          this.trackKey,
-          this.device!,
-          this.abort.signal,
-        );
+        const device = this.device!;
+        let result;
+        try {
+          result = await this.transport.start(
+            this.trackKey,
+            device,
+            this.abort.signal,
+          );
+        } catch (error) {
+          // Only a definitive, classified 404 can be retried. A lost response
+          // or any other refusal never proves that a playback write was rejected.
+          if (
+            !(error instanceof ApiError) ||
+            error.status !== 404 ||
+            error.code !== "playback_target_unavailable"
+          )
+            throw error;
+          const current = () =>
+            !this.dead &&
+            !this.abort.signal.aborted &&
+            operation === this.operation &&
+            this.device === device &&
+            this.status === "starting" &&
+            this.now() < startupUntil;
+          if (!current()) return;
+          const retry = await new Promise<boolean>((resolve) => {
+            const signal = this.abort.signal;
+            const finish = (ready: boolean) => {
+              clearTimeout(timer);
+              signal.removeEventListener("abort", cancel);
+              resolve(ready);
+            };
+            const cancel = () => finish(false);
+            const timer = setTimeout(() => finish(current()), 1000);
+            signal.addEventListener("abort", cancel, { once: true });
+            if (signal.aborted) cancel();
+          });
+          if (!retry || !current()) return;
+          result = await this.transport.start(
+            this.trackKey,
+            device,
+            this.abort.signal,
+          );
+        }
         if (this.dead || operation !== this.operation) return;
         this.uri = result.uri;
         this.accepted = true;

@@ -2398,3 +2398,51 @@ test("SDK initialization and connection failure cannot hide required playback co
   ).toHaveValue("sad");
   expect(starts).toBe(0);
 });
+
+test("a definitive unavailable-target response retries once on the same browser player while tagging stays usable", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Definitive playback recovery");
+  await syntheticPlayer(page);
+  const starts: unknown[] = [];
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        await route.fulfill({ json: { accessToken: "synthetic-access" } });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        starts.push(route.request().postDataJSON());
+        if (starts.length === 1)
+          await route.fulfill({
+            status: 404,
+            json: { error: "playback_target_unavailable" },
+          });
+        else {
+          await page.evaluate(() => {
+            (window as any).__syntheticPlayer.state.paused = false;
+          });
+          await route.fulfill({
+            json: {
+              uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+              positionMs: 60333,
+              durationMs: 181000,
+            },
+          });
+        }
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await page.getByLabel("Tag current song", { exact: true }).fill("sad");
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  await expect(
+    page.getByLabel("Tag current song", { exact: true }),
+  ).toHaveValue("sad");
+  expect(starts).toHaveLength(2);
+  expect(starts[1]).toEqual(starts[0]);
+});

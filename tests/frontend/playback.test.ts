@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../app/src/api";
 import {
   QueuePlayer,
   type ListenView,
@@ -724,3 +725,144 @@ it.each([
     expect(player.resume).not.toHaveBeenCalled();
   },
 );
+
+it("a classified API 404 retries once after one second on the same owned song/device", async () => {
+  await prepare();
+  start.mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404));
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(999);
+  expect(start).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  await pending;
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(start.mock.calls[1]).toEqual(start.mock.calls[0]);
+  player.state();
+  expect(views.at(-1)?.status).toBe("snippet");
+});
+it.each([
+  new ApiError("playback_target_unavailable", 404),
+  new ApiError("playback_unconfirmed", 503),
+])(
+  "a second rejected or ambiguous response ends the single 404 recovery attempt %#",
+  async (second) => {
+    await prepare();
+    start
+      .mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404))
+      .mockRejectedValueOnce(second);
+    const pending = controller.play();
+    await vi.advanceTimersByTimeAsync(1000);
+    await pending;
+    expect(views.at(-1)?.status).toBe("error");
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+  },
+);
+it.each([
+  new ApiError("playback_service_error", 503),
+  new ApiError("playback_unconfirmed", 503),
+  new ApiError("playback_required", 503),
+  new ApiError("reconnect", 503),
+  new ApiError("playback_cooldown", 503),
+  new ApiError("playback_control_unavailable", 503),
+  new ApiError("playback_target_unavailable", 503),
+  new ApiError("unavailable", 404),
+  { code: "playback_target_unavailable", status: 404 },
+  new Error("synthetic unknown network failure"),
+])(
+  "only matching API status/code permit recovery; conflicting or unknown failure %# never replays",
+  async (error) => {
+    await prepare();
+    start.mockRejectedValue(error);
+    await controller.play();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(views.at(-1)?.status).toBe("error");
+  },
+);
+it("teardown during target backoff cancels the timer and ignores all late SDK callbacks", async () => {
+  await prepare();
+  start.mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404));
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(500);
+  controller.destroy();
+  const count = views.length;
+  await pending;
+  player.state();
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(start).toHaveBeenCalledTimes(1);
+  expect(views).toHaveLength(count);
+  expect(player.resume).not.toHaveBeenCalled();
+});
+it("the original startup deadline cancels backoff before a second request", async () => {
+  await prepare();
+  let reject!: (error: ApiError) => void;
+  start.mockImplementationOnce(
+    () =>
+      new Promise((_, no) => {
+        reject = no;
+      }),
+  );
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(11500);
+  reject(new ApiError("playback_target_unavailable", 404));
+  await vi.advanceTimersByTimeAsync(1000);
+  await pending;
+  expect(start).toHaveBeenCalledTimes(1);
+  expect(views.at(-1)?.message).toBe(
+    "Playback did not start. Try again or open Spotify.",
+  );
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+it("a replacement SDK device notification during backoff cannot redirect the retry", async () => {
+  await prepare();
+  start.mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404));
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(500);
+  player.listeners.get("ready")?.({
+    device_id: "synthetic-replacement-device-12345",
+  });
+  await vi.advanceTimersByTimeAsync(500);
+  await pending;
+  expect(start).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(11000);
+  expect(views.at(-1)?.status).toBe("error");
+});
+it("a late successful recovery response cannot update a destroyed queue player", async () => {
+  await prepare();
+  let resolve!: (value: {
+    uri: string;
+    positionMs: number;
+    durationMs: number;
+  }) => void;
+  start
+    .mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404))
+    .mockImplementationOnce(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(start).toHaveBeenCalledTimes(2);
+  controller.destroy();
+  const count = views.length;
+  resolve({ uri, positionMs: 60000, durationMs: 180000 });
+  await pending;
+  player.state();
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(views).toHaveLength(count);
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(player.resume).not.toHaveBeenCalled();
+});
+it("a changed command during backoff prevents a second start without needing an abort", async () => {
+  await prepare();
+  start.mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404));
+  const pending = controller.play();
+  await vi.advanceTimersByTimeAsync(500);
+  await controller.pause();
+  await vi.advanceTimersByTimeAsync(500);
+  await pending;
+  expect(start).toHaveBeenCalledTimes(1);
+});
