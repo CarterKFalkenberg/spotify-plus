@@ -1,4 +1,5 @@
 -- Source membership is independent of retained annotations and output snapshots.
+alter table app.sync_runs add column skipped_count integer not null default 0;
 alter table app.library_state add column sources_discovered_at timestamptz, add column sources_revision bigint not null default 0;
 create table app.sources (
  epoch bigint not null,
@@ -46,6 +47,12 @@ create table app.source_discovery_pages (
  page_offset integer not null,
  signature jsonb not null,
  primary key(job_id,pass,page_offset)
+);
+create table app.source_discovery_ids (
+ job_id uuid not null references app.source_scans(job_id) on delete cascade,
+ pass integer not null,
+ source_id text not null,
+ primary key(job_id,pass,source_id)
 );
 create table app.source_seen (
  job_id uuid not null references app.source_scans(job_id) on delete cascade,
@@ -175,10 +182,13 @@ create function public.app_source_discovery_commit(p_epoch bigint,p_id uuid,p_le
   if not found then return null; end if;
   select * into r from app.source_scans where job_id=p_id for update;
   if not found or r.next_offset<>p_offset then return null; end if;
-  if p_total is null or p_total<0 or p_received is null or p_received not between 0 and 50 or jsonb_typeof(p_sources) is distinct from 'array' or jsonb_array_length(p_sources)>p_received
+  if p_total is null or p_total<0 or p_received is null or p_received not between 0 and 50 or jsonb_typeof(p_sources) is distinct from 'array' or jsonb_array_length(p_sources)<>p_received
    or (p_next_offset is not null and (p_next_offset<>p_offset+p_received or p_received=0)) then raise exception 'invalid_input'; end if;
   for row in select value from jsonb_array_elements(p_sources) loop
    if row->>'id' is null or row->>'id' !~ '^[A-Za-z0-9]{22}$' then raise exception 'invalid_input'; end if;
+   insert into app.source_discovery_ids values(p_id,r.pass,row->>'id') on conflict do nothing;
+   if not found then r.invalid:=true; end if;
+   if coalesce((row->>'eligible')::boolean,true)=false then continue; end if;
    is_managed:=exists(select 1 from app.playlists where epoch=p_epoch and spotify_id=row->>'id');
    insert into app.sources(epoch,id,kind,name,artwork_url,spotify_url,enabled,managed,track_count)
     values(p_epoch,row->>'id','playlist',row->>'name',row->>'artworkUrl','https://open.spotify.com/playlist/'||(row->>'id'),not is_managed,is_managed,(row->>'total')::integer)
@@ -187,7 +197,7 @@ create function public.app_source_discovery_commit(p_epoch bigint,p_id uuid,p_le
   end loop;
   insert into app.source_discovery_pages values(p_id,r.pass,p_offset,jsonb_build_object('total',p_total,'received',p_received,'sources',p_sources));
   update app.source_scans set next_offset=coalesce(p_next_offset,p_offset+p_received),total=p_total,received=received+p_received,
-   invalid=invalid or (total is not null and total<>p_total) where job_id=p_id returning * into r;
+   invalid=r.invalid or (total is not null and total<>p_total) where job_id=p_id returning * into r;
   if changed then update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch; end if;
   perform app.refresh_source_pool(p_epoch);
   if p_next_offset is not null then return jsonb_build_object('done',false); end if;
@@ -205,6 +215,7 @@ create function public.app_source_discovery_commit(p_epoch bigint,p_id uuid,p_le
   end if;
   update app.source_scans set next_offset=0,total=null,received=0,invalid=false,pass=pass+1 where job_id=p_id;
   delete from app.source_discovery_pages where job_id=p_id and (pass<r.pass or not valid);
+  delete from app.source_discovery_ids where job_id=p_id and (pass<r.pass or not valid);
   return jsonb_build_object('done',false,'retryMs',case when not valid or r.pass%4=0 then 60000 else 0 end);
  end;
 $$;
@@ -222,7 +233,7 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
   select * into r from app.sync_runs where job_id=p_id and epoch=p_epoch for update;
   if not found or r.completed_at is not null or r.pass<>p_pass or r.next_offset<>p_offset then return null; end if;
   if p_total is null or p_total<0 or p_received is null or p_received not between 0 and 50 or p_unresolved is null or p_unresolved<0
-   or jsonb_typeof(p_rows) is distinct from 'array' or jsonb_array_length(p_rows)+p_unresolved<>p_received
+   or jsonb_typeof(p_rows) is distinct from 'array' or jsonb_array_length(p_rows)+p_unresolved+coalesce((p_head->>'skipped')::integer,0)<>p_received
    or (p_next_offset is not null and (p_next_offset<>p_offset+p_received or p_received=0)) then raise exception 'invalid_input'; end if;
   r.invalid_pass:=r.invalid_pass or p_unresolved>0 or (r.reported_total is not null and r.reported_total<>p_total);
   -- Progress follows the latest page total; invalid_pass remembers any earlier change.
@@ -252,14 +263,14 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
    insert into app.source_memberships(epoch,source_id,track_key,added_at) values(p_epoch,'liked',key,liked)
     on conflict(epoch,source_id,track_key) do update set added_at=excluded.added_at;
   end loop;
-  update app.sync_runs set reported_total=r.reported_total,received_count=received_count+p_received,invalid_pass=r.invalid_pass,
+  update app.sync_runs set reported_total=r.reported_total,received_count=received_count+p_received,skipped_count=skipped_count+coalesce((p_head->>'skipped')::integer,0),invalid_pass=r.invalid_pass,
    next_offset=coalesce(p_next_offset,p_offset+p_received),first_head=case when p_offset=0 then p_head else first_head end
    where id=r.id returning * into r;
   if changed then update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch; end if;
   perform app.refresh_source_pool(p_epoch);
   if p_next_offset is not null then return jsonb_build_object('done',false,'retryMs',0); end if;
   select count(*) into observed from app.sync_seen where run_id=r.id and pass=r.pass;
-  valid:=not r.invalid_pass and r.received_count=r.reported_total and observed=r.reported_total;
+  valid:=not r.invalid_pass and r.received_count=r.reported_total and observed+r.skipped_count=r.reported_total;
   same:=valid and r.prior_valid_pass=r.pass-1 and not exists(
    (select track_key,liked_at from app.sync_seen where run_id=r.id and pass=r.pass
     except select track_key,liked_at from app.sync_seen where run_id=r.id and pass=r.prior_valid_pass)
@@ -270,7 +281,7 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
   if same then
    delete from app.source_memberships sm where sm.epoch=p_epoch and sm.source_id='liked'
     and not exists(select 1 from app.sync_seen where run_id=r.id and pass=r.pass and track_key=sm.track_key);
-   update app.sources set last_synced_at=now(),track_count=r.reported_total,imported_count=r.reported_total,error_code=null where epoch=p_epoch and id='liked';
+   update app.sources set last_synced_at=now(),track_count=r.reported_total,imported_count=r.reported_total,skipped_count=r.skipped_count,error_code=null where epoch=p_epoch and id='liked';
    get diagnostics affected=row_count;
    update app.library_state set initial_sync_complete=true,last_completed_at=now(),completed_run_id=r.id,head_signature=r.first_head,
     library_revision=library_revision+case when affected>0 or not initial_sync_complete or completed_run_id is distinct from r.id then 1 else 0 end where singleton and epoch=p_epoch;
@@ -279,7 +290,7 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
    perform app.refresh_source_pool(p_epoch);
    return jsonb_build_object('done',true,'retryMs',0);
   end if;
-  update app.sync_runs set pass=pass+1,next_offset=0,reported_total=null,received_count=0,invalid_pass=false,
+  update app.sync_runs set pass=pass+1,next_offset=0,reported_total=null,received_count=0,skipped_count=0,invalid_pass=false,
    prior_valid_pass=case when valid then r.pass else null end,first_head=null where id=r.id;
   delete from app.sync_seen where run_id=r.id and (pass<r.pass or not valid);
   return jsonb_build_object('done',false,'retryMs',case when not valid or r.pass%4=0 then 60000 else 0 end);
@@ -421,7 +432,7 @@ create function app.track_dto(p_key text) returns jsonb language sql stable set 
  from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.track_key=p_key and s.enabled),'[]'::jsonb));
 $$;
 -- All state and credentials remain accessible only through fenced service RPCs.
-revoke all on app.sources,app.source_memberships,app.source_scans,app.source_seen,app.source_discovery_pages from public,anon,authenticated;
+revoke all on app.sources,app.source_memberships,app.source_scans,app.source_seen,app.source_discovery_pages,app.source_discovery_ids from public,anon,authenticated;
 do $$ declare f record; begin
  for f in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in
  ('app_sources_list','app_sources_selection','app_sources_sync','app_source_job_state','app_source_discovery_commit','app_source_page_commit','app_source_finish','app_library_job_state','app_liked_job_state','app_library_sync','app_liked_library_sync') loop

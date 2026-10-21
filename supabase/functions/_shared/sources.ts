@@ -141,22 +141,16 @@ export function createSourcesRunner(input: {
               p_total: page.total,
               p_received: page.items.length,
               p_next_offset: page.nextOffset,
-              p_sources: page.items.filter((p) =>
-                p.ownerId === checkpoint!.accountId || p.collaborative
-              ).map((p) => ({
+              p_sources: page.items.map((p) => ({
                 id: p.id,
                 name: p.name,
                 artworkUrl: p.artworkUrl ?? null,
                 total: p.total,
+                eligible: p.ownerId === checkpoint!.accountId ||
+                  p.collaborative,
               })),
             },
           );
-          if (!result || result.done || result.retryMs) return result;
-        } else {
-          const page = await client.getPlaylistItemsPage(checkpoint.sourceId, {
-            offset: checkpoint.offset,
-            limit: 50,
-          });
           const projected = await sourcePage(page, key);
           const result = await input.db.rpc<
             JobStep & { terminal?: boolean } | null

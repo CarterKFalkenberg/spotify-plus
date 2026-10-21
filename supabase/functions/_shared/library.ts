@@ -71,9 +71,14 @@ export async function libraryPage(
   key: string,
 ) {
   let unresolved = 0;
+  let skipped = 0;
   const rows: LibraryPageRow[] = [];
   for (const item of page.items) {
     const track = item.track;
+    if (track?.isLocal) {
+      skipped++;
+      continue;
+    }
     if (!track?.id) {
       // Without a stable identity, equal page counts cannot prove equal sets.
       unresolved++;
@@ -99,8 +104,9 @@ export async function libraryPage(
     total: page.total,
     members: rows.map(({ trackKey, likedAt }) => [trackKey, likedAt]),
     unresolved,
+    skipped,
   };
-  return { rows, unresolved, head };
+  return { rows, unresolved, skipped, head };
 }
 export function createLibraryRunner(input: {
   db: Database;

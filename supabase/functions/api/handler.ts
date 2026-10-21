@@ -333,6 +333,7 @@ export function createApi(
           bootstrap: false,
         });
         if (!session) return authFailure("authorization_cancelled");
+        if (sources) await db.rpc("app_sources_sync", { p_epoch: grant.epoch });
         return redirect(config.origin, [
           CLEAR_OAUTH,
           cookie(SESSION_COOKIE, session, 30 * 24 * 60 * 60),
