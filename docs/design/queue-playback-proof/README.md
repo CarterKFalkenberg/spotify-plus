@@ -2,7 +2,7 @@
 
 These screenshots use fictional songs, drawn fixture artwork, a synthetic library API and a simulated Spotify SDK. They prove the rendered flow and controlled state transitions; they do not establish real audio, browser DRM support, Spotify permissions, or human phone/tagging-speed acceptance. All unrecognized nonlocal requests were blocked.
 
-Before: `954b15ecfd877782c05af7f0f368ac34c2c248bf`. After: `bdcfc1e47f745c15d42ca2d4f72dc5c85249a5a5`; the reviewed proof commit preserves the identical app Git tree. The [manifest](manifest.json) records source identities, viewport sizes and screenshot SHA-256 digests.
+Before: `954b15ecfd877782c05af7f0f368ac34c2c248bf`. After: `2e7aa103769359b1b2b6a6478f4a359778f9b1e0`; the reviewed proof commit preserves the identical app Git tree. The [manifest](manifest.json) records source identities, viewport sizes and screenshot SHA-256 digests.
 
 The new control starts at one-third into the song. The flow below shows explicit Play, confirmed sampling with Pause, automatic pause after 20 seconds, and Play more continuing until paused. Source tests additionally cover lifecycle cancellation, delayed/ambiguous responses, missing permission, bounded pause confirmation and disconnect.
 
