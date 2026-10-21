@@ -8,7 +8,12 @@ Spotify reconnect state, because authenticated annotation editing remains availa
 OAuth failures park Spotify work while preserving annotation-only backup jobs;
 backup execution never reads Spotify credentials or contacts Spotify.
 Copies contain only live tag UUIDs/display names/normalized identity and present
-track-HMAC/tag edges. Removed-track HMAC assignments remain recoverable after
+track-HMAC/tag edges. Sources additionally retain optional opaque song-group links
+(`songGroups`, with a group HMAC and member track HMACs) so duplicate aliases keep
+their shared annotations after metadata expires. These contain no titles, artist
+names, playlist identities or raw Spotify IDs. At most 100,000 member links fit
+within the existing byte budget; schema version 1 remains backward compatible with
+earlier snapshots that omit the optional links. Removed-track HMAC assignments remain recoverable after
 metadata expires. Deleted vocabulary, undo journals, cached Spotify metadata,
 raw Spotify IDs, credentials, sessions, queries and pending jobs are excluded.
 

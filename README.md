@@ -1,16 +1,22 @@
 # Spotify Plus
 
-**Your Liked Songs, in your own words. Playlists for the moment.**
+**Your music, in your own words. Playlists for the moment.**
 
 [![Verify](https://github.com/CarterKFalkenberg/spotify-plus/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/CarterKFalkenberg/spotify-plus/actions/workflows/verify.yml)
 
-Spotify Plus is a personal web app for tagging Spotify Liked Songs and turning
+Spotify Plus is a personal web app for tagging songs from selected Spotify sources and turning
 those tags into real playlists that clean themselves up. Bulk-tag a backlog at
 your desk, keep up with new arrivals using the keyboard, then build a playlist
 from your phone before heading out.
 
 Built for **one Spotify account**, with Spotify as the only login. Tags are yours;
-listening stays in Spotify. The app never likes or unlikes songs.
+optional short listening samples are available inside the tagging queue. The app never likes or unlikes songs.
+
+The [Sources extension](docs/SOURCES.md) adds selectable Liked Songs and playlist
+inputs across the library, queue and playlist builder. Overlapping sources and
+matching title/artist versions contribute one taggable song; tags survive source
+removal. App-generated playlists default off as inputs. See the linked contract
+and issue for implementation and delivery evidence.
 
 [How it works](#how-it-works) · [Development](#development) ·
 [Self-hosting](#self-hosting) · [Architecture](#architecture) ·
