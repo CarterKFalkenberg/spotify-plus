@@ -8,11 +8,12 @@ import {
   type TagDTO,
   type TrackDTO,
 } from "../../supabase/functions/_shared/contracts";
-import { ApiError, tag, track } from "./api";
+import { ApiError, parseArtworkUrl, tag, track } from "./api";
 export type FastFilter = LibraryFilter;
 export type Sort = LibrarySort;
 export type Facet = "artist" | "album" | "decade";
 export type Group = {
+  artworkUrl: string | null;
   value: string;
   name: string;
   trackCount: number;
@@ -20,6 +21,7 @@ export type Group = {
   selection: Extract<ReturnType<typeof parseSelection>, { kind: "filter" }>;
 };
 export type Search = {
+  artworkPending: boolean;
   revision: LibraryRevision;
   totalTracks: number;
   nextCursor: string | null;
@@ -42,6 +44,10 @@ function choice<T extends string>(value: unknown, choices: readonly T[]): T {
     throw new ApiError("invalid_response");
   return value as T;
 }
+function boolean(value: unknown): boolean {
+  if (typeof value !== "boolean") throw new ApiError("invalid_response");
+  return value;
+}
 function count(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new ApiError("invalid_response");
@@ -63,6 +69,8 @@ export function search(value: unknown): Search {
   const v = object(value),
     base = {
       revision: parseLibraryRevision(v.revision),
+      artworkPending:
+        v.artworkPending === undefined ? false : boolean(v.artworkPending),
       totalTracks: count(v.totalTracks),
       nextCursor: cursor(v.nextCursor),
     };
@@ -79,6 +87,7 @@ export function search(value: unknown): Search {
       if (selection.kind !== "filter") throw new ApiError("invalid_response");
       return {
         value: string(g.value ?? g.artistId),
+        artworkUrl: parseArtworkUrl(g.artworkUrl ?? null),
         name: string(g.name),
         trackCount: count(g.trackCount),
         taggedCount: count(g.taggedCount),

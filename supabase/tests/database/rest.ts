@@ -564,6 +564,25 @@ try {
     (await raw("app_library_status", { p_epoch: epoch }, input.anonKey))
       .status === 401,
   );
+  phase = "artwork_empty_finish";
+  const artworkFixture = await fixture("artwork");
+  check(
+    artworkFixture.artworkSeeded === true &&
+      typeof artworkFixture.artworkCount === "number" &&
+      artworkFixture.artworkCount >= 1,
+  );
+  const artworkJob = await db.rpc<
+    { id: string; kind: string; leaseToken: string }
+  >("app_job_claim");
+  check(artworkJob.kind === "artwork");
+  check(
+    await db.rpc("app_artwork_work", {
+      p_epoch: epoch,
+      p_id: artworkJob.id,
+      p_lease: artworkJob.leaseToken,
+    }) === null,
+  );
+  check((await fixture("inspect")).artworkFinished === true);
   phase = "disconnect_and_purge";
   await db.rpc("app_oauth_start", {
     p_state_hash: "f".repeat(64),
@@ -595,7 +614,8 @@ try {
   const purged = await fixture("inspect");
   check(
     purged.credentials === false && purged.sessions === 0 &&
-      purged.oauthStates === 0 && purged.accountJobs === 0,
+      purged.oauthStates === 0 && purged.accountJobs === 0 &&
+      purged.artworkCount === 0,
   );
   check(await db.rpc("app_session", { p_token_hash: sessionHash }) === null);
   check(

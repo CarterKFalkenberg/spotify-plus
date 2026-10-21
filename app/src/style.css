@@ -1,3 +1,6 @@
+html {
+  scroll-padding-bottom: var(--workspace-nav-height, 0px);
+}
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -145,7 +148,8 @@ small,
   min-height: 100dvh;
 }
 .shell > header {
-  height: 88px;
+  position: relative;
+  min-height: 88px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -179,18 +183,12 @@ small,
   font-size: 12px;
   font-weight: 400;
 }
-.theme-control select {
-  width: 98px;
-  margin: 0;
-  min-height: 36px;
-  padding: 6px 9px;
-  font-size: 12px;
-}
 main {
   padding-top: 32px;
 }
 footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -201,6 +199,7 @@ footer {
 }
 footer nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
 }
 label {
@@ -293,7 +292,7 @@ input[type="checkbox"] {
   padding-left: 244px;
 }
 .shell:has(.workspace) > header {
-  height: 76px;
+  min-height: 76px;
 }
 .shell:has(.workspace) .wordmark {
   position: fixed;
@@ -872,22 +871,9 @@ dialog.queue-card {
 }
 .artist-card {
   display: grid;
-  column-gap: 16px;
   align-items: center;
-  padding: 17px 0;
   border-top: 1px solid var(--line);
   min-width: 0;
-}
-.artist-monogram {
-  width: 36px;
-  height: 36px;
-  background: var(--wash);
-  color: var(--muted);
-  display: grid;
-  place-items: center;
-  border-radius: 4px;
-  font-size: 16px;
-  grid-row: 1 / 3;
 }
 .artist-card h3 {
   grid-column: 2;
@@ -1051,7 +1037,6 @@ dialog.queue-card {
   margin-left: 5px;
 }
 .builder-layout {
-  display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
   column-gap: 40px;
 }
@@ -1060,16 +1045,11 @@ dialog.queue-card {
   grid-row: 1 / 3;
   min-width: 0;
 }
-.composer-title {
-  margin: 0 0 18px;
-  font-size: 15px;
-}
 .query-buckets {
   display: flex;
   flex-direction: column;
 }
 .query-bucket {
-  padding: 18px 0;
   border-top: 1px solid var(--line);
 }
 .bucket-heading {
@@ -1097,12 +1077,10 @@ dialog.queue-card {
   align-items: center;
   gap: 8px 12px;
   flex-wrap: wrap;
-  padding: 0 0 17px;
   border-bottom: 1px solid var(--line);
   align-self: start;
 }
 .query-feedback strong {
-  font-size: 26px;
   line-height: 1.2;
   letter-spacing: -0.9px;
   font-weight: 650;
@@ -1129,8 +1107,6 @@ dialog.queue-card {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
-  padding: 14px 0 24px;
-  margin: 0;
   scroll-margin-top: 20px;
 }
 .preview-panel > summary {
@@ -1162,7 +1138,6 @@ dialog.queue-card {
   display: none !important;
 }
 .preview-tracks {
-  max-height: 295px;
   overflow: auto;
   margin-top: 14px;
   overscroll-behavior: contain;
@@ -1190,9 +1165,6 @@ dialog.queue-card {
   font-size: 19px;
 }
 .create-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
-  gap: 14px;
   align-items: end;
 }
 .disclosure,
@@ -1213,41 +1185,21 @@ dialog.queue-card {
 .cleanup-status {
   font-size: 12px;
 }
-.extension-setting {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  border-top: 1px solid var(--line);
-}
-.extension-setting label {
-  width: 220px;
-  flex-shrink: 0;
-}
-.extension-setting p {
-  font-size: 12px;
-  max-width: 560px;
-  margin: 0;
-}
 .playlist-grid {
   display: flex;
   flex-direction: column;
 }
 .playlist-card {
   position: relative;
-  grid-template-columns: minmax(180px, 1fr) 185px;
-  gap: 4px 24px;
   border-top: 1px solid var(--line);
-  padding: 26px 0;
   min-width: 0;
 }
 .playlist-card h3 {
   grid-column: 1;
-  grid-row: 1;
   font-size: 23px;
   letter-spacing: -0.6px;
   font-weight: 600;
   overflow-wrap: anywhere;
-  padding-right: 10px;
 }
 .playlist-card-top {
   grid-column: 2;
@@ -1267,7 +1219,6 @@ dialog.queue-card {
   font-size: 12px;
   color: var(--muted);
   overflow-wrap: anywhere;
-  margin: 8px 0;
 }
 .playlist-card .query-summary .chip {
   display: inline-block;
@@ -1291,16 +1242,12 @@ dialog.queue-card {
   grid-column: 1 / -1;
 }
 .playlist-actions {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
   align-items: center;
-  margin-top: 16px;
 }
 .playlist-actions .button {
   order: -1;
-  margin-right: 12px;
   min-width: 155px;
 }
 .playlist-actions button {
@@ -1337,7 +1284,6 @@ dialog.queue-card {
   overflow-wrap: anywhere;
 }
 .vocabulary-list small {
-  display: block;
   font-size: 12px;
   margin-top: 4px;
 }
@@ -1415,8 +1361,6 @@ dialog.queue-card {
   display: none;
 }
 .account-details summary {
-  position: absolute;
-  top: 16px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1438,6 +1382,20 @@ dialog.queue-card {
   border-left: 1px solid var(--line);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.header-account {
+  margin-left: auto;
+  min-width: 0;
+}
+.header-account .account-details {
+  position: relative;
+}
+.header-account .account-content {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  top: 100%;
+  width: min(540px, calc(100vw - 36px));
 }
 .account-content {
   padding: 22px;
@@ -1601,9 +1559,6 @@ dialog::backdrop {
     border: 0;
     margin: 0;
   }
-  .create-form {
-    grid-template-columns: 1fr 1fr;
-  }
   .create-form .primary {
     grid-column: 1 / -1;
   }
@@ -1648,7 +1603,6 @@ dialog::backdrop {
   }
   .builder-layout {
     grid-template-columns: minmax(240px, 1fr) minmax(230px, 1fr);
-    gap: 24px;
   }
 }
 @media (max-width: 640px) {
@@ -1658,11 +1612,13 @@ dialog::backdrop {
   }
   .shell > header,
   .shell:has(.workspace) > header {
-    height: 72px;
+    min-height: 60px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 8px 0;
   }
   .shell:has(.workspace) .wordmark {
     position: static;
-    font-size: 17px;
   }
   .shell:has(.workspace) .theme-control {
     margin: 0;
@@ -1670,10 +1626,6 @@ dialog::backdrop {
   .theme-control {
     font-size: 0;
     gap: 0;
-  }
-  .theme-control select {
-    min-height: 36px;
-    width: 84px;
   }
   .workspace::before {
     display: none;
@@ -1683,16 +1635,12 @@ dialog::backdrop {
     padding-top: 14px;
   }
   .shell:has(.workspace) {
-    padding-bottom: 88px;
+    padding-bottom: calc(var(--workspace-nav-height, 79px) + 12px);
   }
   .shell:has(.workspace) footer {
     margin-top: 16px;
   }
-  .account-details summary {
-    width: fit-content;
-  }
   .account-details summary > span:last-child {
-    padding: 0 0 0 9px;
     border-left: 1px solid var(--line);
     margin-left: 3px;
   }
@@ -1718,8 +1666,9 @@ dialog::backdrop {
     position: fixed;
     inset: auto 0 0;
     width: auto;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
     gap: 0;
     padding: 8px 7px max(8px, env(safe-area-inset-bottom));
     margin: 0;
@@ -1732,6 +1681,9 @@ dialog::backdrop {
     gap: 5px;
     min-height: 56px;
     padding: 5px 1px;
+    flex: 1 1 max-content;
+    min-width: min-content;
+    overflow-wrap: normal;
     font-size: 10px;
     line-height: 1.2;
     text-align: center;
@@ -1752,24 +1704,19 @@ dialog::backdrop {
     background: var(--accent);
   }
   .workspace-tabs .nav-create {
-    grid-column: 1;
-    grid-row: 1;
+    order: 1;
   }
   .workspace-tabs .nav-playlists {
-    grid-column: 2;
-    grid-row: 1;
+    order: 2;
   }
   .workspace-tabs .nav-arrivals {
-    grid-column: 3;
-    grid-row: 1;
+    order: 3;
   }
   .workspace-tabs .nav-library {
-    grid-column: 4;
-    grid-row: 1;
+    order: 4;
   }
   .workspace-tabs .nav-tags {
-    grid-column: 5;
-    grid-row: 1;
+    order: 5;
   }
   .workspace-tabs span {
     position: absolute;
@@ -1819,26 +1766,10 @@ dialog::backdrop {
   .builder-start button {
     font-size: 12px;
   }
-  .builder-start {
-    margin: -8px 0 18px;
-  }
-  .builder-layout {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
   .query-feedback {
-    order: 0;
-    position: sticky;
     top: 0;
     z-index: 2;
-    padding: 12px 0;
     background: var(--canvas);
-    gap: 5px 8px;
-    margin-bottom: 20px;
-  }
-  .query-feedback strong {
-    font-size: 23px;
   }
   .query-feedback a {
     min-height: 32px;
@@ -1851,15 +1782,8 @@ dialog::backdrop {
   .query-composer {
     order: 1;
   }
-  .composer-title {
-    display: none;
-  }
-  .query-bucket {
-    padding: 14px 0;
-  }
   .query-bucket:first-child {
     border-top: 0;
-    padding-top: 0;
   }
   .bucket-heading {
     margin-bottom: 7px;
@@ -1870,15 +1794,11 @@ dialog::backdrop {
   .bucket-heading small {
     font-size: 11px;
   }
-  .query-bucket .chips:empty {
-    display: none;
-  }
   .query-bucket .tag-picker input {
     font-size: 16px;
   }
   .preview-panel {
     order: 2;
-    padding: 16px 0;
     border-top: 1px solid var(--line);
     margin-top: 6px;
     scroll-margin-top: 88px;
@@ -1896,17 +1816,9 @@ dialog::backdrop {
     font-size: 12px;
     margin-bottom: 0;
   }
-  .preview-tracks {
-    max-height: 230px;
-  }
   .playlist-setup {
     order: 3;
-    margin: 8px 0 0;
     padding-top: 20px;
-  }
-  .create-form {
-    grid-template-columns: 1fr;
-    gap: 14px;
   }
   .create-form .primary {
     grid-column: auto;
@@ -1922,12 +1834,8 @@ dialog::backdrop {
   select {
     font-size: 16px;
   }
-  .theme-control select {
-    font-size: 12px;
-  }
   .library-filters {
     gap: 10px;
-    padding: 14px 0;
   }
   .search-label {
     flex-basis: 100%;
@@ -1987,10 +1895,6 @@ dialog::backdrop {
     gap: 10px;
     bottom: 96px;
   }
-  .playlist-card {
-    grid-template-columns: minmax(130px, 1fr) 112px;
-    gap: 3px 12px;
-  }
   .playlist-card-top {
     gap: 6px;
   }
@@ -2006,24 +1910,12 @@ dialog::backdrop {
   .playlist-actions button {
     min-height: 44px;
   }
-  .extension-setting {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-    padding: 16px 0;
-  }
-  .extension-setting label {
-    width: 100%;
-  }
   .extension-setting p,
   .retention-hint {
     font-size: 11px;
   }
   .vocabulary-page .section-heading > .muted {
     max-width: none;
-  }
-  .vocabulary-list article > div {
-    min-width: 140px;
   }
   .vocabulary-list label {
     font-size: 11px;
@@ -2221,18 +2113,10 @@ dialog::backdrop {
 .workspace-tabs .mobile-only {
   display: none;
 }
-.account-details summary {
-  right: 252px;
-}
 .new-badge {
   color: var(--ink);
 }
-.artist-card {
-  grid-template-columns: 40px minmax(130px, 1fr) minmax(250px, 1.3fr) 120px;
-}
 .artist-card .group-browse {
-  grid-column: 4;
-  grid-row: 1 / 3;
   min-height: 44px;
   white-space: nowrap;
 }
@@ -2243,9 +2127,6 @@ dialog::backdrop {
 .filter-disclosure {
   padding-bottom: 5px;
 }
-.result-toolbar {
-  margin: 10px 0;
-}
 .artist-card .suggestions {
   position: relative;
   top: auto;
@@ -2255,30 +2136,7 @@ dialog::backdrop {
 .artist-card > .desktop-bulk {
   align-self: start;
 }
-.retention-settings {
-  padding: 12px 0;
-  margin: 10px 0 0;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-}
-.retention-settings > summary {
-  cursor: pointer;
-  min-height: 32px;
-  padding-top: 5px;
-  color: var(--muted);
-}
-.retention-settings > summary strong {
-  color: var(--ink);
-  margin-left: 12px;
-  font-weight: 500;
-}
-.extension-setting {
-  margin: 8px 0 0;
-  padding: 8px 0;
-  border: 0;
-}
 .playlist-card {
-  display: flex;
   flex-direction: column;
   align-items: flex-start;
   padding-right: 0;
@@ -2331,7 +2189,6 @@ dialog::backdrop {
 }
 .vocabulary-list article {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 65px 110px;
   gap: 12px;
   padding: 13px 0;
 }
@@ -2348,7 +2205,6 @@ dialog::backdrop {
   font-variant-numeric: tabular-nums;
 }
 .dictionary-manage {
-  justify-self: end;
   border: 0;
   background: transparent;
 }
@@ -2367,49 +2223,30 @@ dialog::backdrop {
   grid-column: 2;
 }
 @media (max-width: 1100px) {
-  .account-details summary {
-    right: 222px;
-  }
-  .artist-card {
-    grid-template-columns: 34px minmax(120px, 0.8fr) minmax(220px, 1.2fr);
-    gap: 3px 12px;
-  }
   .artist-card .group-browse {
-    grid-column: 2;
-    grid-row: 3;
     margin-top: 7px;
     justify-self: start;
   }
 }
 @media (max-width: 640px) {
-  .shell:has(.workspace) > header {
-    height: 60px;
-  }
   .shell:has(.workspace) main {
     padding-top: 8px;
   }
   .account-card {
     padding: 0;
     margin: 0;
-    min-height: 44px;
   }
   .account-details summary {
-    position: static;
     min-height: 44px;
     margin: 0;
-  }
-  .account-details summary > span:last-child {
-    font-size: 11px;
   }
   .account-details .status-dot {
     width: 5px;
     height: 5px;
   }
   .workspace-heading {
-    position: absolute;
     top: 72px;
     right: 18px;
-    float: none;
   }
   .library-status {
     padding-right: 0;
@@ -2423,44 +2260,11 @@ dialog::backdrop {
   .section-heading {
     margin-bottom: 18px;
   }
-  .artist-card {
-    grid-template-columns: 36px 1fr;
-  }
-  .artist-card .group-browse {
-    grid-column: 2;
-    grid-row: 3;
-  }
-  .retention-settings {
-    margin-top: 6px;
-    padding: 9px 0;
-  }
-  .retention-settings summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 4px 10px;
-    font-size: 11px;
-  }
-  .retention-settings summary::before {
-    content: "▸";
-  }
-  .retention-settings[open] summary::before {
-    content: "▾";
-  }
-  .retention-settings summary strong {
-    margin-left: auto;
-    font-size: 11px;
-  }
   .cleanup-status {
     font-size: 11px;
     margin: 8px 0;
   }
-  .playlist-card {
-    padding: 20px 0;
-  }
   .playlist-card h3 {
-    font-size: 23px;
     line-height: 1.2;
     letter-spacing: -0.7px;
   }
@@ -2474,14 +2278,7 @@ dialog::backdrop {
   .playlist-card .expiry {
     font-size: 12px;
   }
-  .playlist-actions {
-    gap: 4px 9px;
-    margin-top: 14px;
-  }
   .playlist-actions .button {
-    flex-basis: auto;
-    min-width: 166px;
-    margin: 0 100% 6px 0;
     white-space: nowrap;
   }
   .playlist-actions > button:not(.text-button) {
@@ -2517,8 +2314,6 @@ dialog::backdrop {
     font-size: 11px;
   }
   .vocabulary-list article {
-    grid-template-columns: minmax(100px, 1fr) 32px 82px;
-    gap: 9px;
     padding: 11px 0;
   }
   .vocabulary-list strong {
@@ -2556,4 +2351,921 @@ dialog::backdrop {
 .library-action-dock:not(:has(.bulk-bar)) > .toast {
   margin-left: 0;
   margin-right: auto;
+}
+/* Focused task surfaces: guided creation, bounded collection browsing and contextual controls. */
+.theme-control,
+.shell:has(.workspace) .theme-control {
+  position: relative;
+  display: block;
+  margin: 0 0 0 auto;
+  font-size: 13px;
+}
+.theme-control > summary:hover {
+  background: var(--wash);
+}
+.theme-control > summary::-webkit-details-marker {
+  display: none;
+}
+.theme-options {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  width: min(205px, calc(100vw - 36px));
+  padding: 16px;
+  margin: 0;
+  z-index: 12;
+  border: 1px solid var(--control-line);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 8px 30px #0002;
+}
+.theme-options legend {
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--paper);
+  padding: 0 5px;
+}
+.theme-options label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink);
+}
+.theme-options input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.builder {
+  max-width: 850px;
+  margin: 0 auto;
+}
+.builder .section-heading {
+  align-items: baseline;
+}
+.builder .section-heading .pill {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+}
+.builder .section-intro {
+  max-width: 580px;
+}
+.builder-steps {
+  display: flex;
+  padding: 0;
+  margin: 28px 0 32px;
+  list-style: none;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.builder-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 15px;
+  color: var(--muted);
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+}
+.builder-steps li[aria-current="step"] {
+  color: var(--ink);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.builder-steps li > span {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: var(--wash);
+  font-size: 12px;
+}
+.builder-steps li[aria-current="step"] > span {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.builder-stage-title {
+  font-size: 27px;
+  letter-spacing: -0.8px;
+  margin-bottom: 16px;
+}
+.builder-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.query-feedback {
+  position: static;
+  order: 0;
+  margin: 0 0 22px;
+  padding: 0 0 18px;
+  width: 100%;
+}
+.query-feedback strong {
+  font-size: 26px;
+}
+.query-composer,
+.preview-panel,
+.playlist-setup {
+  order: 1;
+  width: 100%;
+}
+.composer-title {
+  display: block;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  margin: 0 0 20px;
+}
+.query-bucket {
+  padding: 20px 0;
+}
+.query-bucket:first-child {
+  padding-top: 0;
+  border: 0;
+}
+.refine-query {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.builder-stage .tag-picker {
+  max-width: 560px;
+}
+.builder-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 0;
+  margin-top: 26px;
+  border-top: 1px solid var(--line);
+  position: sticky;
+  bottom: 0;
+  background: var(--canvas);
+  z-index: 3;
+}
+.builder-navigation .primary {
+  min-width: 180px;
+}
+.preview-panel {
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+.preview-tracks {
+  max-height: min(45dvh, 430px);
+}
+.playlist-setup {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.create-heading {
+  display: none;
+}
+.create-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  max-width: 560px;
+}
+.builder .disclosure {
+  max-width: 630px;
+}
+.library-browse {
+  display: flex;
+  gap: 8px;
+  margin: 24px 0 18px;
+  flex-wrap: wrap;
+}
+.library-browse button {
+  border: 0;
+  background: transparent;
+  border-radius: 30px;
+  padding: 10px 19px;
+  font-size: 14px;
+}
+.library-browse button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--canvas);
+}
+.page-range {
+  display: block;
+  margin-top: 3px;
+}
+.result-toolbar {
+  margin: 16px 0;
+}
+.result-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.collection-artwork.artist {
+  border-radius: 50%;
+}
+.collection-artwork > span {
+  font-size: 30px;
+}
+.artist-card > .collection-artwork {
+  grid-row: 1 / 3;
+  grid-column: 1;
+}
+.queue-settings {
+  position: relative;
+  margin-left: auto;
+}
+.queue-settings > summary,
+.queue-tool-disclosure > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  gap: 8px;
+}
+.queue-settings > summary::after,
+.queue-tool-disclosure > summary::after {
+  content: "⌄";
+}
+.queue-settings > div {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  width: 300px;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--control-line);
+  border-radius: 8px;
+  z-index: 5;
+  box-shadow: 0 8px 20px #0002;
+}
+.section-heading .queue-settings .queue-order {
+  width: 100%;
+}
+.queue-tool-disclosure {
+  grid-column: 2;
+  margin-top: 6px;
+}
+.queue-tool-disclosure .queue-tools {
+  display: flex;
+  flex-wrap: wrap;
+}
+.playlist-card {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: 4px 22px;
+  padding: 24px 0;
+}
+.playlist-card > .collection-artwork {
+  grid-column: 1;
+  grid-row: 1 / 6;
+  width: 88px;
+  height: 88px;
+}
+.playlist-card h3,
+.playlist-card .query-summary,
+.playlist-card .playlist-facts,
+.playlist-card > .muted {
+  grid-column: 2;
+}
+.playlist-card h3 {
+  grid-row: 1;
+  padding-right: 0;
+}
+.playlist-card .playlist-card-top {
+  grid-column: 3;
+  grid-row: 1;
+}
+.playlist-card .query-summary {
+  margin: 4px 0;
+}
+.playlist-actions {
+  grid-column: 2 / -1;
+  margin-top: 10px;
+  gap: 12px;
+}
+.playlist-actions .button {
+  margin-right: 4px;
+}
+.playlist-manage {
+  position: relative;
+}
+.playlist-manage > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.playlist-manage > summary::after {
+  content: "⌄";
+  margin-left: 8px;
+}
+.playlist-management {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 0 4px;
+}
+.playlist-management > label {
+  flex-basis: 100%;
+  max-width: 300px;
+}
+.playlist-manage[open] {
+  flex-basis: 100%;
+}
+.playlist-manage[open] > summary {
+  width: fit-content;
+}
+.vocabulary-list article:hover small,
+.vocabulary-list article:focus-within small {
+  display: block;
+}
+.group-artwork-link {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+.collection-artwork {
+  width: 64px;
+  height: 64px;
+  background: var(--wash);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+.collection-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0;
+}
+.collection-artwork .nav-icon {
+  width: 28px;
+  height: 28px;
+}
+.queue-spotify {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 5px;
+}
+.workspace-sync {
+  display: contents;
+}
+.workspace-sync > summary {
+  display: none;
+}
+.theme-control > summary {
+  place-items: center;
+  height: 44px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--ink);
+  width: auto;
+  display: flex;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.library-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  padding: 12px 0;
+}
+.library-advanced > label {
+  min-width: 160px;
+}
+.library-advanced .facet-row {
+  flex-basis: 100%;
+  margin: 0;
+}
+.result-pagination.top {
+  border-top: 0;
+  padding: 4px 0 14px;
+}
+.artist-card {
+  gap: 3px 18px;
+  grid-template-columns: 52px minmax(100px, 1fr) auto auto;
+  padding: 11px 0;
+  column-gap: 14px;
+}
+.artist-card > .group-artwork-link .collection-artwork {
+  width: 52px;
+  height: 52px;
+}
+.artist-card .group-select,
+.artist-card .group-browse {
+  grid-row: 1 / 3;
+  margin: 0;
+  align-self: center;
+}
+.artist-card .group-select {
+  grid-row: 1 / 3;
+  display: block;
+  grid-column: 3;
+}
+.artist-card .group-browse {
+  grid-row: 1 / 3;
+  grid-column: 4;
+}
+.vocabulary-list article {
+  grid-template-columns: minmax(120px, 260px) 75px minmax(75px, 1fr);
+}
+.vocabulary-list small {
+  display: block;
+}
+.dictionary-count {
+  justify-self: start;
+}
+.dictionary-manage {
+  justify-self: end;
+}
+.creation-summary {
+  margin-top: 16px;
+}
+.creation-disclosure > summary {
+  font-size: 12px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.creation-disclosure > summary::after {
+  content: "⌄";
+}
+.creation-disclosure > p {
+  margin-top: 0;
+}
+.library-page .section-heading {
+  margin-bottom: 10px;
+}
+.library-page > .section-intro {
+  margin: 0 0 16px;
+}
+.library-page .library-browse {
+  margin: 0 0 14px;
+}
+.library-search-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.library-search-row .library-filters {
+  flex: 1;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.library-search-row .filter-disclosure {
+  border: 0;
+  padding: 0;
+}
+.library-search-row .filter-disclosure summary {
+  min-height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.library-search-row .filter-disclosure summary::before {
+  content: "⌄";
+}
+.library-search-row .filter-disclosure summary > span {
+  display: none;
+}
+.library-search-row .filter-disclosure[open] {
+  flex-basis: 100%;
+}
+.result-toolbar .result-pagination.top {
+  margin-left: auto;
+  padding: 0;
+  gap: 10px;
+}
+.library-page .result-toolbar {
+  margin: 12px 0;
+  gap: 12px 20px;
+}
+.result-toolbar > button {
+  margin-left: auto;
+}
+.quick-slots .empty-slot .chip {
+  border-color: transparent;
+}
+.builder .suggestions {
+  position: relative;
+  top: auto;
+  margin-top: 6px;
+  box-shadow: none;
+}
+.builder:has(.suggestions) .builder-navigation {
+  position: static;
+}
+@media (max-width: 850px) and (min-width: 641px) {
+  .artist-card .collection-artwork {
+    width: 52px;
+    height: 52px;
+  }
+  .artist-card {
+    gap: 3px 12px;
+    grid-template-columns: 44px minmax(80px, 1fr) auto;
+  }
+  .artist-card .group-browse {
+    grid-column: 2;
+    grid-row: 3;
+    justify-self: start;
+  }
+}
+@media (max-width: 640px) {
+  .builder-stage-title {
+    font-size: 24px;
+  }
+  .builder-navigation .primary {
+    min-width: 0;
+    flex: 1;
+  }
+  .preview-tracks {
+    max-height: 36dvh;
+  }
+  .library-browse button {
+    flex: 1;
+    padding: 10px 9px;
+    font-size: 12px;
+  }
+  .artist-card > .collection-artwork {
+    width: 52px;
+    height: 52px;
+  }
+  .result-pagination {
+    gap: 10px;
+    justify-content: space-between;
+  }
+  .result-pagination button {
+    font-size: 11px;
+    padding: 9px;
+  }
+  .playlist-card {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 4px 14px;
+    padding: 22px 0;
+  }
+  .playlist-card > .collection-artwork {
+    width: 64px;
+    height: 64px;
+    grid-row: 1 / 4;
+  }
+  .playlist-card h3 {
+    font-size: 21px;
+  }
+  .playlist-card .playlist-card-top {
+    grid-column: 2;
+    grid-row: auto;
+    justify-content: flex-start;
+    margin: 0;
+  }
+  .playlist-actions {
+    grid-column: 1 / -1;
+  }
+  .playlist-actions .button {
+    flex-basis: auto;
+    margin: 0;
+    min-width: 0;
+    flex: 1;
+  }
+  .playlist-management {
+    padding-top: 15px;
+  }
+  .queue-tool-disclosure {
+    grid-column: 1;
+  }
+  .queue-actions {
+    display: grid;
+    grid-template-columns: 1fr 1.3fr;
+    gap: 8px;
+  }
+  .queue-actions .queue-skip {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+  .shell:has(.workspace) .wordmark {
+    font-size: 15px;
+    gap: 6px;
+  }
+  .shell:has(.workspace) .wordmark .mark {
+    width: 23px;
+    font-size: 28px;
+  }
+  .theme-control > summary {
+    flex-direction: column;
+    justify-content: center;
+    min-width: 66px;
+    width: auto;
+    padding: 0;
+    gap: 2px;
+    font-size: 10px;
+  }
+  .theme-control > summary svg {
+    width: 19px;
+    height: 19px;
+  }
+  .account-card {
+    min-height: 0;
+  }
+  .header-account .account-details {
+    position: static;
+  }
+  .header-account .account-content {
+    margin-top: 8px;
+  }
+  .account-details summary {
+    min-width: 44px;
+    justify-content: center;
+  }
+  .account-details summary > span:last-child {
+    font-size: 11px;
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .account-details .status-dot,
+  .account-connection-label {
+    display: none;
+  }
+  .account-content {
+    margin-top: 12px;
+  }
+  .workspace-sync {
+    display: block;
+    margin: 0 0 10px;
+  }
+  .workspace-sync > summary {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .workspace-sync > summary::after {
+    content: "⌄";
+  }
+  .workspace-sync[open] {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .workspace-heading {
+    position: static;
+    float: none;
+  }
+  .workspace-sync .sync-controls {
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .workspace-sync .library-status {
+    margin: 0;
+    padding: 0;
+  }
+  .builder .section-heading {
+    margin-bottom: 12px;
+    gap: 5px;
+  }
+  .builder .section-heading h2 {
+    font-size: 25px;
+  }
+  .builder .section-heading .pill {
+    font-size: 10px;
+  }
+  .builder > .section-intro {
+    display: none;
+  }
+  .builder-steps {
+    justify-content: space-between;
+    margin: 16px 0 20px;
+    gap: 8px;
+  }
+  .builder-steps li {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    padding-bottom: 10px;
+  }
+  .builder-steps li > span {
+    width: 19px;
+    height: 19px;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .query-feedback {
+    margin-bottom: 18px;
+    padding: 0 0 14px;
+    gap: 4px 8px;
+  }
+  .query-feedback strong {
+    font-size: 23px;
+  }
+  .query-feedback small {
+    font-size: 11px;
+  }
+  .composer-title {
+    font-size: 12px;
+    margin: 0 0 18px;
+  }
+  .query-bucket {
+    padding: 14px 0;
+  }
+  .query-bucket .tag-picker {
+    margin-top: 8px;
+  }
+  .query-bucket .chips {
+    margin-bottom: 8px;
+  }
+  .query-bucket .chips:empty {
+    display: none;
+  }
+  .refine-query {
+    margin-top: 0;
+    font-size: 12px;
+  }
+  .builder-navigation {
+    bottom: var(--workspace-nav-height, 79px);
+    padding: 12px 0;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .builder input,
+  .builder select {
+    scroll-margin-bottom: 170px;
+  }
+  .builder .preview-tracks {
+    max-height: 27dvh;
+    margin-top: 10px;
+  }
+  .builder .preview-heading {
+    font-size: 11px;
+  }
+  .builder .preview-panel .notice {
+    font-size: 11px;
+    margin: 9px 0;
+    padding: 10px;
+  }
+  .builder .disclosure {
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .builder .create-form {
+    gap: 16px;
+  }
+  .builder .creation-summary {
+    margin-bottom: 0;
+  }
+  .builder-start {
+    margin: 0 0 16px;
+  }
+  .library-browse {
+    flex-wrap: nowrap;
+    gap: 2px;
+    margin: 18px 0 12px;
+  }
+  .library-filters {
+    padding: 12px 0;
+  }
+  .artist-card {
+    gap: 3px 12px;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    padding: 11px 0;
+  }
+  .artist-card .group-artwork-link .collection-artwork {
+    width: 44px;
+    height: 44px;
+  }
+  .artist-card .group-browse {
+    padding: 8px 4px;
+    font-size: 11px;
+    grid-column: 3;
+  }
+  .vocabulary-list article {
+    grid-template-columns: minmax(100px, 1fr) 40px 52px;
+    gap: 10px;
+  }
+  .library-search-row {
+    gap: 8px;
+    align-items: center;
+  }
+  .library-search-row .library-filters {
+    flex-basis: 100%;
+  }
+  .library-search-row .library-filters > .check-label {
+    flex: none;
+  }
+  .library-search-row .filter-disclosure {
+    width: 100%;
+  }
+  .library-search-row .filter-disclosure summary {
+    min-height: 36px;
+  }
+  .result-toolbar .result-pagination.top {
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+}
+@media (max-height: 550px) {
+  .builder-navigation {
+    position: static;
+  }
+  .preview-tracks {
+    max-height: none;
+  }
+}
+@media (min-width: 1101px) {
+  .library-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+  }
+  .library-controls .library-browse {
+    margin: 0 0 12px;
+    flex-shrink: 0;
+    gap: 3px;
+  }
+  .library-controls .library-browse button {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+  .library-controls .library-search-row {
+    flex: 1;
+    min-width: 0;
+  }
+  .library-controls .search-label {
+    min-width: 160px !important;
+  }
+}
+/* Official artwork attribution: original full logos, without recoloring. */
+.spotify-attribution {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 8px 0;
+  text-decoration: none;
+  font-size: 11px;
+}
+.spotify-attribution img {
+  display: block;
+  width: 88px;
+  height: auto;
+  margin: 0 12px;
+}
+.spotify-attribution .spotify-logo-dark {
+  display: none;
+}
+:root[data-theme="dark"] .spotify-attribution .spotify-logo-light {
+  display: none;
+}
+:root[data-theme="dark"] .spotify-attribution .spotify-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  footer {
+    gap: 12px;
+  }
+  .spotify-attribution {
+    gap: 8px;
+  }
+  .spotify-attribution img {
+    margin: 0 10px;
+  }
+  footer nav {
+    gap: 16px;
+  }
 }

@@ -1,3 +1,10 @@
+import {
+  appearance as chooseAppearance,
+  details,
+  chooseStep,
+  managePlaylist,
+  syncControls,
+} from "./flows";
 import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
 const id = (n: number) =>
@@ -82,7 +89,11 @@ async function mock(
   const calls: { path: string; body: any }[] = [];
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:4173") return route.abort();
+    if (
+      url.origin !==
+      (process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173")
+    )
+      return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
     calls.push({
@@ -252,20 +263,22 @@ async function mock(
   return calls;
 }
 async function choose(page: Page, label = "Add All of tag") {
+  if (label.startsWith("Add ")) await chooseStep(page);
+  if (label !== "Add All of tag" && label.startsWith("Add "))
+    await page
+      .getByRole("button", {
+        name: "Refine with Any of / None of",
+        exact: false,
+      })
+      .click();
   await page.getByLabel(label, { exact: true }).fill("Synthetic");
   await page
     .locator(".suggestions")
     .getByRole("option", { name: /^Synthetic tag 1 / })
     .click();
-  if (
-    label.startsWith("Add ") &&
-    !(await page
-      .locator(".preview-panel")
-      .evaluate((el) => (el as HTMLDetailsElement).open))
-  )
+  if (label.startsWith("Add "))
     await page
-      .locator(".query-feedback")
-      .getByRole("link", { name: "Review songs ↓" })
+      .getByRole("button", { name: "Review songs →", exact: true })
       .click();
 }
 async function builder(page: Page) {
@@ -303,7 +316,10 @@ test("focused autocomplete only; freeform artist and matching selection use one 
   await page.waitForTimeout(350);
   expect(calls.filter((call) => call.path === "/api/tags")).toHaveLength(0);
   await page
-    .getByLabel("Tag all 3 songs by Synthetic Artist")
+    .getByRole("button", { name: "Tag all 3 songs by Synthetic Artist" })
+    .click();
+  await page
+    .getByLabel("Add tag to selection", { exact: true })
     .fill("Fresh freeform");
   await page.getByRole("button", { name: "Create “Fresh freeform”" }).click();
   await expect(
@@ -319,7 +335,9 @@ test("focused autocomplete only; freeform artist and matching selection use one 
     calls.filter((call) => call.path === "/api/tags" && call.body),
   ).toHaveLength(0);
   await page.getByRole("button", { name: "Select all 3 matching" }).click();
-  await page.getByLabel("Add tag to selection").fill("Fresh selection");
+  await page
+    .getByLabel("Add tag to selection", { exact: true })
+    .fill("Fresh selection");
   await page.getByRole("button", { name: "Create “Fresh selection”" }).click();
   await expect
     .poll(() => calls.filter((call) => call.path === "/api/tag-actions").length)
@@ -335,7 +353,10 @@ test("explicit remove and changed-only undo use server identities", async ({
   test.skip(isMobile, "Bulk selection is desktop only");
   const calls = await mock(page);
   await page.goto("/");
-  await page.getByLabel("Group rows").selectOption("none");
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Songs", exact: true })
+    .click();
   await page.getByLabel("Select Synthetic song 1").check();
   await expect(
     page
@@ -410,9 +431,13 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
   await choose(page);
   await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
   await expect(
-    page.getByText("0h 6m · from your cached library"),
+    page.getByText("Matching songs · newest liked first"),
   ).toBeVisible();
   await expect(page.getByText(/1 unavailable song is excluded/)).toBeVisible();
+  await details(page);
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(page.getByText(/Playlist request accepted/)).toBeVisible();
   const body = calls.find(
@@ -451,6 +476,7 @@ for (const rejection of [401, 403])
     await page.goto("/");
     await builder(page);
     await choose(page);
+    await details(page);
     await page.getByRole("button", { name: "Create playlist →" }).click();
     await lists(page);
     await builder(page);
@@ -490,6 +516,7 @@ for (const rejection of [401, 403])
     });
     await page.goto("/");
     await lists(page);
+    await managePlaylist(page);
     await page.getByRole("button", { name: "Extend", exact: true }).click();
     await builder(page);
     await lists(page);
@@ -530,18 +557,23 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
   await page.goto("/");
   await builder(page);
   await choose(page);
+  await details(page);
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(
     page.getByRole("button", { name: "Retry saved create request" }),
   ).toHaveCount(0);
+  await chooseStep(page);
   await page
     .getByRole("button", { name: "Remove Synthetic tag 1 from all" })
     .click();
+  await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "Create playlist →" }),
-  ).toBeDisabled();
-  await expect(
-    page.getByText("Add at least one tag to see the songs that fit."),
+    page
+      .locator(".query-feedback")
+      .getByText("Add a tag to start", { exact: true }),
   ).toBeVisible();
 });
 test("import browsing stays available while create is gated; manual sync and new badge preserve filters", async ({
@@ -564,10 +596,14 @@ test("import browsing stays available while create is gated; manual sync and new
   await page.goto("/");
   await builder(page);
   await choose(page);
-  await expect(
-    page.getByRole("button", { name: "Create playlist →" }),
-  ).toBeDisabled();
+  await expect(page.locator(".query-feedback")).toContainText("2 songs");
+  await expect(page.locator(".builder-readiness")).toBeVisible();
+  await expect(page.locator(".builder-readiness")).toContainText(
+    "Your first import is still being verified",
+  );
+  await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(page.getByText(/2 of 3 imported/)).toBeVisible();
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   expect(
     calls
@@ -622,8 +658,9 @@ test("playlist deletion needs explicit confirmation and saved lifecycle statuses
     page.getByText("Removal awaiting confirmation", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Queued / working", { exact: true }),
+    page.getByText("Preparing playlist", { exact: true }),
   ).toBeVisible();
+  await managePlaylist(page);
   await page
     .getByRole("button", { name: "Delete now", exact: true })
     .first()
@@ -735,6 +772,8 @@ test("one deleted stored leaf preserves unrelated query chips and keeps regenera
   await expect(cards.last().locator(".query-summary .chip")).toHaveText(
     "Synthetic tag 2",
   );
+  await cards.first().locator(".playlist-manage > summary").click();
+  await cards.last().locator(".playlist-manage > summary").click();
   await expect(
     cards.first().getByRole("button", { name: "Regenerate" }),
   ).toBeDisabled();
@@ -757,6 +796,7 @@ test("transient query-label failure remains retryable and does not disable a val
   await page.goto("/");
   await lists(page);
   await expect(page.locator(".query-summary")).toHaveText("Unavailable tag");
+  await managePlaylist(page);
   await expect(
     page.getByRole("button", { name: "Regenerate", exact: true }),
   ).toBeEnabled();
@@ -802,11 +842,9 @@ for (const zero of [true, false])
       ).toBeVisible();
     else
       await expect(page.locator(".query-feedback strong")).toContainText(
-        "1 songs",
+        "1 song",
       );
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeDisabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   });
 test("late preview from an earlier bucket cannot unlock creation for the new query", async ({
   page,
@@ -859,6 +897,7 @@ test("late preview from an earlier bucket cannot unlock creation for the new que
   await builder(page);
   await choose(page);
   await expect.poll(() => !!release).toBe(true);
+  await chooseStep(page);
   await page
     .getByRole("button", { name: "Remove Synthetic tag 1 from all" })
     .click();
@@ -869,9 +908,7 @@ test("late preview from an earlier bucket cannot unlock creation for the new que
       "No songs have this combination of tags. Try removing a requirement.",
     ),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Create playlist →" }),
-  ).toBeDisabled();
+  await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
 });
 test("synthetic desktop/mobile visual acceptance", async ({
   page,
@@ -1081,7 +1118,10 @@ test("successful freeform tag keeps input focus for the next tag and preserves e
     return true;
   });
   await page.goto("/");
-  await page.getByLabel("Group rows").selectOption("none");
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Songs", exact: true })
+    .click();
   await page.getByLabel("Select Synthetic song 1").check();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("First keyboard tag");
@@ -1251,18 +1291,12 @@ for (const paged of [false, true])
     await choose(page);
     if (paged)
       await page.getByRole("button", { name: "More preview songs" }).click();
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeDisabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
     await page
       .getByRole("button", { name: "Retry preview", exact: true })
       .click();
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeDisabled();
-    await expect(
-      page.getByRole("button", { name: "Create playlist →" }),
-    ).toBeEnabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
+    await expect(page.locator(".builder-navigation .primary")).toBeEnabled();
     const requests = calls
       .filter((call) => call.path === "/api/query/preview")
       .map((call) => call.body);
@@ -1329,12 +1363,14 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   await builder(page);
   await choose(page);
   await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
+  await details(page);
   await page
     .getByLabel("Playlist name", { exact: true })
     .fill("My synthetic draft");
   await page
     .getByLabel("Keep this playlist", { exact: true })
     .selectOption("week");
+  await page.getByRole("button", { name: "← Back", exact: true }).click();
   const scroll = await page.locator(".preview-tracks").evaluate((element) => {
     const html = element as HTMLElement;
     html.style.height = "30px";
@@ -1343,10 +1379,11 @@ test("internal navigation preserves builder and playlist retention drafts and pr
     return html.scrollTop;
   });
   expect(scroll).toBeGreaterThan(0);
+  await details(page);
   await lists(page);
-  await page.locator(".retention-settings summary").click();
+  await managePlaylist(page);
   await page
-    .getByLabel("Extend / Unpin for", { exact: true })
+    .getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true })
     .selectOption("threeMonths");
   await builder(page);
   await expect(page.getByLabel("Playlist name", { exact: true })).toHaveValue(
@@ -1355,9 +1392,13 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   await expect(
     page.getByLabel("Keep this playlist", { exact: true }),
   ).toHaveValue("week");
+  await chooseStep(page);
   await expect(
     page.getByRole("button", { name: "Remove Synthetic tag 1 from all" }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review songs →", exact: true })
+    .click();
   expect(
     await page
       .locator(".preview-tracks")
@@ -1365,7 +1406,7 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   ).toBe(scroll);
   await lists(page);
   await expect(
-    page.getByLabel("Extend / Unpin for", { exact: true }),
+    page.getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true }),
   ).toHaveValue("threeMonths");
 });
 
@@ -1499,6 +1540,7 @@ test("foreground status revisions invalidate second-client rename and deletion w
   annotations = "3";
   await page.clock.runFor(61_000);
   await expect(page.locator(".query-summary .chip")).toHaveText("Deleted tag");
+  await managePlaylist(page);
   await expect(
     page.getByRole("button", { name: "Regenerate", exact: true }),
   ).toBeDisabled();
@@ -1613,9 +1655,14 @@ test("creation offers a direct confirmed-request progress path and feedback stay
     page.getByRole("button", { name: "Tag your library →" }),
   ).toBeVisible();
   await choose(page);
+  await chooseStep(page);
   const feedback = page.locator(".query-feedback");
   await expect(feedback).toContainText("2 songs");
   await expect(feedback).toContainText("1 unavailable song excluded");
+  await details(page);
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await page.getByRole("button", { name: "View playlist progress →" }).click();
   await expect(
@@ -1655,13 +1702,15 @@ test("cleanup delay appears only after a loaded response and retention consequen
   await expect(page.getByText(/Cleanup may be delayed/)).toHaveCount(0);
   pending.release?.();
   await expect(page.getByText(/Cleanup may be delayed/)).toBeVisible();
+  await managePlaylist(page);
   await expect(page.locator(".retention-hint")).toContainText(
     "1 calendar month from today",
   );
-  await page.locator(".retention-settings summary").click();
+  await managePlaylist(page);
   await page
-    .getByLabel("Extend / Unpin for", { exact: true })
+    .getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true })
     .selectOption("week");
+  await managePlaylist(page);
   await expect(page.locator(".retention-hint")).toContainText(
     "1 week from today",
   );
@@ -1698,6 +1747,7 @@ for (const width of [320, 360, 390, 430, 768, 1280])
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    await details(page);
     await page.getByLabel("Playlist name", { exact: true }).focus();
     expect(
       await page
@@ -1732,14 +1782,17 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
     await expect(page.locator(".artist-card")).toBeVisible();
     expect(
       await page
-        .getByLabel("Tag all 3 songs by Synthetic Artist")
+        .getByRole("button", { name: "Tag all 3 songs by Synthetic Artist" })
         .evaluate((el) => el.getBoundingClientRect().bottom + scrollY),
     ).toBeLessThan(800);
     await page.screenshot({
       path: ".local/ux/desktop-first-run.png",
       fullPage: true,
     });
-    await page.getByLabel("Group rows").selectOption("none");
+    await page
+      .getByRole("navigation", { name: "Browse library" })
+      .getByRole("button", { name: "Songs", exact: true })
+      .click();
     await expect(page.locator(".track-row").first()).toBeVisible();
     await page.screenshot({
       path: ".local/ux/desktop-library.png",
@@ -1749,7 +1802,8 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
   await builder(page);
   await choose(page);
   await expect(page.locator(".query-feedback")).toContainText("2 songs");
-  if (isMobile) await page.locator(".preview-panel > summary").click();
+
+  await details(page);
   await page.getByLabel("Playlist name", { exact: true }).focus();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
@@ -1776,9 +1830,7 @@ for (const appearance of ["light", "dark"] as const)
       await page.emulateMedia({ reducedMotion: "reduce" });
       await mock(page);
       await page.goto("/");
-      await page
-        .getByLabel("Appearance", { exact: true })
-        .selectOption(appearance);
+      await chooseAppearance(page, appearance);
       await page
         .getByRole("navigation", { name: "Workspace" })
         .getByRole("button", { name: /^Library/ })
@@ -1788,7 +1840,10 @@ for (const appearance of ["light", "dark"] as const)
       else await expect(page.getByLabel("Search your library")).toBeVisible();
       await assertReadableSurface(page);
       if (width === 1280) {
-        await page.getByLabel("Group rows").selectOption("none");
+        await page
+          .getByRole("navigation", { name: "Browse library" })
+          .getByRole("button", { name: "Songs", exact: true })
+          .click();
         await page.getByLabel("Select Synthetic song 1").check();
         await expect(page.locator(".bulk-bar")).toBeVisible();
         await assertReadableSurface(page);
@@ -1815,9 +1870,8 @@ for (const appearance of ["light", "dark"] as const)
       await expect(page.locator(".playlist-card")).toBeVisible();
       await expect(page.getByText("Resolving query tags…")).toHaveCount(0);
       await assertReadableSurface(page);
-      expect(await resolvedAppearance(page.locator(".pill.ready"))).not.toEqual(
-        information,
-      );
+      await expect(page.locator(".pill.ready")).toHaveCount(0);
+      expect(information).toBeDefined();
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -1879,18 +1933,872 @@ for (const width of [320, 390])
     expect(open).not.toBeNull();
     expect(nav).not.toBeNull();
     expect(open!.y + open!.height).toBeLessThan(nav!.y);
-    await expect(page.locator(".retention-settings summary")).toContainText(
+    await expect(page.locator(".playlist-management")).toContainText(
       "1 calendar month",
     );
-    await page.locator(".retention-settings summary").click();
+    await managePlaylist(page);
     await page
-      .getByLabel("Extend / Unpin for", { exact: true })
+      .getByLabel("Extend / Unpin for Synthetic playlist 1", { exact: true })
       .selectOption("week");
-    await expect(page.locator(".retention-settings summary")).toContainText(
-      "1 week",
-    );
-    await page.locator(".retention-settings summary").click();
+    await expect(page.locator(".playlist-management")).toContainText("1 week");
+    await managePlaylist(page);
+    await managePlaylist(page);
     await expect(page.locator(".retention-hint").first()).toContainText(
       "1 week",
     );
+  });
+
+test("successful creation can start a second distinct guided request", async ({
+  page,
+}) => {
+  const calls = await mock(page);
+  await page.goto("/");
+  await builder(page);
+  for (const name of ["Synthetic first", "Synthetic second"]) {
+    await choose(page);
+    await details(page);
+    await page.getByLabel("Playlist name", { exact: true }).fill(name);
+    await page
+      .getByRole("button", { name: "Create playlist →", exact: true })
+      .click();
+    await expect(
+      page.getByText("Playlist request accepted.", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Make another playlist", exact: true })
+      .click();
+    await expect(page.locator('[data-step="choose"]')).toBeVisible();
+    await expect(page.locator(".query-feedback")).toContainText(
+      "Add a tag to start",
+    );
+  }
+  const creates = calls
+    .filter((call) => call.path === "/api/playlists" && call.body)
+    .map((call) => call.body);
+  expect(creates).toHaveLength(2);
+  expect(creates.map((body) => body.name)).toEqual([
+    "Synthetic first",
+    "Synthetic second",
+  ]);
+  expect(creates[0].requestId).not.toBe(creates[1].requestId);
+  expect(
+    await page.evaluate(() => sessionStorage.getItem("tagger-pending-create")),
+  ).toBeNull();
+});
+
+test("rapid library pagination stays bounded and Previous returns to the real first page", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop grouped bulk browser");
+  let release: (() => void) | null = null;
+  const seen: (string | null)[] = [];
+  await mock(page, async (route, path) => {
+    if (path !== "/api/library/search") return false;
+    const body = route.request().postDataJSON();
+    seen.push(body.cursor);
+    expect(body.limit).toBe(12);
+    if (body.cursor)
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    await route.fulfill({
+      json: {
+        groupBy: "artist",
+        totalGroups: 180,
+        totalTracks: 3000,
+        revision,
+        groups: [
+          {
+            ...group,
+            value: group.artistId,
+            name: body.cursor
+              ? "Synthetic page two artist"
+              : "Synthetic first page artist",
+          },
+        ],
+        nextCursor: body.cursor ? null : "synthetic-page-two",
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Synthetic first page artist" }),
+  ).toBeVisible();
+  const paging = page.getByRole("navigation", { name: "Library pages top" });
+  await paging
+    .getByRole("button", { name: "Next page →" })
+    .evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+  await expect(
+    paging.getByRole("button", { name: "Next page →" }),
+  ).toBeDisabled();
+  await expect.poll(() => release !== null).toBe(true);
+  expect(seen).toEqual([null, "synthetic-page-two"]);
+  release!();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic page two artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 2");
+  await paging.getByRole("button", { name: "← Previous page" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic first page artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 1");
+  expect(seen).toEqual([null, "synthetic-page-two", null]);
+});
+
+test("a failed library page can retry Next without corrupting displayed history", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop grouped browser");
+  let fail = true;
+  const cursors: (string | null)[] = [];
+  await mock(page, async (route, path) => {
+    if (path !== "/api/library/search") return false;
+    const body = route.request().postDataJSON();
+    cursors.push(body.cursor);
+    if (body.cursor && fail) {
+      fail = false;
+      await route.fulfill({ status: 503, json: { error: "unavailable" } });
+      return true;
+    }
+    await route.fulfill({
+      json: {
+        groupBy: "artist",
+        totalGroups: 180,
+        totalTracks: 3000,
+        revision,
+        groups: [
+          {
+            ...group,
+            value: group.artistId,
+            name: body.cursor
+              ? "Synthetic next artist"
+              : "Synthetic original artist",
+          },
+        ],
+        nextCursor: body.cursor ? null : "synthetic-next-page",
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Synthetic original artist" }),
+  ).toBeVisible();
+  const paging = page.getByRole("navigation", { name: "Library pages top" });
+  await paging.getByRole("button", { name: "Next page →" }).click();
+  await expect(page.getByRole("alert").first()).toBeVisible();
+  await expect(paging).toContainText("Page 1");
+  await expect(
+    page.getByRole("heading", { name: "Synthetic original artist" }),
+  ).toBeVisible();
+  await paging.getByRole("button", { name: "Next page →" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic next artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 2");
+  await paging.getByRole("button", { name: "← Previous page" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic original artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 1");
+  expect(cursors).toEqual([
+    null,
+    "synthetic-next-page",
+    "synthetic-next-page",
+    null,
+  ]);
+});
+
+function artworkGroups(pending: boolean, artworkUrl: string | null = null) {
+  return {
+    groupBy: "artist",
+    artworkPending: pending,
+    totalGroups: 1,
+    totalTracks: 3,
+    revision,
+    groups: [{ ...group, value: group.artistId, artworkUrl }],
+    nextCursor: null,
+  };
+}
+async function artistView(page: Page) {
+  await library(page);
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Artists", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic Artist", exact: true }),
+  ).toBeVisible();
+}
+
+test("pending artist artwork refresh preserves tagging drafts and stops after resolution", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let pending = true,
+    requests = 0;
+  const url = "https://synthetic.invalid/artist.svg";
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(pending, pending ? null : url) });
+    return true;
+  });
+  await page.route(url, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="#657d71"/></svg>',
+    }),
+  );
+  await page.goto("/");
+  await artistView(page);
+  await page.clock.install();
+  if (!isMobile) {
+    await page
+      .getByRole("button", {
+        name: "Tag all 3 songs by Synthetic Artist",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByLabel("Add tag to selection", { exact: true })
+      .fill("gentle draft");
+  }
+  const before = requests;
+  pending = false;
+  await page.clock.runFor(4_000);
+  await expect.poll(() => requests).toBeGreaterThan(before);
+  const image = page.locator(".group-artwork-link img");
+  await expect(image).toHaveAttribute("src", url);
+  await expect
+    .poll(() =>
+      image.evaluate(
+        (img: HTMLImageElement) => img.complete && img.naturalWidth === 80,
+      ),
+    )
+    .toBe(true);
+  await expect(image).toHaveCSS("object-fit", "contain");
+  if (!isMobile)
+    await expect(
+      page.getByLabel("Add tag to selection", { exact: true }),
+    ).toHaveValue("gentle draft");
+  const resolved = requests;
+  await page.clock.runFor(15_000);
+  expect(requests).toBe(resolved);
+  await expect(page.locator(".artwork-status")).toHaveCount(0);
+});
+
+test("artwork refresh pauses outside Library and while the document is hidden", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let requests = 0;
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(true) });
+    return true;
+  });
+  await page.goto("/");
+  await artistView(page);
+  await page.clock.install();
+  await builder(page);
+  const hiddenView = requests;
+  await page.clock.runFor(10_000);
+  expect(requests).toBe(hiddenView);
+  await library(page);
+  await page.clock.runFor(500);
+  await expect.poll(() => requests).toBeGreaterThan(hiddenView);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenDocument = requests;
+  await page.clock.runFor(10_000);
+  expect(requests).toBe(hiddenDocument);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.runFor(500);
+  await expect.poll(() => requests).toBeGreaterThan(hiddenDocument);
+});
+
+test("known unavailable artwork does not poll and broken images use an honest fallback", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let requests = 0;
+  const broken = "https://synthetic.invalid/broken-artist.svg";
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(false, broken) });
+    return true;
+  });
+  await page.route(broken, (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("/");
+  await artistView(page);
+  await expect(
+    page.getByRole("img", { name: "artist artwork unavailable" }),
+  ).toBeVisible();
+  await expect(page.locator(".group-artwork-link img")).toHaveCount(0);
+  await page.clock.install();
+  const before = requests;
+  await page.clock.runFor(20_000);
+  expect(requests).toBe(before);
+});
+
+test("artwork wait stops after one minute and an explicit check restarts it", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let requests = 0;
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(true) });
+    return true;
+  });
+  await page.clock.install();
+  await page.goto("/");
+  await artistView(page);
+  await page.clock.runFor(65_000);
+  await expect(
+    page.getByRole("button", { name: "Check artwork", exact: true }),
+  ).toBeVisible();
+  const stopped = requests;
+  expect(stopped).toBeLessThanOrEqual(23);
+  await page.clock.runFor(15_000);
+  expect(requests).toBe(stopped);
+  await page
+    .getByRole("button", { name: "Check artwork", exact: true })
+    .click();
+  await page.clock.runFor(500);
+  await expect.poll(() => requests).toBeGreaterThan(stopped);
+  await expect(
+    page.getByRole("button", { name: "Check artwork", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("playlist cover art stays contained on phones and broken covers preserve Spotify actions", async ({
+  page,
+  isMobile,
+}) => {
+  const cover = "https://synthetic.invalid/playlist-cover.svg",
+    broken = "https://synthetic.invalid/broken-playlist.svg";
+  await mock(page, async (route, path) => {
+    if (path !== "/api/playlists" || route.request().method() !== "GET")
+      return false;
+    await route.fulfill({
+      json: {
+        playlists: [
+          { ...playlist(), artworkUrl: cover },
+          {
+            ...playlist(2),
+            name: "Synthetic (test) playlist",
+            artworkUrl: broken,
+          },
+        ],
+        nextCursor: null,
+        lastCleanupAt: new Date().toISOString(),
+        cleanupBlockedBy: null,
+      },
+    });
+    return true;
+  });
+  await page.route(cover, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="120"><rect width="90" height="120" fill="#657d71"/></svg>',
+    }),
+  );
+  await page.route(broken, (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("/");
+  await lists(page);
+  const cards = page.locator(".playlist-card");
+  await expect(
+    cards.first().locator(".collection-artwork img"),
+  ).toHaveAttribute("src", cover);
+  await expect(cards.first().locator(".collection-artwork img")).toHaveCSS(
+    "object-fit",
+    "contain",
+  );
+  await expect(
+    cards
+      .last()
+      .getByRole("heading", { name: "Synthetic (test) playlist", exact: true }),
+  ).toBeVisible();
+  await expect(
+    cards.last().getByRole("img", { name: "playlist artwork unavailable" }),
+  ).toBeVisible();
+  await expect(
+    cards.last().getByRole("link", { name: "Open in Spotify ↗" }),
+  ).toHaveAttribute("href", playlist(2).spotifyUrl);
+  if (isMobile) {
+    await library(page);
+    await expect(
+      page.getByRole("navigation", { name: "Browse library" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByLabel("Search your library", { exact: true }),
+    ).toBeVisible();
+  }
+});
+
+test("failed artwork refresh retries within its deadline and a stalled retry preserves page and draft", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  const cursor = "synthetic-art-page-two";
+  let phase = "initial",
+    requests = 0,
+    release: (() => void) | null = null;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const calls = await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    const body = route.request().postDataJSON();
+    requests++;
+    if (body.cursor && phase === "fail") {
+      phase = "hold";
+      await route.fulfill({ status: 503, json: { error: "unavailable" } });
+      return true;
+    }
+    if (body.cursor && (phase === "hold" || phase === "held")) {
+      phase = "held";
+      await blocked;
+      try {
+        await route.fulfill({ json: artworkGroups(true) });
+      } catch {
+        /* The explicit retry cancels this old request. */
+      }
+      return true;
+    }
+    await route.fulfill({
+      json: {
+        ...artworkGroups(!!body.cursor && phase !== "recover"),
+        totalGroups: 2,
+        nextCursor: body.cursor ? null : cursor,
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await artistView(page);
+  const paging = page.getByRole("navigation", { name: "Library pages top" });
+  await paging.getByRole("button", { name: "Next page →" }).click();
+  await expect(paging).toContainText("Page 2");
+  await page
+    .getByRole("button", {
+      name: "Tag all 3 songs by Synthetic Artist",
+      exact: true,
+    })
+    .click();
+  const draft = page.getByLabel("Add tag to selection", { exact: true });
+  await draft.fill("preserve this draft");
+  await page.clock.install();
+  phase = "fail";
+  await page.clock.runFor(4_000);
+  await expect.poll(() => phase).toBe("hold");
+  await page.clock.runFor(4_000);
+  await expect.poll(() => phase).toBe("held");
+  const heldCount = requests;
+  await page.clock.runFor(65_000);
+  await expect(
+    page.getByRole("button", { name: "Check artwork", exact: true }),
+  ).toBeVisible();
+  expect(requests).toBe(heldCount);
+  await expect(paging).toContainText("Page 2");
+  await expect(draft).toHaveValue("preserve this draft");
+  phase = "recover";
+  await page
+    .getByRole("button", { name: "Check artwork", exact: true })
+    .click();
+  await page.clock.runFor(500);
+  await expect(page.locator(".artwork-status")).toHaveCount(0);
+  await expect(paging).toContainText("Page 2");
+  await expect(draft).toHaveValue("preserve this draft");
+  release!();
+  await page.clock.runFor(15_000);
+  await expect(page.locator(".artwork-status")).toHaveCount(0);
+  expect(requests).toBe(heldCount + 1);
+  expect(
+    calls
+      .filter((call) => call.path === "/api/library/search")
+      .slice(1)
+      .every((call) => call.body.cursor === cursor),
+  ).toBe(true);
+  expect(calls.filter((call) => call.path === "/api/tag-actions")).toHaveLength(
+    0,
+  );
+});
+
+test("long-tag suggestions fit the playlist contract while explicit names and full queries survive edits", async ({
+  page,
+}) => {
+  const longTags = [
+    { ...tag(1), name: `Alpha${"a".repeat(65)}` },
+    { ...tag(2), name: `Beta${"🚗".repeat(50)}` },
+  ];
+  const unbounded = longTags.map((item) => item.name).join(" + ");
+  expect([...unbounded].length).toBeGreaterThan(100);
+  const calls = await mock(page, async (route, path) => {
+    if (path !== "/api/tags") return false;
+    await route.fulfill({ json: { tags: longTags, hasMore: false, revision } });
+    return true;
+  });
+  await page.goto("/");
+  await builder(page);
+  async function add(index: number) {
+    await page
+      .getByLabel("Add All of tag", { exact: true })
+      .fill(index ? "Beta" : "Alpha");
+    await page
+      .getByRole("option", {
+        name: `${longTags[index]!.name} 3 songs`,
+        exact: true,
+      })
+      .click();
+  }
+  for (const custom of [false, true]) {
+    await add(0);
+    await add(1);
+    await details(page);
+    const name = page.getByLabel("Playlist name", { exact: true });
+    expect([...(await name.inputValue())]).toHaveLength(100);
+    if (custom) {
+      await name.fill("My explicit name");
+      await chooseStep(page);
+      await page
+        .getByRole("button", {
+          name: `Remove ${longTags[1]!.name} from all`,
+          exact: true,
+        })
+        .click();
+      await add(1);
+      await details(page);
+      await expect(name).toHaveValue("My explicit name");
+    }
+    await page
+      .getByRole("button", { name: "Create playlist →", exact: true })
+      .click();
+    await expect(
+      page.getByText("Playlist request accepted.", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Make another playlist", exact: true })
+      .click();
+  }
+  const creates = calls
+    .filter((call) => call.path === "/api/playlists" && call.body)
+    .map((call) => call.body);
+  expect(creates).toHaveLength(2);
+  expect([...creates[0].name]).toHaveLength(100);
+  expect(creates[0].name).toBe([...unbounded].slice(0, 100).join(""));
+  expect(creates[1].name).toBe("My explicit name");
+  for (const request of creates)
+    expect(request.query).toEqual({
+      version: 1,
+      root: {
+        op: "and",
+        children: longTags.map((item) => ({ op: "tag", tagId: item.id })),
+      },
+    });
+});
+
+for (const width of [320, 360])
+  for (const theme of ["light", "dark"] as const)
+    test(`actual 200% text reflows header, navigation and guided actions at ${width}px in ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 740 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mock(page);
+      await page.goto("/");
+      await builder(page);
+      await choose(page);
+      await chooseStep(page);
+      await expect(page.locator(".query-feedback")).toContainText("2 songs");
+      const ordinaryNavigation = await page
+        .locator(".workspace-tabs")
+        .evaluate((nav) => ({
+          height: nav.getBoundingClientRect().height,
+          rows: new Set(
+            [...nav.querySelectorAll("button")]
+              .filter((button) => button.getBoundingClientRect().width)
+              .map((button) => button.getBoundingClientRect().top),
+          ).size,
+          items: [...nav.querySelectorAll("button")].filter(
+            (button) => button.getBoundingClientRect().width,
+          ).length,
+        }));
+      expect(ordinaryNavigation.items).toBe(5);
+      expect(ordinaryNavigation.rows).toBe(1);
+      const enlargeText = async () =>
+        page.evaluate(() => {
+          for (const element of document.querySelectorAll("*"))
+            if (element instanceof HTMLElement)
+              element.style.removeProperty("font-size");
+          // Collect first: reading after assigning an ancestor would compound inherited sizes.
+          const entries = [...document.querySelectorAll("*")]
+            .filter(
+              (element): element is HTMLElement =>
+                element instanceof HTMLElement,
+            )
+            .map((element) => ({
+              element,
+              size: parseFloat(getComputedStyle(element).fontSize),
+            }))
+            .filter(({ size }) => size > 0 && Number.isFinite(size));
+          for (const { element, size } of entries)
+            element.style.fontSize = `${size * 2}px`;
+          const ratios = entries.map(
+            ({ element, size }) =>
+              parseFloat(getComputedStyle(element).fontSize) / size,
+          );
+          return {
+            count: entries.length,
+            minimum: Math.min(...ratios),
+            maximum: Math.max(...ratios),
+          };
+        });
+      const growth = await enlargeText();
+      expect(growth.count).toBeGreaterThan(100);
+      expect(growth.minimum).toBeCloseTo(2);
+      expect(growth.maximum).toBeCloseTo(2);
+      await expect
+        .poll(
+          async () =>
+            (await page.locator(".workspace-tabs").boundingBox())!.height,
+        )
+        .toBeGreaterThan(ordinaryNavigation.height);
+      const layout = async () => {
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          )
+          .toBe(true);
+        const errors = await page.evaluate(() => {
+          const errors: string[] = [];
+          const targets = [
+            ".wordmark",
+            ".account-details summary",
+            ".theme-control > summary",
+          ].map((selector) => ({
+            selector,
+            box: document.querySelector(selector)!.getBoundingClientRect(),
+          }));
+          for (const { selector, box } of targets)
+            if (box.left < 0 || box.right > innerWidth)
+              errors.push(`${selector} outside viewport`);
+          for (let i = 0; i < targets.length; i++)
+            for (let j = i + 1; j < targets.length; j++) {
+              const a = targets[i]!.box,
+                b = targets[j]!.box;
+              if (
+                a.left < b.right &&
+                a.right > b.left &&
+                a.top < b.bottom &&
+                a.bottom > b.top
+              )
+                errors.push("header overlap");
+            }
+          // Text ranges detect painted labels crossing targets even when button boxes fit.
+          for (const button of document.querySelectorAll(
+            ".workspace-tabs button",
+          )) {
+            const box = button.getBoundingClientRect();
+            if (!box.width) continue;
+            const walker = document.createTreeWalker(
+              button,
+              NodeFilter.SHOW_TEXT,
+            );
+            while (walker.nextNode()) {
+              if (!walker.currentNode.textContent?.trim()) continue;
+              const range = document.createRange();
+              range.selectNodeContents(walker.currentNode);
+              if (!range.getClientRects().length) continue;
+              // Whole-word ranges must occupy one line, not just fit the button's box.
+              for (const word of walker.currentNode.textContent!.matchAll(
+                /\S+/g,
+              )) {
+                const wordRange = document.createRange();
+                wordRange.setStart(walker.currentNode, word.index!);
+                wordRange.setEnd(
+                  walker.currentNode,
+                  word.index! + word[0].length,
+                );
+                if (wordRange.getClientRects().length !== 1)
+                  errors.push(
+                    `navigation word ${word[0]} is split across lines`,
+                  );
+              }
+              for (const rect of range.getClientRects())
+                if (
+                  rect.left < box.left - 1 ||
+                  rect.right > box.right + 1 ||
+                  rect.top < box.top - 1 ||
+                  rect.bottom > box.bottom + 1
+                )
+                  errors.push("navigation label outside target");
+            }
+          }
+          return errors;
+        });
+        expect(errors).toEqual([]);
+      };
+      await layout();
+      for (const action of [
+        "Review songs →",
+        "Playlist details →",
+        "Create playlist →",
+      ]) {
+        await enlargeText();
+        await layout();
+        const button = page.getByRole("button", { name: action, exact: true });
+        await button.scrollIntoViewIfNeeded();
+        await expect(button).toBeInViewport();
+        await expect
+          .poll(async () => {
+            const target = await button.boundingBox();
+            const nav = await page.locator(".workspace-tabs").boundingBox();
+            return (
+              !!target &&
+              !!nav &&
+              target.y >= 0 &&
+              target.y + target.height <= nav.y
+            );
+          })
+          .toBe(true);
+        if (action !== "Create playlist →") await button.click();
+        await layout();
+      }
+      await page.locator(".account-details summary").scrollIntoViewIfNeeded();
+      await page.locator(".account-details summary").click();
+      await expect(
+        page.getByRole("button", {
+          name: "Disconnect & delete app data",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await enlargeText();
+      await layout();
+    });
+
+for (const height of [480, 740])
+  test(`phone builder input, suggestions and each action stay reachable at 360x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height });
+    await mock(page);
+    await page.goto("/");
+    await builder(page);
+    const input = page.getByLabel("Add All of tag", { exact: true });
+    await input.fill("Synthetic");
+    await expect(input).toBeFocused();
+    const option = page.getByRole("option", { name: /^Synthetic tag 1 / });
+    await option.scrollIntoViewIfNeeded();
+    await expect(option).toBeInViewport();
+    const beforeNavigation = async (target: ReturnType<Page["locator"]>) => {
+      await target.evaluate((element) =>
+        element.scrollIntoView({ block: "center" }),
+      );
+      await expect
+        .poll(async () => {
+          const box = await target.boundingBox(),
+            nav = await page.locator(".workspace-tabs").boundingBox();
+          return !!box && !!nav && box.y >= 0 && box.y + box.height <= nav.y;
+        })
+        .toBe(true);
+    };
+    await beforeNavigation(option);
+    await option.click();
+    await expect(input).toBeFocused();
+    await page
+      .getByRole("button", {
+        name: "Close Add All of tag suggestions",
+        exact: true,
+      })
+      .click();
+    await expect(page.locator(".query-feedback")).toContainText("2 songs");
+    for (const action of [
+      "Review songs →",
+      "Playlist details →",
+      "Create playlist →",
+    ]) {
+      const target = page.getByRole("button", { name: action, exact: true });
+      if (height === 740) {
+        const box = await target.boundingBox(),
+          nav = await page.locator(".workspace-tabs").boundingBox();
+        expect(box!.y + box!.height).toBeLessThanOrEqual(nav!.y);
+      }
+      await beforeNavigation(target);
+      if (action === "Create playlist →")
+        await expect(
+          page.getByLabel("Keep this playlist", { exact: true }),
+        ).toBeVisible();
+      else await target.click();
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
   });

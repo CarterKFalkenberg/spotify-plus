@@ -214,6 +214,8 @@ export function librarySearch(value: unknown): LibrarySearchResponse {
   const v = obj(value),
     base = {
       revision: parseLibraryRevision(v.revision),
+      artworkPending:
+        v.artworkPending === undefined ? false : bool(v.artworkPending),
       totalTracks: count(v.totalTracks),
       nextCursor: cursor(v.nextCursor),
     };
@@ -230,6 +232,7 @@ export function librarySearch(value: unknown): LibrarySearchResponse {
       if (selection.kind !== "filter") fail();
       return {
         artistId: str(g.artistId),
+        artworkUrl: parseArtworkUrl(g.artworkUrl ?? null),
         name: str(g.name),
         trackCount: count(g.trackCount),
         taggedCount: count(g.taggedCount),
@@ -263,6 +266,7 @@ export function playlist(value: unknown): ManagedPlaylistDTO {
     revision: parseRevision(v.revision),
     name: str(v.name),
     spotifyUrl: spotifyLink(v.spotifyUrl),
+    artworkUrl: parseArtworkUrl(v.artworkUrl ?? null),
     query: parseQuery(v.query),
     retention: parseRetention(v.retention),
     createdAt: time(v.createdAt),
@@ -361,4 +365,24 @@ export function rejectsIntent(error: unknown): boolean {
       "invalid_action",
     ].includes(error.code)
   );
+}
+
+export function parseArtworkUrl(value: unknown): string | null {
+  if (value === null) return null;
+  const raw = str(value);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return fail();
+  }
+  if (
+    raw.length > 4096 ||
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.hash
+  )
+    return fail();
+  return url.href;
 }

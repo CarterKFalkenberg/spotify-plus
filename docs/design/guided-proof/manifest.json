@@ -1,0 +1,2433 @@
+{
+  "beforeSource": "34b6ac775e4aa2404f4198cf50488e589c09eae7",
+  "afterSource": "c3af630d95c485289898057fb4ffa68f6c43021f",
+  "afterApplicationTree": "54b8d4f1078cca9f7e31b37f9355166976e63b02",
+  "generatedAt": "2026-10-21T15:31:55.094333+00:00",
+  "syntheticOnly": true,
+  "sameHelpersAndFixturesPerMatchedSet": true,
+  "captures": 184,
+  "comparisonCount": 30,
+  "archiveSha256": "3312cf4ed9a80de8105a229b9d4d56673771bb9f03c18c9f6a777c96045b7cab",
+  "comparisons": [
+    {
+      "file": "desktop-queue-light.png",
+      "title": "Tag queue",
+      "theme": "light",
+      "caption": "Nine quick tags stay visible; song actions, ordering and editing are disclosed. Next is the main action.",
+      "scene": "desktop-queue",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "bb0e2b8048111a7938ffdc3a186bdda4287200200578c9db4a7bc73553c40127"
+    },
+    {
+      "file": "1440-library-large-light.png",
+      "title": "Large artist library",
+      "theme": "light",
+      "caption": "Same 3,000-song / 180-artist fixture: bounded 12-group pages, portraits and aligned contextual actions replace a long page of repeated inputs.",
+      "scene": "1440-library-large",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "65eaf05ee2ec2cdbfd3cd253b58def76756a12e7868ce90f056f925a79da9f56"
+    },
+    {
+      "file": "desktop-library-light.png",
+      "title": "Library songs",
+      "theme": "light",
+      "caption": "Purpose and browse modes are explicit; song tagging uses one contextual editor.",
+      "scene": "desktop-library",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "673ad303976371ea054ba7f18d69f6a792765b4f48f6319eb11306f083894b14"
+    },
+    {
+      "file": "desktop-vocabulary-light.png",
+      "title": "Your tags",
+      "theme": "light",
+      "caption": "Tag names, active-song counts and Edit are aligned; global rename/merge/delete remain available.",
+      "scene": "desktop-vocabulary",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "2871ea9a30d5b2879511342119bb9c6b1e74560822093231c6719a095ba173b2"
+    },
+    {
+      "file": "desktop-appearance-light.png",
+      "title": "Appearance",
+      "theme": "light",
+      "caption": "A labeled control opens System / Light / Dark choices.",
+      "scene": "desktop-appearance",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "aec47e0a4a84b593b9fb2dca2643e1d3f6ef67582d5f4a3c85febef95b8eff98"
+    },
+    {
+      "file": "360-builder-choose-light.png",
+      "title": "Phone: choose tags",
+      "theme": "light",
+      "caption": "360\u00d7740 viewport. Choose tags and see the live match; Review songs is the prominent next action.",
+      "scene": "360-builder-choose",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "98d9bd4e742454fe67f95f02b335c7ebbe7f4dea569477621325bddf08948500"
+    },
+    {
+      "file": "360-builder-review-light.png",
+      "title": "Phone: review songs",
+      "theme": "light",
+      "caption": "The guided second step gives songs their own review space and an explicit Playlist details action.",
+      "scene": "360-builder-review",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "7e899c432dcdbc7eac6b23f332b550c897c9b3725c3f48eb9c2d76ee894b6a1e"
+    },
+    {
+      "file": "360-builder-details-light.png",
+      "title": "Phone: name and keep",
+      "theme": "light",
+      "caption": "Name, retention, expiry and Create fit the ordinary viewport; details remain available by disclosure.",
+      "scene": "360-builder-details",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "1e1085e24436b2dd4cbff033cda83e51333a559e9c5d5afe0922dca2b207d835"
+    },
+    {
+      "file": "360-playlists-light.png",
+      "title": "Your playlists on a phone",
+      "theme": "light",
+      "caption": "Healthy playlists show cover, expiry, Open and Manage; pending and incomplete states remain explicit.",
+      "scene": "360-playlists",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "75b17a6aabb38ec6e2dc2c063dfb77cefb7cc02ec6500c673a75b37ee3c2a27d"
+    },
+    {
+      "file": "desktop-queue-dark.png",
+      "title": "Tag queue",
+      "theme": "dark",
+      "caption": "Nine quick tags stay visible; song actions, ordering and editing are disclosed. Next is the main action.",
+      "scene": "desktop-queue",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "6594353d02f6d0390182df3ca08bda57125262f2803ec798fc2fa59731da39dd"
+    },
+    {
+      "file": "1440-library-large-dark.png",
+      "title": "Large artist library",
+      "theme": "dark",
+      "caption": "Same 3,000-song / 180-artist fixture: bounded 12-group pages, portraits and aligned contextual actions replace a long page of repeated inputs.",
+      "scene": "1440-library-large",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "6997ea881df8aa4e2367a50249415a0359338b46ddc5d1037ced9fe03b8ea476"
+    },
+    {
+      "file": "desktop-library-dark.png",
+      "title": "Library songs",
+      "theme": "dark",
+      "caption": "Purpose and browse modes are explicit; song tagging uses one contextual editor.",
+      "scene": "desktop-library",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "a5c3811d19f1c6623fc31ab57aae08fa25606bdffd930947cba18787c16670fc"
+    },
+    {
+      "file": "desktop-vocabulary-dark.png",
+      "title": "Your tags",
+      "theme": "dark",
+      "caption": "Tag names, active-song counts and Edit are aligned; global rename/merge/delete remain available.",
+      "scene": "desktop-vocabulary",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "3066a97d10d1eac560815e81164a4210f4bde18fb3ff4ba6dad53eb6a885c9d4"
+    },
+    {
+      "file": "desktop-appearance-dark.png",
+      "title": "Appearance",
+      "theme": "dark",
+      "caption": "A labeled control opens System / Light / Dark choices.",
+      "scene": "desktop-appearance",
+      "kind": "matched",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "0d2c3bdf572ffd377dd87262ad61f3543959f3f5a7a83f605fcb32efbb069d18"
+    },
+    {
+      "file": "360-builder-choose-dark.png",
+      "title": "Phone: choose tags",
+      "theme": "dark",
+      "caption": "360\u00d7740 viewport. Choose tags and see the live match; Review songs is the prominent next action.",
+      "scene": "360-builder-choose",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "bae1db53d7cfe1f2d6d857f0d840f1f0ca5eaf13af7a0820f142257d30b9b33e"
+    },
+    {
+      "file": "360-builder-review-dark.png",
+      "title": "Phone: review songs",
+      "theme": "dark",
+      "caption": "The guided second step gives songs their own review space and an explicit Playlist details action.",
+      "scene": "360-builder-review",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "09292ed2d698fd7b0c90bf7128f8503207207a2040bd5d6162a5290d46e48d31"
+    },
+    {
+      "file": "360-builder-details-dark.png",
+      "title": "Phone: name and keep",
+      "theme": "dark",
+      "caption": "Name, retention, expiry and Create fit the ordinary viewport; details remain available by disclosure.",
+      "scene": "360-builder-details",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "bb7b287d7e3543801f2917f77899b2a0efe6eca0abb7710932ff984c5d69db98"
+    },
+    {
+      "file": "360-playlists-dark.png",
+      "title": "Your playlists on a phone",
+      "theme": "dark",
+      "caption": "Healthy playlists show cover, expiry, Open and Manage; pending and incomplete states remain explicit.",
+      "scene": "360-playlists",
+      "kind": "matched",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "6c2cf3dbcfda8c790a3cf1f1baf4da43446c5b842cb537c6ff50f5994cfbf56f"
+    },
+    {
+      "file": "desktop-quick-tag-edit-light.png",
+      "title": "Edit all nine quick slots",
+      "theme": "light",
+      "caption": "Slot 9 editing and tag suggestions are available on demand.",
+      "scene": "desktop-quick-tag-edit",
+      "kind": "expanded",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "b6a932ce2facdc1c667660a28be8575742e2c6b7b78b1b4db9f8a698cdeb6cfb"
+    },
+    {
+      "file": "desktop-library-selection-light.png",
+      "title": "Bulk selection",
+      "theme": "light",
+      "caption": "Two selected songs retain one bulk editor with suggestions. No Spotify library writes occur in this visual fixture.",
+      "scene": "desktop-library-selection",
+      "kind": "expanded",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "08398ea720eac01b4a2a03d1083dbf33756976057158266a7870ed57c95a1b03"
+    },
+    {
+      "file": "360-tag-delete-confirmation-light.png",
+      "title": "Tag deletion preview",
+      "theme": "light",
+      "caption": "The assignment count, consequence, confirmation and cancel path remain visible before a synthetic deletion.",
+      "scene": "360-tag-delete-confirmation",
+      "kind": "expanded",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "c70f190734134b579e30b312fc9eee11a8a02d491667c5dc53aa35dd1e04a577"
+    },
+    {
+      "file": "360-builder-refinements-light.png",
+      "title": "All / Any / None refinements",
+      "theme": "light",
+      "caption": "All three distinct synthetic tags are selected. Expanded content uses vertical scrolling; the viewport image is not a claim that all refinements fit at once.",
+      "scene": "360-builder-refinements",
+      "kind": "expanded",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "a5d0389aa103b61258388d19cb94508c26b7f3f6e127794239f91f6e31ab704b"
+    },
+    {
+      "file": "360-playlist-manage-light.png",
+      "title": "Playlist management",
+      "theme": "light",
+      "caption": "Retention, Pin, Extend, Regenerate and Delete remain available after Manage is opened. Expanded content can scroll.",
+      "scene": "360-playlist-manage",
+      "kind": "expanded",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "7c9bd86373bf07cff2c7204def2fb0f2f3d309f030898923d132a8923afdcdc7"
+    },
+    {
+      "file": "320-builder-text-200-light.png",
+      "title": "Measured 2\u00d7 text enlargement",
+      "theme": "light",
+      "caption": "Every HTML element\u2019s pre-collected computed font size is doubled and measured. This is synthetic text enlargement at 320px, not native browser zoom or a real phone acceptance test.",
+      "scene": "320-builder-text-200",
+      "kind": "expanded",
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "sha256": "e80284c10f7f9dd5f0d9572b952a56bb457d3d9dc08517bdfff7179a2941650c"
+    },
+    {
+      "file": "desktop-quick-tag-edit-dark.png",
+      "title": "Edit all nine quick slots",
+      "theme": "dark",
+      "caption": "Slot 9 editing and tag suggestions are available on demand.",
+      "scene": "desktop-quick-tag-edit",
+      "kind": "expanded",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "0eb43143d38fa2055efd1802fa718ff199ca056d966a5ba9fe671dc5bf05d013"
+    },
+    {
+      "file": "desktop-library-selection-dark.png",
+      "title": "Bulk selection",
+      "theme": "dark",
+      "caption": "Two selected songs retain one bulk editor with suggestions. No Spotify library writes occur in this visual fixture.",
+      "scene": "desktop-library-selection",
+      "kind": "expanded",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "5ea148e44a3ce42ddffa74b2fc2d7f00e4ad8b3b0fa8468a4c04ad7b99b039d5"
+    },
+    {
+      "file": "360-tag-delete-confirmation-dark.png",
+      "title": "Tag deletion preview",
+      "theme": "dark",
+      "caption": "The assignment count, consequence, confirmation and cancel path remain visible before a synthetic deletion.",
+      "scene": "360-tag-delete-confirmation",
+      "kind": "expanded",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "f0d79c7f7633392568da04696c476620bcab242f2934aa8a6f780929adc3703d"
+    },
+    {
+      "file": "360-builder-refinements-dark.png",
+      "title": "All / Any / None refinements",
+      "theme": "dark",
+      "caption": "All three distinct synthetic tags are selected. Expanded content uses vertical scrolling; the viewport image is not a claim that all refinements fit at once.",
+      "scene": "360-builder-refinements",
+      "kind": "expanded",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "7b1c298437cc758425eee4a6b04a2aebd7265f839fa45f4864c5f0db0e0c344b"
+    },
+    {
+      "file": "360-playlist-manage-dark.png",
+      "title": "Playlist management",
+      "theme": "dark",
+      "caption": "Retention, Pin, Extend, Regenerate and Delete remain available after Manage is opened. Expanded content can scroll.",
+      "scene": "360-playlist-manage",
+      "kind": "expanded",
+      "viewport": {
+        "width": 360,
+        "height": 740
+      },
+      "sha256": "f61b6114aa46c1994c183ebe31c3979e6d2bf42c2d0edbd4ec743b2975a307cd"
+    },
+    {
+      "file": "320-builder-text-200-dark.png",
+      "title": "Measured 2\u00d7 text enlargement",
+      "theme": "dark",
+      "caption": "Every HTML element\u2019s pre-collected computed font size is doubled and measured. This is synthetic text enlargement at 320px, not native browser zoom or a real phone acceptance test.",
+      "scene": "320-builder-text-200",
+      "kind": "expanded",
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "sha256": "0ee21728fc6a2877b24d399beda6cd92ea6371a2fe2f4e027b2bd28c19cdfb8a"
+    }
+  ],
+  "captureManifests": {
+    "matched-before-light": {
+      "phase": "before-matched",
+      "theme": "light",
+      "sourceHead": "34b6ac775e4aa2404f4198cf50488e589c09eae7",
+      "fixtureHashes": {
+        "capture-matched.mjs": "102a7c193ffeed904e0c74ea62fcc0e7a774e748e9a621d71a8edd147ed5756f",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "stress-fixture.ts": "06716ad847a89b534eede63c375a881c4f45de9dee337b0298919053347e8cf7"
+      },
+      "servedSourceVerified": true,
+      "dirty": "",
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "capturedAt": "2026-10-21T14:54:01.445Z",
+      "fixtures": "fast/core/stress fixture synthetic local API and artwork routes only; unknown nonlocal requests blocked. For pre-wizard source, choose/review/details capture the same all-at-once form for matched viewport comparisons.",
+      "results": [
+        {
+          "name": "desktop-queue",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "23f983f007bb94772b81b028205123309e6c3fe606c7e99573bbfafaf5c4eb46"
+        },
+        {
+          "name": "desktop-library-groups",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "cc33fb8e0881fe757f8cf140912e12d86e76e89490076d552ec284853600b22f"
+        },
+        {
+          "name": "desktop-library",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1896,
+          "sha256": "2457c139e9d0cf027f67f8bd3a0890999248a5e31633552a461fbe7e0df4fcf7"
+        },
+        {
+          "name": "desktop-vocabulary",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "4655424877f75b0444df2c8db43edcf56f0f0d02a803023074ede98ef74b9fb2"
+        },
+        {
+          "name": "desktop-appearance",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "5613fcee4e9849f3761d21246bab7477d1ca161b09573ef1b6c3a5399f88d507"
+        },
+        {
+          "name": "1440-builder-empty",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1166,
+          "sha256": "1bc15eb8086576a7d22e49b9ee2eb1fe3f52b4dc9d17e3a4c0b63814462d4743"
+        },
+        {
+          "name": "1440-builder-choose",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1144,
+          "sha256": "38f9b81c86150787572b17bfa5e0d584ebaedddbb4e86e43dc5de853370dd3b2"
+        },
+        {
+          "name": "1440-builder-review",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1144,
+          "sha256": "38f9b81c86150787572b17bfa5e0d584ebaedddbb4e86e43dc5de853370dd3b2"
+        },
+        {
+          "name": "1440-builder-details",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1144,
+          "sha256": "38f9b81c86150787572b17bfa5e0d584ebaedddbb4e86e43dc5de853370dd3b2"
+        },
+        {
+          "name": "1440-playlists",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1432,
+          "sha256": "7229de323d92746571c4d43dcb0cc8f5cef477ce9f11994188b7566cd5c319e6"
+        },
+        {
+          "name": "390-builder-empty",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1475,
+          "sha256": "e5b9dadf0a0dac1dcb87c6c907b20106b91ce9d908b534ea854705bd6fd03e7b"
+        },
+        {
+          "name": "390-builder-choose",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1513,
+          "sha256": "d2c1735f71de5b54704d9f92a5508dd66801d5142d67b3374956ed3c7c278dce"
+        },
+        {
+          "name": "390-builder-review",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1513,
+          "sha256": "d2c1735f71de5b54704d9f92a5508dd66801d5142d67b3374956ed3c7c278dce"
+        },
+        {
+          "name": "390-builder-details",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1513,
+          "sha256": "d2c1735f71de5b54704d9f92a5508dd66801d5142d67b3374956ed3c7c278dce"
+        },
+        {
+          "name": "390-playlists",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1619,
+          "sha256": "1c4c1b8f1a70f9a138b56c28c0463d34808d13b1ebf2f52fc2f82ba98f922897"
+        },
+        {
+          "name": "360-builder-empty",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1493,
+          "sha256": "b513b7781d6015d9296521662b29953a7f43962e99b7c5a4e18fe95785887d2a"
+        },
+        {
+          "name": "360-builder-choose",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1532,
+          "sha256": "dee4c2314ec879cabb0737a078350f04d86a022b79036fe0ba31efcc7f7dfec5"
+        },
+        {
+          "name": "360-builder-review",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1532,
+          "sha256": "dee4c2314ec879cabb0737a078350f04d86a022b79036fe0ba31efcc7f7dfec5"
+        },
+        {
+          "name": "360-builder-details",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1532,
+          "sha256": "dee4c2314ec879cabb0737a078350f04d86a022b79036fe0ba31efcc7f7dfec5"
+        },
+        {
+          "name": "360-playlists",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1641,
+          "sha256": "66cf3f964fe94628673781a269da6fc33fe232ff44b9cb0b7583da51e00be659"
+        },
+        {
+          "name": "320-builder-empty",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1511,
+          "sha256": "2b72adc464e64d9b9329018c2428f1f629d67a0eab2334120164dbefdf835b02"
+        },
+        {
+          "name": "320-builder-choose",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1550,
+          "sha256": "7024cf0ba26ebd501b7e5934a446e6c5b8dfffebbf7269f926bcca8ab3cbf758"
+        },
+        {
+          "name": "320-builder-review",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1550,
+          "sha256": "7024cf0ba26ebd501b7e5934a446e6c5b8dfffebbf7269f926bcca8ab3cbf758"
+        },
+        {
+          "name": "320-builder-details",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1550,
+          "sha256": "7024cf0ba26ebd501b7e5934a446e6c5b8dfffebbf7269f926bcca8ab3cbf758"
+        },
+        {
+          "name": "320-playlists",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1711,
+          "sha256": "d3400d2b3a9dcadfa59fafdb5155f6111d42badfc7f64958bdb172bdec77664d"
+        },
+        {
+          "name": "1440-library-large",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 5740,
+          "sha256": "3c714c3dac43a5fdd5d0dfa39a2ec6c9c53ab13311bbeb1aa35af431f243678d"
+        }
+      ]
+    },
+    "matched-before-dark": {
+      "phase": "before-matched",
+      "theme": "dark",
+      "sourceHead": "34b6ac775e4aa2404f4198cf50488e589c09eae7",
+      "fixtureHashes": {
+        "capture-matched.mjs": "102a7c193ffeed904e0c74ea62fcc0e7a774e748e9a621d71a8edd147ed5756f",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "stress-fixture.ts": "06716ad847a89b534eede63c375a881c4f45de9dee337b0298919053347e8cf7"
+      },
+      "servedSourceVerified": true,
+      "dirty": "",
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "capturedAt": "2026-10-21T14:57:02.948Z",
+      "fixtures": "fast/core/stress fixture synthetic local API and artwork routes only; unknown nonlocal requests blocked. For pre-wizard source, choose/review/details capture the same all-at-once form for matched viewport comparisons.",
+      "results": [
+        {
+          "name": "desktop-queue",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "b5fd46782947bfa29470b22add966bc1dd14b55d5ab01e6cc24ea103438749c4"
+        },
+        {
+          "name": "desktop-library-groups",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "6177c17fa0800fed1695b0f732c694d53e176546fc47351cf504df3f132fa3a2"
+        },
+        {
+          "name": "desktop-library",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1896,
+          "sha256": "634c5b81b4779c43d26251a1224c2daebe59f949e8141b785a7bd3398fb61df1"
+        },
+        {
+          "name": "desktop-vocabulary",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "d93d0a9864933386a630095a0aa1182672184c497d78f0cc5dccb990a1817119"
+        },
+        {
+          "name": "desktop-appearance",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "7fd8700a75fa886536d150f56f551a4b7012756999b48f6d4d3c450d953b4ce0"
+        },
+        {
+          "name": "1440-builder-empty",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1166,
+          "sha256": "b653745513dbfc3c54db3605709557581ec573382c1a5424379e6df4555d1649"
+        },
+        {
+          "name": "1440-builder-choose",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1144,
+          "sha256": "b83673070bf72ee612c6eec262aff9c79cf47e947ce99b2ad0c5687f61dfd885"
+        },
+        {
+          "name": "1440-builder-review",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1144,
+          "sha256": "b83673070bf72ee612c6eec262aff9c79cf47e947ce99b2ad0c5687f61dfd885"
+        },
+        {
+          "name": "1440-builder-details",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1144,
+          "sha256": "b83673070bf72ee612c6eec262aff9c79cf47e947ce99b2ad0c5687f61dfd885"
+        },
+        {
+          "name": "1440-playlists",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1432,
+          "sha256": "ee6c299ebfae73ffcdcd42a066a78912247c0fe5e537edcaeb3fb9d2db455d02"
+        },
+        {
+          "name": "390-builder-empty",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1475,
+          "sha256": "32ba06bf2cc05d12fae78e3ccfd5f38a0cee229c7c58d00da801800a75d1921d"
+        },
+        {
+          "name": "390-builder-choose",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1513,
+          "sha256": "903fb782d69777ea622a1b13672219118907b6640f2d339b2104213f4077d63a"
+        },
+        {
+          "name": "390-builder-review",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1513,
+          "sha256": "903fb782d69777ea622a1b13672219118907b6640f2d339b2104213f4077d63a"
+        },
+        {
+          "name": "390-builder-details",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1513,
+          "sha256": "903fb782d69777ea622a1b13672219118907b6640f2d339b2104213f4077d63a"
+        },
+        {
+          "name": "390-playlists",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1619,
+          "sha256": "b84b19880ca288985a0d269ace0a99152a3aa6aa33976e8215f790f36a8a216d"
+        },
+        {
+          "name": "360-builder-empty",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1493,
+          "sha256": "9588e2b5b94d921403aeda688ac2e76393b134e75abff32d25287e61c4ff3c97"
+        },
+        {
+          "name": "360-builder-choose",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1532,
+          "sha256": "9787d989e6386becf9fa2543cac27069625ac4bff493793400f4f73881ca52f7"
+        },
+        {
+          "name": "360-builder-review",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1532,
+          "sha256": "9787d989e6386becf9fa2543cac27069625ac4bff493793400f4f73881ca52f7"
+        },
+        {
+          "name": "360-builder-details",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1532,
+          "sha256": "9787d989e6386becf9fa2543cac27069625ac4bff493793400f4f73881ca52f7"
+        },
+        {
+          "name": "360-playlists",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1641,
+          "sha256": "7854da768d9b5f372a135d05d9169a691235bc76c9a3f2613ddee624c39376ae"
+        },
+        {
+          "name": "320-builder-empty",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1511,
+          "sha256": "cdc9a5252a557a83012845ff07d320c70a884414409e11b1ce3440572f811668"
+        },
+        {
+          "name": "320-builder-choose",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1550,
+          "sha256": "9a8602a7b49af4b0d6e7cba8d900e762644f09ea2aa3f7a83c522b32d59c55c0"
+        },
+        {
+          "name": "320-builder-review",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1550,
+          "sha256": "9a8602a7b49af4b0d6e7cba8d900e762644f09ea2aa3f7a83c522b32d59c55c0"
+        },
+        {
+          "name": "320-builder-details",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1550,
+          "sha256": "9a8602a7b49af4b0d6e7cba8d900e762644f09ea2aa3f7a83c522b32d59c55c0"
+        },
+        {
+          "name": "320-playlists",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1711,
+          "sha256": "410da5afc117c899ea6fa7bceecd18c75537ac31776bdd3c957e350a3217cc69"
+        },
+        {
+          "name": "1440-library-large",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 5740,
+          "sha256": "f743835e26629301ad352f970bd7629c786d7d13f0bb139f4cf6587c99af3fc6"
+        }
+      ]
+    },
+    "matched-after-light": {
+      "phase": "after-matched",
+      "theme": "light",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "fixtureHashes": {
+        "capture-matched.mjs": "102a7c193ffeed904e0c74ea62fcc0e7a774e748e9a621d71a8edd147ed5756f",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "stress-fixture.ts": "06716ad847a89b534eede63c375a881c4f45de9dee337b0298919053347e8cf7"
+      },
+      "servedSourceVerified": true,
+      "dirty": "",
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "capturedAt": "2026-10-21T15:30:36.010Z",
+      "fixtures": "fast/core/stress fixture synthetic local API and artwork routes only; unknown nonlocal requests blocked. For pre-wizard source, choose/review/details capture the same all-at-once form for matched viewport comparisons.",
+      "results": [
+        {
+          "name": "desktop-queue",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 932,
+          "sha256": "98d71fd6db0d17a9e2a4611ef4c6982bb0b8f66f1fb7be792b38614f9ea0f609"
+        },
+        {
+          "name": "desktop-library-groups",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "15f8102bb68eac4670760a718eef46e53f8725f0a405d0a3890c2c287361e06b"
+        },
+        {
+          "name": "desktop-library",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1889,
+          "sha256": "b2d6c674d59d0ca4e2ef2de4ab338e5ada92ab04ed4969ab9f98c9a20930efda"
+        },
+        {
+          "name": "desktop-vocabulary",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "323ff72364798d86a4184fa8b0ed154427804ea75f6fceef5d208a60f8063f77"
+        },
+        {
+          "name": "desktop-appearance",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "cba0371ad2712e9a5e32f4dbd2ae8a60b06c618da696f99142bbf3f963732496"
+        },
+        {
+          "name": "1440-builder-empty",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 963,
+          "sha256": "000b608d82c8380fd5adcf8c495dea70b127af7e93b19de1535026fd5c267521"
+        },
+        {
+          "name": "1440-builder-choose",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 941,
+          "sha256": "1b71bdc85223731025960bb5fd08d3325a339f2e3ac3829fb316b1957f23020d"
+        },
+        {
+          "name": "1440-builder-review",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 978,
+          "sha256": "eca3eae83d3f4592938d5276a92e83ec86e7e5c733b24aaaaa43a609b56ef96f"
+        },
+        {
+          "name": "1440-builder-details",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 954,
+          "sha256": "a682a719885b228039d588bdbebbf3d8487070255dcf543183dffee8677f61d9"
+        },
+        {
+          "name": "1440-playlists",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1215,
+          "sha256": "3597c319517bc86f08e77891c0056020a7e54f0778058e8104d312c07e2d0bae"
+        },
+        {
+          "name": "390-builder-empty",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 850,
+          "sha256": "b8e2b92992bc3a2aac9934f2b1c2664fc54819d8294a350208164fbbef96102d"
+        },
+        {
+          "name": "390-builder-choose",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 847,
+          "sha256": "420619fce0ac440102adf4f4977b4bc7fd53f7a0b63f80f759def9edbf943e20"
+        },
+        {
+          "name": "390-builder-review",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 861,
+          "sha256": "8961a1b1e6bf8c896b9490fba9b134ddf4bcdb15a43ba2ab0bb674251776ea16"
+        },
+        {
+          "name": "390-builder-details",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 844,
+          "sha256": "9d9d30400677dcc6b81ad333070dcb6954a49d747d36b06bb7ece47d0203c4cd"
+        },
+        {
+          "name": "390-playlists",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1387,
+          "sha256": "0de40575846de80b34847186ff999a3b9275bc857ff1eefbe0ffa81bba8556da"
+        },
+        {
+          "name": "360-builder-empty",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 870,
+          "sha256": "ccfb501a8310deae9de0d3b7935bb7a026165bdb1aa74b2910d31d301f385df1"
+        },
+        {
+          "name": "360-builder-choose",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 867,
+          "sha256": "3f4e1b117c02f3cb275b75c96e2c463ef3bff872ce1ccc92c07c1ea86cb469fc"
+        },
+        {
+          "name": "360-builder-review",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "11e345fb24d244e3e22c90f75c3ea14e055a3cf5c6c1095d745ecbfeb3f19de7"
+        },
+        {
+          "name": "360-builder-details",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "28671577134244f4d84b1bda2ef67ab85275626ae6d1fcc770bcbd1ca37e442a"
+        },
+        {
+          "name": "360-playlists",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1441,
+          "sha256": "e82400c62d93d9de27359060b2aa55cc00c26ec5ec967982c803c4d47a494079"
+        },
+        {
+          "name": "320-builder-empty",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 870,
+          "sha256": "7733a3e50c1df64addd0bb440b6afda536dddff6dfac8547e97cd707fe9e49ff"
+        },
+        {
+          "name": "320-builder-choose",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 867,
+          "sha256": "ffa0579ef0bf09cd9829e884b2d3ab447b797452124e0d2723bad093443febd8"
+        },
+        {
+          "name": "320-builder-review",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "21cf77f49bfa18d3d2c42c7a60a96ee4af38c79a69d660d7e97459ef5093a59d"
+        },
+        {
+          "name": "320-builder-details",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "894b343b1239fe0fd18280ed9b8ed1df0921b706f96a0777e8f23d7532fa6628"
+        },
+        {
+          "name": "320-playlists",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1484,
+          "sha256": "2bd15d0dbd116ba30c8d4d66589ea261a1a1d91bf3ceae6695739034dea0c9b0"
+        },
+        {
+          "name": "1440-library-large",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1537,
+          "sha256": "06f10b8be66046bb3392173d5f1623391d8dc9d7ebad06729a8a1ebf7268a4e0"
+        }
+      ]
+    },
+    "matched-after-dark": {
+      "phase": "after-matched",
+      "theme": "dark",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "fixtureHashes": {
+        "capture-matched.mjs": "102a7c193ffeed904e0c74ea62fcc0e7a774e748e9a621d71a8edd147ed5756f",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "stress-fixture.ts": "06716ad847a89b534eede63c375a881c4f45de9dee337b0298919053347e8cf7"
+      },
+      "servedSourceVerified": true,
+      "dirty": "",
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "capturedAt": "2026-10-21T15:30:35.313Z",
+      "fixtures": "fast/core/stress fixture synthetic local API and artwork routes only; unknown nonlocal requests blocked. For pre-wizard source, choose/review/details capture the same all-at-once form for matched viewport comparisons.",
+      "results": [
+        {
+          "name": "desktop-queue",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 932,
+          "sha256": "78b1fd350483c0c5409572ac0e6be47b3e9ce9044edec12fdaeaee074416aa7c"
+        },
+        {
+          "name": "desktop-library-groups",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "c2bd91eb8ffb89f177433323ee433332d61f84451c4f63e1e3a66c72994bbefd"
+        },
+        {
+          "name": "desktop-library",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1889,
+          "sha256": "366e75c40d7e1c2b619bfb39ca1eb3a1008ae67ef4666526c222e8f45adc74c7"
+        },
+        {
+          "name": "desktop-vocabulary",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "e474a664c33ae05a044b41a4819461c7b34824b664447d528c8b8a90c76257f7"
+        },
+        {
+          "name": "desktop-appearance",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "aa429e420eab0df7355be3c6ebd02391861628df67e69d52c7be41cb7721ff67"
+        },
+        {
+          "name": "1440-builder-empty",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 963,
+          "sha256": "5f0c398ccb9052c0fac2dc7efcde9b3a0f140c8f8215642250d71935f2e21733"
+        },
+        {
+          "name": "1440-builder-choose",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 941,
+          "sha256": "f26ece0feee6a61892779e2ea35a5a47fce533a166cfe39cb7076c403c2dcb09"
+        },
+        {
+          "name": "1440-builder-review",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 978,
+          "sha256": "585db213f4fe9bba5bbcb580b8b856514f827b638dd4e74ed7ae7efad4ec6f19"
+        },
+        {
+          "name": "1440-builder-details",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 954,
+          "sha256": "da214671e09488b0126097cff378fe7c133a2dae9b08565af651d38c6a6c1a0a"
+        },
+        {
+          "name": "1440-playlists",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1215,
+          "sha256": "6aab537130f295371fa511a61a1e36dbc2214a5be2ceb3e03bea9a83b0596948"
+        },
+        {
+          "name": "390-builder-empty",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 850,
+          "sha256": "c0e5597022f9cb5e4a356ef222f00238dba869992e4f43be88d96351a2393bfc"
+        },
+        {
+          "name": "390-builder-choose",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 847,
+          "sha256": "a3209ecd9c23e291aaba9b438274c65146429548a764fd16299c999f069fa0af"
+        },
+        {
+          "name": "390-builder-review",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 861,
+          "sha256": "62784b253bc0906d3b64dc0b3f054f97326b28ed4d42b45a2103ce0cfa62128f"
+        },
+        {
+          "name": "390-builder-details",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 844,
+          "sha256": "062c617690f02c62b4274ce636956173b19cdf855b3fc8b3e532599d04347057"
+        },
+        {
+          "name": "390-playlists",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1387,
+          "sha256": "22874178805951543cb1136cfb7e6635986702e8f83ca8fade56d3aead67f0fc"
+        },
+        {
+          "name": "360-builder-empty",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 870,
+          "sha256": "da1b8ea8c77e3e713e95d0b139a832764c267b1aa4739f637381c4049e30d73c"
+        },
+        {
+          "name": "360-builder-choose",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 867,
+          "sha256": "cb47c47b3ad06c0ba1fdb6856fa3d263797c3a8612684b07f6f6bf30d29f3cbc"
+        },
+        {
+          "name": "360-builder-review",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "660aedcb04f4e556e0ca1b5ed3be76d684b552fe8aed0070fa1608dca5b310c9"
+        },
+        {
+          "name": "360-builder-details",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "1f422dc68748f5ce1506f3dc318bd57ee58df19798babaf3e63c8cec4bf3671d"
+        },
+        {
+          "name": "360-playlists",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1441,
+          "sha256": "9abfa859348096b73861bea6af81ed898e0d12072155a733f4c133a27c174d53"
+        },
+        {
+          "name": "320-builder-empty",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 870,
+          "sha256": "25bb1417354171b81224a30af0acc42fd9b41eee68c372eda53f98815738fbbc"
+        },
+        {
+          "name": "320-builder-choose",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 867,
+          "sha256": "79cf8f091d024f352ddfe145e1e848c9d5a8db4fbc67933259364b4e85d4eceb"
+        },
+        {
+          "name": "320-builder-review",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "fe4bed874ed5f9976b2c354a4bdfaff4cef96f554e8dbd958edd41e71cdab3ab"
+        },
+        {
+          "name": "320-builder-details",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 881,
+          "sha256": "b0d572ea3a508796acaddcbcf8f21cf353f6f6db300120f2576b32e5f3bfa24f"
+        },
+        {
+          "name": "320-playlists",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1484,
+          "sha256": "9b389f6df909b654062cb12802bf962140ffe5dcc79ae47938ead81e2001f03f"
+        },
+        {
+          "name": "1440-library-large",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1537,
+          "sha256": "fd073de6514c67c95a46642f4d11a5b7368907f5e6aa0451f74ac2723279e526"
+        }
+      ]
+    },
+    "expanded-before-light": {
+      "phase": "before-expanded",
+      "theme": "light",
+      "sourceHead": "34b6ac775e4aa2404f4198cf50488e589c09eae7",
+      "fixtureHashes": {
+        "capture-expanded.mjs": "67342b36f394eb0d03d9f9af49fde9bcf379ebaaea9b4a85398f8535e053bf26",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa"
+      },
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "dirty": "",
+      "capturedAt": "2026-10-21T15:17:29.122Z",
+      "servedSourceVerified": true,
+      "fixtures": "Synthetic fast/core API and generated SVG images only; nonlocal requests blocked. Before disclosures show equivalent inline controls where the baseline has no disclosure. Text enlargement doubles every HTML element\u2019s pre-collected computed font size; ratios are measured. This is synthetic text enlargement, not native browser zoom, OS font settings, or keyboard acceptance.",
+      "results": [
+        {
+          "name": "desktop-queue-settings",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "23f983f007bb94772b81b028205123309e6c3fe606c7e99573bbfafaf5c4eb46"
+        },
+        {
+          "name": "desktop-queue-tools",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "23f983f007bb94772b81b028205123309e6c3fe606c7e99573bbfafaf5c4eb46"
+        },
+        {
+          "name": "desktop-hotkeys",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "7daeef6a8de08564440b4dd2fdbc359da5fe8f30b2e065501c80fb770e160df4"
+        },
+        {
+          "name": "desktop-quick-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1501,
+          "sha256": "69615017b4529d5f7a6eab0ac99af9e05b7f599262e8be62b081d1cb92e0a70a"
+        },
+        {
+          "name": "desktop-library-filters",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "5e2cd039d165cbfe65ca0cea9d9bc37bb958cb2830ca56dc2c1a484e32071dd7"
+        },
+        {
+          "name": "desktop-library-selection",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 2507,
+          "sha256": "d54e80b83bb9470cd82cf02b4d7c60bc2f91146c8457b6497a0afde85f214861"
+        },
+        {
+          "name": "1440-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "f0b4d57f0eb58522578bd53a82a74bda75a68d8fde674148d4aadba6497668f5"
+        },
+        {
+          "name": "1440-tag-delete-confirmation",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "c3d59d2f148bfc51272b992997f91d7a31d5d791bba88cc20f1ea8ceea750d5e"
+        },
+        {
+          "name": "360-tag-edit",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1179,
+          "sha256": "4b069a0c5fde6b7e9156322036352394921417064dea23ef13bd74c40fdcecf3"
+        },
+        {
+          "name": "360-tag-delete-confirmation",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1179,
+          "sha256": "8fecde8860e2838cb32da9faf77d8e9f6ad096ed413ddf3d10105cbf6275521d"
+        },
+        {
+          "name": "1440-builder-refinements",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1204,
+          "sha256": "5ed4046291f40d53871afb8387e79e7985e5f2605ba08b7d6e2202f528bf649f"
+        },
+        {
+          "name": "1440-builder-disclosure",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1204,
+          "sha256": "5ed4046291f40d53871afb8387e79e7985e5f2605ba08b7d6e2202f528bf649f"
+        },
+        {
+          "name": "1440-playlist-manage",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "a007d18f5b6258db7038b5841b03cb898ebb8035ff50d045cca4cb067f462b9a"
+        },
+        {
+          "name": "360-builder-refinements",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1606,
+          "sha256": "b06f26abd4a45c8141196700fc11f6049573c30a31ff4e9ffd0599489edf15ac"
+        },
+        {
+          "name": "360-builder-disclosure",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1606,
+          "sha256": "b06f26abd4a45c8141196700fc11f6049573c30a31ff4e9ffd0599489edf15ac"
+        },
+        {
+          "name": "360-playlist-manage",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 861,
+          "sha256": "49195a9b7f3d3784d4c6f088f7d0db13fc6029ede483c194ddd056f8debe9a55"
+        },
+        {
+          "name": "320-builder-refinements",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1624,
+          "sha256": "474b1f32bdbd7dbdda7ae23398cdd6db6e881af6c1161e389ef343ba5a5da031"
+        },
+        {
+          "name": "320-builder-disclosure",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1624,
+          "sha256": "474b1f32bdbd7dbdda7ae23398cdd6db6e881af6c1161e389ef343ba5a5da031"
+        },
+        {
+          "name": "320-playlist-manage",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 903,
+          "sha256": "cd0db1ef875ed7cb5b449a65f2fae0eacbc01adb1d68db40ddd8c0c2667c6876"
+        },
+        {
+          "name": "320-builder-text-200",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": true,
+          "documentHeight": 2697,
+          "sha256": "56ce627ca81a960abbf4c43befe6f95c7bcb6e9d59eb6a391ff23f0302ae6588",
+          "textEnlargement": {
+            "method": "synthetic computed-font doubling; not native browser zoom",
+            "elements": 132,
+            "minimumRatio": 2,
+            "maximumRatio": 2
+          }
+        }
+      ]
+    },
+    "expanded-before-dark": {
+      "phase": "before-expanded",
+      "theme": "dark",
+      "sourceHead": "34b6ac775e4aa2404f4198cf50488e589c09eae7",
+      "fixtureHashes": {
+        "capture-expanded.mjs": "67342b36f394eb0d03d9f9af49fde9bcf379ebaaea9b4a85398f8535e053bf26",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa"
+      },
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "dirty": "",
+      "capturedAt": "2026-10-21T15:17:29.778Z",
+      "servedSourceVerified": true,
+      "fixtures": "Synthetic fast/core API and generated SVG images only; nonlocal requests blocked. Before disclosures show equivalent inline controls where the baseline has no disclosure. Text enlargement doubles every HTML element\u2019s pre-collected computed font size; ratios are measured. This is synthetic text enlargement, not native browser zoom, OS font settings, or keyboard acceptance.",
+      "results": [
+        {
+          "name": "desktop-queue-settings",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "b5fd46782947bfa29470b22add966bc1dd14b55d5ab01e6cc24ea103438749c4"
+        },
+        {
+          "name": "desktop-queue-tools",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "b5fd46782947bfa29470b22add966bc1dd14b55d5ab01e6cc24ea103438749c4"
+        },
+        {
+          "name": "desktop-hotkeys",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 919,
+          "sha256": "d7bf1a49a2bff7e53d8e487fc493f79e9091f2d59e5068ba2ab90b397ee4d12e"
+        },
+        {
+          "name": "desktop-quick-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1501,
+          "sha256": "36ef8c5adf3f66d04028e6861979bb897962e3b828edaef4ea5e653503ad56d3"
+        },
+        {
+          "name": "desktop-library-filters",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "4db60a43fe45f4020715559108c1c640111a239d3444eef3e21aea1521a4bfbc"
+        },
+        {
+          "name": "desktop-library-selection",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 2507,
+          "sha256": "7f1cf28bbb78f10e1d85c04b8e3918da0b76f6b21e335cf6af9299c349b9b967"
+        },
+        {
+          "name": "1440-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "e7b4513ca728e20b2de3fa7d1726a96a2b3673393045b555d681a09e09bed48b"
+        },
+        {
+          "name": "1440-tag-delete-confirmation",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1168,
+          "sha256": "335666cee68bb0e2e8cff01f8d91601d0fd1a62feaeaf83f25ce25a4e41075b1"
+        },
+        {
+          "name": "360-tag-edit",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1179,
+          "sha256": "c044f4828b5e98dd75129d0e4288c54c607314f2dff6a0a7253247bae0f7878b"
+        },
+        {
+          "name": "360-tag-delete-confirmation",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1179,
+          "sha256": "7be845e554355d4d0a220dd97186e3c6b4ac4879ce1e31385cdc7069893d38c8"
+        },
+        {
+          "name": "1440-builder-refinements",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1204,
+          "sha256": "c7ecbfc8727fcff43d3fba8305fefc0ce2077b76bf5ef2d8d6a04bb09627d1b6"
+        },
+        {
+          "name": "1440-builder-disclosure",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1204,
+          "sha256": "c7ecbfc8727fcff43d3fba8305fefc0ce2077b76bf5ef2d8d6a04bb09627d1b6"
+        },
+        {
+          "name": "1440-playlist-manage",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "737b472055d45748a0758259b9dabe8cc922aca6d02ef82a4ce869c750fe32c3"
+        },
+        {
+          "name": "360-builder-refinements",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1606,
+          "sha256": "d7445549153d7782dea7dd35b4f3208a3f19fea1a135958abd71d220a986be98"
+        },
+        {
+          "name": "360-builder-disclosure",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1606,
+          "sha256": "d7445549153d7782dea7dd35b4f3208a3f19fea1a135958abd71d220a986be98"
+        },
+        {
+          "name": "360-playlist-manage",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 861,
+          "sha256": "e65ca4938ea146072b516ee73122e308e246eeeaa45a1358fc67826df7bf098d"
+        },
+        {
+          "name": "320-builder-refinements",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1624,
+          "sha256": "90f5c40b2602f5eb5e2cbebbbe981926ffdfac9dcc5697f07a2d78520e6b729d"
+        },
+        {
+          "name": "320-builder-disclosure",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1624,
+          "sha256": "90f5c40b2602f5eb5e2cbebbbe981926ffdfac9dcc5697f07a2d78520e6b729d"
+        },
+        {
+          "name": "320-playlist-manage",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 903,
+          "sha256": "cc6b4b4cf99bdbdde7a3d3ecabda79ba5e760db6bf8f3968616fb3c2c23b470c"
+        },
+        {
+          "name": "320-builder-text-200",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": true,
+          "documentHeight": 2697,
+          "sha256": "c595a1e4be471e7ca89a8606a1810d1e5c74a179aff74d51d77062c6ca024450",
+          "textEnlargement": {
+            "method": "synthetic computed-font doubling; not native browser zoom",
+            "elements": 132,
+            "minimumRatio": 2,
+            "maximumRatio": 2
+          }
+        }
+      ]
+    },
+    "expanded-after-light": {
+      "phase": "after-expanded",
+      "theme": "light",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "fixtureHashes": {
+        "capture-expanded.mjs": "67342b36f394eb0d03d9f9af49fde9bcf379ebaaea9b4a85398f8535e053bf26",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa"
+      },
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "dirty": "",
+      "capturedAt": "2026-10-21T15:30:37.488Z",
+      "servedSourceVerified": true,
+      "fixtures": "Synthetic fast/core API and generated SVG images only; nonlocal requests blocked. Before disclosures show equivalent inline controls where the baseline has no disclosure. Text enlargement doubles every HTML element\u2019s pre-collected computed font size; ratios are measured. This is synthetic text enlargement, not native browser zoom, OS font settings, or keyboard acceptance.",
+      "results": [
+        {
+          "name": "desktop-queue-settings",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 932,
+          "sha256": "1c12854e2532c49fbae9ee12fcea5ee9906c500ab7c167cac448a88380d36b15"
+        },
+        {
+          "name": "desktop-queue-tools",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 976,
+          "sha256": "c42e65dd23adbc2ebc4d4a561ed9780d31bfdb39b649241f339bced08f698732"
+        },
+        {
+          "name": "desktop-hotkeys",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 976,
+          "sha256": "17f1c3bcbad06c69822e9cd4942e175f5ef449aa8f06acd7e8d702aba2bb5afd"
+        },
+        {
+          "name": "desktop-quick-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1558,
+          "sha256": "e1d257227ef9c5d8b95d9c6e694703e947b895c7c7b2f57f8b7fb08181d80ded"
+        },
+        {
+          "name": "desktop-library-filters",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "8d4c8dc47a901705c7438412ea24ce60d130a9d94c5384db0ec4a2f217222f6c"
+        },
+        {
+          "name": "desktop-library-selection",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 2500,
+          "sha256": "bd8bd4f0ab4ca982c4bf1c25e6c3b4f7a095c4473a2bc481d5e910d77a822976"
+        },
+        {
+          "name": "1440-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "9b77dec99f3984c63755004581935780158de514d792036fd17dc613222c5493"
+        },
+        {
+          "name": "1440-tag-delete-confirmation",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "7e2955fe92acfaf5dfc91da3447547dd845fc059980b53c1eb487d29b0f8e703"
+        },
+        {
+          "name": "360-tag-edit",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1146,
+          "sha256": "4b79216ec5f204f05616dab99dacf38ee5350a8d5c145c40e08948b382f0932e"
+        },
+        {
+          "name": "360-tag-delete-confirmation",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1146,
+          "sha256": "9640048cba36277e7bab90a68577b8cb5c7077c1a89913c03c079e4f38b0eecf"
+        },
+        {
+          "name": "1440-builder-refinements",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1306,
+          "sha256": "3e6920fa47cf9d37c1f2ffa99bdda58c9e7be6d97db7ac2b3ca6f686393bc0f5"
+        },
+        {
+          "name": "1440-builder-disclosure",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1045,
+          "sha256": "b96c6d5f92269dd4a608250905f20beca5b20a3d0a14ec6797c5c8b5b50f732f"
+        },
+        {
+          "name": "1440-playlist-manage",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "b69db558f704aa6ec53bdb9339cec3653692732da620891e300df05d4f841755"
+        },
+        {
+          "name": "360-builder-refinements",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1202,
+          "sha256": "c440533eeea9f76591ba6caa9989bd54ff0963c71f27a50a4f8b0ea329a5e78f"
+        },
+        {
+          "name": "360-builder-disclosure",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1008,
+          "sha256": "50679e43cc653c97839fd73867b0c071a8a44dc3efc36c379f2d1fc980579cb7"
+        },
+        {
+          "name": "360-playlist-manage",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 927,
+          "sha256": "49f1b75b47de88c2e0bd638fa0af4cd161ff3ab4db571574ce21ba116087312f"
+        },
+        {
+          "name": "320-builder-refinements",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1202,
+          "sha256": "5930820054001a6dc3570ec370050867fe9a7f8a0e33a3faa9f18bfcae9317c5"
+        },
+        {
+          "name": "320-builder-disclosure",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1025,
+          "sha256": "c80a9344d19ccd33fc0c67500e9c9f5dae6442af3d50c930f4d8863b34230f98"
+        },
+        {
+          "name": "320-playlist-manage",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1023,
+          "sha256": "3d56f6b34a19c17fb9ef1e649763c989c664f84d4017593049f6dc1539d280ff"
+        },
+        {
+          "name": "320-builder-text-200",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1549,
+          "sha256": "ba1746d99b594f50a0144491ec30317db24fc484a353cc58e4573a5add1f73fb",
+          "textEnlargement": {
+            "method": "synthetic computed-font doubling; not native browser zoom",
+            "elements": 159,
+            "minimumRatio": 2,
+            "maximumRatio": 2
+          }
+        }
+      ]
+    },
+    "expanded-after-dark": {
+      "phase": "after-expanded",
+      "theme": "dark",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "fixtureHashes": {
+        "capture-expanded.mjs": "67342b36f394eb0d03d9f9af49fde9bcf379ebaaea9b4a85398f8535e053bf26",
+        "proof-fixtures.ts": "dba22d1ff3b89d0021de3ad9da09e0d27ed51c0b3d7de36786fd1be9baf53b16",
+        "core-fixtures.ts": "aeccf471421855ed4da030ab173aff29aaeaa53c6cf39daeabf6dd1fc08964cf",
+        "fast-tagging-fixtures.ts": "453677402f22ec0801829bc5f734d3e1a7007272f4f633de3f3ca03b1a7ebafa"
+      },
+      "diffBefore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diffAfter": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stable": true,
+      "dirty": "",
+      "capturedAt": "2026-10-21T15:30:37.358Z",
+      "servedSourceVerified": true,
+      "fixtures": "Synthetic fast/core API and generated SVG images only; nonlocal requests blocked. Before disclosures show equivalent inline controls where the baseline has no disclosure. Text enlargement doubles every HTML element\u2019s pre-collected computed font size; ratios are measured. This is synthetic text enlargement, not native browser zoom, OS font settings, or keyboard acceptance.",
+      "results": [
+        {
+          "name": "desktop-queue-settings",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 932,
+          "sha256": "adf383e38e5d084d0a29177f2d21ae1c9ff2d99fff2dd96e72832cb843266b07"
+        },
+        {
+          "name": "desktop-queue-tools",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 976,
+          "sha256": "48333cf2884507f6c1d694f3f276ed4e99e552ce48028d11671e00ae04505de9"
+        },
+        {
+          "name": "desktop-hotkeys",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 976,
+          "sha256": "2bb68d6192d84da149b110b6ab3ba4b03be4c34aef5af87c57280dc30a7943a7"
+        },
+        {
+          "name": "desktop-quick-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1558,
+          "sha256": "27b59c9f90ea1600f204edfd980d9d4353e79d9c3ff696b8dced390520757724"
+        },
+        {
+          "name": "desktop-library-filters",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "dc9e492f0d0af35baae6e58d73d3622588f8703a08adc034cd2afe8e0bb38fd7"
+        },
+        {
+          "name": "desktop-library-selection",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 2500,
+          "sha256": "2b45464ee6d76910f34db4e2853be1a7b54bb8f9a26252908a2fc90829df0eb8"
+        },
+        {
+          "name": "1440-tag-edit",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "88d2bc47d7e3d9eef709263456729f657ce87bc72994c0c87a475c6f33d1d038"
+        },
+        {
+          "name": "1440-tag-delete-confirmation",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1194,
+          "sha256": "b1b4fd5b06f8004564bdbcd7e558d7f97706f96f171eb15066dc4c731e9f21a3"
+        },
+        {
+          "name": "360-tag-edit",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1146,
+          "sha256": "1c3fa21a1d9b086cab1c824c05f1777b362cd665a667cbb38066216b5daa660e"
+        },
+        {
+          "name": "360-tag-delete-confirmation",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1146,
+          "sha256": "ecaaa81ffad11edc68c2bbd1faacf110586d20c7397edcb0742a3f82ec36e090"
+        },
+        {
+          "name": "1440-builder-refinements",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1306,
+          "sha256": "809de8c8be2cd5e7144889356ff3ecb383f93161d41d91620750924e7bf98ef1"
+        },
+        {
+          "name": "1440-builder-disclosure",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 1045,
+          "sha256": "3d37eb0149c9107fb0e68a8f7d6a0f3e944172e66c24bf9c9e0b49a4a34c374d"
+        },
+        {
+          "name": "1440-playlist-manage",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "overflow": false,
+          "documentHeight": 900,
+          "sha256": "6de85c0733fdb15ef6157cf0259f1e171d42528346fd41463fd83ec85c264561"
+        },
+        {
+          "name": "360-builder-refinements",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1202,
+          "sha256": "1f64c8bfa052fcf3c81575983a2cb75551a68b03224f84f5836b231d33347ef5"
+        },
+        {
+          "name": "360-builder-disclosure",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 1008,
+          "sha256": "8dfd3842a707fe3ab539bc50827b5d03fda9c99cebbe43d3975364a77cd5a746"
+        },
+        {
+          "name": "360-playlist-manage",
+          "viewport": {
+            "width": 360,
+            "height": 740
+          },
+          "overflow": false,
+          "documentHeight": 927,
+          "sha256": "a9bb8996392ac3990e02726b805e8d1d7daae27d15659e34a4d85e5b74e3b7ee"
+        },
+        {
+          "name": "320-builder-refinements",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1202,
+          "sha256": "6a208f38acd8f31cd65696bbfae43e4e5a4533d2f8bd4164468cc29eb8f9c10a"
+        },
+        {
+          "name": "320-builder-disclosure",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1025,
+          "sha256": "1359a558f0a087de09f5f06a158c4cf0275f3385ea16b06ea3cf2d7226971577"
+        },
+        {
+          "name": "320-playlist-manage",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1023,
+          "sha256": "11f4fb3b025c6dee6689e6f7ab5306d973a036243f1b78549bff1d69b3417e1e"
+        },
+        {
+          "name": "320-builder-text-200",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "overflow": false,
+          "documentHeight": 1549,
+          "sha256": "fdcf07528ff8a0e769e75c514dca49d5bfe82f490d9c3bbd51ae2f5b0256b147",
+          "textEnlargement": {
+            "method": "synthetic computed-font doubling; not native browser zoom",
+            "elements": 159,
+            "minimumRatio": 2,
+            "maximumRatio": 2
+          }
+        }
+      ]
+    }
+  }
+}

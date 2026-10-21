@@ -1,3 +1,8 @@
+import {
+  appearance as chooseAppearance,
+  syncControls,
+  songActions,
+} from "./flows";
 import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
 const id = (n: number) =>
@@ -56,7 +61,11 @@ async function mock(
   });
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:4173") return route.abort();
+    if (
+      url.origin !==
+      (process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173")
+    )
+      return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname,
       body = route.request().postData() ? route.request().postDataJSON() : null;
@@ -287,9 +296,7 @@ async function vocabulary(page: Page) {
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Tags", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Tag vocabulary" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your tags" })).toBeVisible();
 }
 test("queue input letters, number slots, navigation, skip and modified help are independent of saves", async ({
   page,
@@ -385,6 +392,12 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
       .locator(".quick-slots")
       .getByRole("button", { name: "1 mood:soft", exact: true }),
   ).toBeVisible();
+  if (
+    !(await page
+      .locator(".queue-settings")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page.locator(".queue-settings > summary").click();
   await page.getByLabel("Queue order").selectOption("latest");
   await expect
     .poll(() =>
@@ -393,6 +406,12 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
       ),
     )
     .toBe(true);
+  if (
+    !(await page
+      .locator(".queue-settings")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page.locator(".queue-settings > summary").click();
   await page.getByLabel("Queue order").selectOption("random");
   await expect
     .poll(() =>
@@ -414,7 +433,10 @@ test("browser ranges, tri-state fill/clear and opaque album facets use exact fro
   const calls = await mock(page);
   await page.goto("/");
   await browser(page);
-  await page.getByLabel("Group rows").selectOption("none");
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Songs", exact: true })
+    .click();
   await page.getByLabel("Select Synthetic song 1").check();
   await page
     .getByLabel("Select Synthetic song 3")
@@ -719,14 +741,22 @@ test("membership removals before the focused row keep that song current; delayed
     .getByLabel("Tag current song", { exact: true })
     .press("ArrowRight");
   await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(page.locator(".mobile-track")).toHaveCount(2);
   await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
   // Hold the next membership result while the user replaces the queue.
   delayed = true;
   deferred.replied = false;
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect.poll(() => !!deferred.release).toBe(true);
+  if (
+    !(await page
+      .locator(".queue-settings")
+      .evaluate((el) => (el as HTMLDetailsElement).open))
+  )
+    await page.locator(".queue-settings > summary").click();
   await page.getByLabel("Queue order").selectOption("oldest");
   await expect(page.locator(".mobile-track")).toHaveCount(3);
   deferred.release?.();
@@ -805,6 +835,7 @@ test("arrival review is an explicit owner mutation; navigation and typing never 
   expect(
     calls.filter((c) => c.path === "/api/library/acknowledge"),
   ).toHaveLength(0);
+  await songActions(page);
   await page
     .getByRole("button", { name: "Mark arrival reviewed", exact: true })
     .click();
@@ -894,8 +925,11 @@ for (const action of ["tag", "acknowledge"])
     await queue(page);
     if (action === "tag")
       await page.getByLabel("Tag current song", { exact: true }).press("1");
-    else
+    else {
+      await songActions(page);
       await page.getByRole("button", { name: "Mark arrival reviewed" }).click();
+    }
+    await syncControls(page);
     await page.getByRole("button", { name: "Sync now" }).click();
     await expect(page.locator(".mobile-track")).toHaveCount(2);
     await page
@@ -1079,6 +1113,7 @@ for (const scenario of ["restored", "empty", "skipped", "noop"] as const)
     await expect(
       page.locator(".section-heading").filter({ hasText: "Tagging queue" }),
     ).toContainText(`${changed ? 1 : 0} tagged this session`);
+    await syncControls(page);
     await page.getByRole("button", { name: "Sync now" }).click();
     if (hasLaterTag)
       await expect(
@@ -1416,6 +1451,7 @@ test("deleting a frequent tag leaves its slot empty instead of changing the rema
       .locator(".quick-slots")
       .getByRole("button", { name: "1 Chill", exact: true }),
   ).toBeVisible();
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(
     page
@@ -1450,7 +1486,9 @@ test("first-run bulk tag action fits the unscrolled desktop workspace", async ({
   await page.setViewportSize({ width: 1280, height: 800 });
   await mock(page);
   await page.goto("/");
-  const bulkInput = page.getByLabel("Tag all 3 songs by Synthetic Artist");
+  const bulkInput = page.getByRole("button", {
+    name: "Tag all 3 songs by Synthetic Artist",
+  });
   await expect(bulkInput).toBeVisible();
   expect(
     await bulkInput.evaluate(
@@ -1496,6 +1534,10 @@ test("new vocabulary fills the next quick slots while keeping earlier number ass
   });
   await page.goto("/");
   await queue(page);
+  await expect(page.locator(".quick-slots > div > .chip")).toHaveCount(9);
+  await expect(
+    page.getByRole("button", { name: "9 Empty slot", exact: true }),
+  ).toBeVisible();
   const input = page.getByLabel("Tag current song", { exact: true });
   await expect(
     page
@@ -1628,9 +1670,7 @@ for (const appearance of ["light", "dark"] as const)
       localStorage.setItem("tagger-guidance-dismissed", "yes"),
     );
     await page.goto("/");
-    await page
-      .getByLabel("Appearance", { exact: true })
-      .selectOption(appearance);
+    await chooseAppearance(page, appearance);
     const next = page.getByRole("button", { name: "Next →", exact: true });
     const previous = page.getByRole("button", {
       name: "← Previous",
@@ -1645,6 +1685,7 @@ for (const appearance of ["light", "dark"] as const)
     expect(emphasis).not.toEqual(await resolvedAppearance(previous));
     expect(emphasis).not.toEqual(await resolvedAppearance(skip));
     await assertReadableSurface(page);
+    await songActions(page);
     await page
       .getByRole("button", { name: "Mark arrival reviewed", exact: true })
       .click();
@@ -1679,9 +1720,7 @@ for (const appearance of ["light", "dark"] as const)
     await page.setViewportSize({ width: 320, height: 844 });
     await mock(page, { failAction: true });
     await page.goto("/");
-    await page
-      .getByLabel("Appearance", { exact: true })
-      .selectOption(appearance);
+    await chooseAppearance(page, appearance);
     await page
       .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "New arrivals 2" })
@@ -1720,9 +1759,7 @@ for (const appearance of ["light", "dark"] as const)
     ).toBeVisible();
     await assertReadableSurface(page);
     await page.goto("/");
-    await page
-      .getByLabel("Appearance", { exact: true })
-      .selectOption(appearance);
+    await chooseAppearance(page, appearance);
     await vocabulary(page);
     await expect(page.locator(".vocabulary-list article")).toHaveCount(3);
     await assertReadableSurface(page);
@@ -1752,20 +1789,35 @@ for (const height of [720, 600])
       const calls = await mock(page);
       await page.goto("/");
       await browser(page);
-      const groupInput = page.getByLabel(
-        "Tag all 3 songs by Synthetic Artist",
-        { exact: true },
-      );
+      await page
+        .getByRole("button", {
+          name: "Tag all 3 songs by Synthetic Artist",
+          exact: true,
+        })
+        .click();
+      const groupInput = page.getByLabel("Add tag to selection", {
+        exact: true,
+      });
       await groupInput.fill("Chill");
       const refreshed = page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === "/api/library/search",
       );
       await page
-        .getByRole("option", { name: "Chill 84 songs", exact: true })
+        .getByRole("option", {
+          name: "Chill some · 1 of 3 selected",
+          exact: true,
+        })
         .click();
       await expect(page.locator(".toast")).toContainText("Added");
       await refreshed;
+      if (!selection)
+        await page
+          .getByRole("button", {
+            name: "Tag all 3 songs by Synthetic Artist",
+            exact: true,
+          })
+          .click();
       if (selection)
         await page
           .getByRole("button", { name: "Select all 3 matching", exact: true })

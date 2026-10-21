@@ -234,6 +234,7 @@ Deno.test("operator SQL rejects malformed registry inputs before rendering a sta
 });
 
 const readyPlaylist: ManagedPlaylistDTO = {
+  artworkUrl: null,
   id: "00000000-0000-4000-8000-000000000001",
   revision: "3",
   name: "Synthetic playlist",
