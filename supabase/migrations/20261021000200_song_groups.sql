@@ -125,7 +125,14 @@ create or replace function app.filter_keys(p_filter jsonb) returns table(track_k
  and ((p_filter->>'membership'='active' and m.removed_at is null) or (p_filter->>'membership'='removed' and m.removed_at is not null))
  and (not (p_filter->>'untagged')::boolean or not exists(select 1 from app.track_tags t where t.track_key=m.track_key and t.present))
  and (not (p_filter->>'newOnly')::boolean or (m.removed_at is null and m.acknowledged_at is null))
- and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and m.added_run_id=(select completed_run_id from app.library_state where singleton)))
+ -- New pool arrivals from the latest verified pass of each enabled source.
+ -- In-flight jobs never advance the source checkpoint; aliases share one result.
+ and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and exists(
+  select 1 from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
+   join app.track_metadata member on member.track_key=sm.track_key
+  where sm.epoch=a.epoch and s.enabled and member.added_run_id=s.latest_completed_run_id
+   and member.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(m.track_key) union select m.track_key)
+ )))
  and (p_filter->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=p_filter->>'artistId'))
  and (p_filter->>'album' is null or app.album_identity(m.album)=p_filter->>'album')
  and (p_filter->>'decade' is null or app.track_decade(m.release_date)=p_filter->>'decade')
