@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   LibraryStatusDTO,
   Selection,
@@ -37,6 +37,25 @@ export function Workspace() {
           }
         })(),
   );
+  const navigation = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const nav = navigation.current;
+    if (!nav) return;
+    const root = document.documentElement;
+    const measure = () => {
+      root.style.setProperty(
+        "--workspace-nav-height",
+        `${mobile ? nav.getBoundingClientRect().height : 0}px`,
+      );
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    measure();
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--workspace-nav-height");
+    };
+  }, [mobile]);
   const { visible, focusVersion } = usePageActivity();
   const [vocabularyRefresh, setVocabularyRefresh] = useState(0);
   const [statusAttempt, setStatusAttempt] = useState(0);
@@ -187,7 +206,7 @@ export function Workspace() {
           </button>
         </p>
       )}
-      <nav className="workspace-tabs" aria-label="Workspace">
+      <nav ref={navigation} className="workspace-tabs" aria-label="Workspace">
         <button
           className="nav-queue"
           aria-pressed={tab === "queue"}

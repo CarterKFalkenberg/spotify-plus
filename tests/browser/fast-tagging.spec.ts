@@ -1534,6 +1534,10 @@ test("new vocabulary fills the next quick slots while keeping earlier number ass
   });
   await page.goto("/");
   await queue(page);
+  await expect(page.locator(".quick-slots > div > .chip")).toHaveCount(9);
+  await expect(
+    page.getByRole("button", { name: "9 Empty slot", exact: true }),
+  ).toBeVisible();
   const input = page.getByLabel("Tag current song", { exact: true });
   await expect(
     page

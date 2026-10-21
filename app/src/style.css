@@ -1,3 +1,6 @@
+html {
+  scroll-padding-bottom: var(--workspace-nav-height, 0px);
+}
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -145,7 +148,8 @@ small,
   min-height: 100dvh;
 }
 .shell > header {
-  height: 88px;
+  position: relative;
+  min-height: 88px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -184,6 +188,7 @@ main {
 }
 footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -194,6 +199,7 @@ footer {
 }
 footer nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
 }
 label {
@@ -286,7 +292,7 @@ input[type="checkbox"] {
   padding-left: 244px;
 }
 .shell:has(.workspace) > header {
-  height: 76px;
+  min-height: 76px;
 }
 .shell:has(.workspace) .wordmark {
   position: fixed;
@@ -1355,8 +1361,6 @@ dialog.queue-card {
   display: none;
 }
 .account-details summary {
-  position: absolute;
-  top: 16px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1378,6 +1382,20 @@ dialog.queue-card {
   border-left: 1px solid var(--line);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.header-account {
+  margin-left: auto;
+  min-width: 0;
+}
+.header-account .account-details {
+  position: relative;
+}
+.header-account .account-content {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  top: 100%;
+  width: min(540px, calc(100vw - 36px));
 }
 .account-content {
   padding: 22px;
@@ -1594,7 +1612,10 @@ dialog::backdrop {
   }
   .shell > header,
   .shell:has(.workspace) > header {
-    height: 72px;
+    min-height: 60px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 8px 0;
   }
   .shell:has(.workspace) .wordmark {
     position: static;
@@ -1614,7 +1635,7 @@ dialog::backdrop {
     padding-top: 14px;
   }
   .shell:has(.workspace) {
-    padding-bottom: 88px;
+    padding-bottom: calc(var(--workspace-nav-height, 79px) + 12px);
   }
   .shell:has(.workspace) footer {
     margin-top: 16px;
@@ -1659,6 +1680,8 @@ dialog::backdrop {
     gap: 5px;
     min-height: 56px;
     padding: 5px 1px;
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-size: 10px;
     line-height: 1.2;
     text-align: center;
@@ -2093,9 +2116,6 @@ dialog::backdrop {
 .workspace-tabs .mobile-only {
   display: none;
 }
-.account-details summary {
-  right: 252px;
-}
 .new-badge {
   color: var(--ink);
 }
@@ -2206,18 +2226,12 @@ dialog::backdrop {
   grid-column: 2;
 }
 @media (max-width: 1100px) {
-  .account-details summary {
-    right: 222px;
-  }
   .artist-card .group-browse {
     margin-top: 7px;
     justify-self: start;
   }
 }
 @media (max-width: 640px) {
-  .shell:has(.workspace) > header {
-    height: 60px;
-  }
   .shell:has(.workspace) main {
     padding-top: 8px;
   }
@@ -2358,8 +2372,8 @@ dialog::backdrop {
 .theme-options {
   position: absolute;
   right: 0;
-  top: 48px;
-  width: 205px;
+  top: 100%;
+  width: min(205px, calc(100vw - 36px));
   padding: 16px;
   margin: 0;
   z-index: 12;
@@ -2975,7 +2989,8 @@ dialog::backdrop {
   .theme-control > summary {
     flex-direction: column;
     justify-content: center;
-    width: 66px;
+    min-width: 66px;
+    width: auto;
     padding: 0;
     gap: 2px;
     font-size: 10px;
@@ -2987,11 +3002,14 @@ dialog::backdrop {
   .account-card {
     min-height: 0;
   }
+  .header-account .account-details {
+    position: static;
+  }
+  .header-account .account-content {
+    margin-top: 8px;
+  }
   .account-details summary {
-    position: absolute;
-    top: 8px;
-    right: 88px;
-    width: 66px;
+    min-width: 44px;
     justify-content: center;
   }
   .account-details summary > span:last-child {
@@ -3103,7 +3121,7 @@ dialog::backdrop {
     font-size: 12px;
   }
   .builder-navigation {
-    bottom: 79px;
+    bottom: var(--workspace-nav-height, 79px);
     padding: 12px 0;
     gap: 12px;
     margin-top: 16px;

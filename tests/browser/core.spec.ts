@@ -2560,3 +2560,208 @@ test("long-tag suggestions fit the playlist contract while explicit names and fu
       },
     });
 });
+
+for (const width of [320, 360])
+  for (const theme of ["light", "dark"] as const)
+    test(`actual 200% text reflows header, navigation and guided actions at ${width}px in ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 740 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mock(page);
+      await page.goto("/");
+      await builder(page);
+      await choose(page);
+      await chooseStep(page);
+      await expect(page.locator(".query-feedback")).toContainText("2 songs");
+      const enlargeText = async () =>
+        page.evaluate(() => {
+          for (const element of document.querySelectorAll("*"))
+            if (element instanceof HTMLElement)
+              element.style.removeProperty("font-size");
+          // Collect first: reading after assigning an ancestor would compound inherited sizes.
+          const entries = [...document.querySelectorAll("*")]
+            .filter(
+              (element): element is HTMLElement =>
+                element instanceof HTMLElement,
+            )
+            .map((element) => ({
+              element,
+              size: parseFloat(getComputedStyle(element).fontSize),
+            }))
+            .filter(({ size }) => size > 0 && Number.isFinite(size));
+          for (const { element, size } of entries)
+            element.style.fontSize = `${size * 2}px`;
+          const ratios = entries.map(
+            ({ element, size }) =>
+              parseFloat(getComputedStyle(element).fontSize) / size,
+          );
+          return {
+            count: entries.length,
+            minimum: Math.min(...ratios),
+            maximum: Math.max(...ratios),
+          };
+        });
+      const growth = await enlargeText();
+      expect(growth.count).toBeGreaterThan(100);
+      expect(growth.minimum).toBeCloseTo(2);
+      expect(growth.maximum).toBeCloseTo(2);
+      const layout = async () => {
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          )
+          .toBe(true);
+        const errors = await page.evaluate(() => {
+          const errors: string[] = [];
+          const targets = [
+            ".wordmark",
+            ".account-details summary",
+            ".theme-control > summary",
+          ].map((selector) => ({
+            selector,
+            box: document.querySelector(selector)!.getBoundingClientRect(),
+          }));
+          for (const { selector, box } of targets)
+            if (box.left < 0 || box.right > innerWidth)
+              errors.push(`${selector} outside viewport`);
+          for (let i = 0; i < targets.length; i++)
+            for (let j = i + 1; j < targets.length; j++) {
+              const a = targets[i]!.box,
+                b = targets[j]!.box;
+              if (
+                a.left < b.right &&
+                a.right > b.left &&
+                a.top < b.bottom &&
+                a.bottom > b.top
+              )
+                errors.push("header overlap");
+            }
+          // Text ranges detect painted labels crossing targets even when button boxes fit.
+          for (const button of document.querySelectorAll(
+            ".workspace-tabs button",
+          )) {
+            const box = button.getBoundingClientRect();
+            if (!box.width) continue;
+            const walker = document.createTreeWalker(
+              button,
+              NodeFilter.SHOW_TEXT,
+            );
+            while (walker.nextNode()) {
+              if (!walker.currentNode.textContent?.trim()) continue;
+              const range = document.createRange();
+              range.selectNodeContents(walker.currentNode);
+              for (const rect of range.getClientRects())
+                if (
+                  rect.left < box.left - 1 ||
+                  rect.right > box.right + 1 ||
+                  rect.top < box.top - 1 ||
+                  rect.bottom > box.bottom + 1
+                )
+                  errors.push("navigation label outside target");
+            }
+          }
+          return errors;
+        });
+        expect(errors).toEqual([]);
+      };
+      await layout();
+      for (const action of [
+        "Review songs →",
+        "Playlist details →",
+        "Create playlist →",
+      ]) {
+        await enlargeText();
+        await layout();
+        const button = page.getByRole("button", { name: action, exact: true });
+        await button.scrollIntoViewIfNeeded();
+        await expect(button).toBeInViewport();
+        await expect
+          .poll(async () => {
+            const target = await button.boundingBox();
+            const nav = await page.locator(".workspace-tabs").boundingBox();
+            return (
+              !!target &&
+              !!nav &&
+              target.y >= 0 &&
+              target.y + target.height <= nav.y
+            );
+          })
+          .toBe(true);
+        if (action !== "Create playlist →") await button.click();
+        await layout();
+      }
+      await page.locator(".account-details summary").scrollIntoViewIfNeeded();
+      await page.locator(".account-details summary").click();
+      await expect(
+        page.getByRole("button", {
+          name: "Disconnect & delete app data",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await enlargeText();
+      await layout();
+    });
+
+for (const height of [480, 740])
+  test(`phone builder input, suggestions and each action stay reachable at 360x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height });
+    await mock(page);
+    await page.goto("/");
+    await builder(page);
+    const input = page.getByLabel("Add All of tag", { exact: true });
+    await input.fill("Synthetic");
+    await expect(input).toBeFocused();
+    const option = page.getByRole("option", { name: /^Synthetic tag 1 / });
+    await option.scrollIntoViewIfNeeded();
+    await expect(option).toBeInViewport();
+    const beforeNavigation = async (target: ReturnType<Page["locator"]>) => {
+      await target.evaluate((element) =>
+        element.scrollIntoView({ block: "center" }),
+      );
+      await expect
+        .poll(async () => {
+          const box = await target.boundingBox(),
+            nav = await page.locator(".workspace-tabs").boundingBox();
+          return !!box && !!nav && box.y >= 0 && box.y + box.height <= nav.y;
+        })
+        .toBe(true);
+    };
+    await beforeNavigation(option);
+    await option.click();
+    await expect(input).toBeFocused();
+    await page
+      .getByRole("button", {
+        name: "Close Add All of tag suggestions",
+        exact: true,
+      })
+      .click();
+    await expect(page.locator(".query-feedback")).toContainText("2 songs");
+    for (const action of [
+      "Review songs →",
+      "Playlist details →",
+      "Create playlist →",
+    ]) {
+      const target = page.getByRole("button", { name: action, exact: true });
+      if (height === 740) {
+        const box = await target.boundingBox(),
+          nav = await page.locator(".workspace-tabs").boundingBox();
+        expect(box!.y + box!.height).toBeLessThanOrEqual(nav!.y);
+      }
+      await beforeNavigation(target);
+      if (action === "Create playlist →")
+        await expect(
+          page.getByLabel("Keep this playlist", { exact: true }),
+        ).toBeVisible();
+      else await target.click();
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import {
   BrowserRouter,
   Link,
@@ -12,6 +13,13 @@ import "./style.css";
 import { ThemeControl } from "./Theme";
 import { forgetPlaylistIntents } from "./intents";
 import { Workspace } from "./Workspace";
+function AccountChrome({ children }: { children: React.ReactNode }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setTarget(document.getElementById("account-control"));
+  }, []);
+  return target ? createPortal(children, target) : children;
+}
 const authErrors: Readonly<Record<string, { title: string; detail: string }>> =
   {
     consent_denied: {
@@ -221,67 +229,69 @@ function Home() {
             </a>
           </div>
         ) : connected ? (
-          <details
-            className="account-details"
-            open={
-              session.connection === "reconnect" || !!session.reconnectWarning
-                ? true
-                : undefined
-            }
-          >
-            <summary>
-              <span className="status-dot" />
-              {session.connection === "reconnect"
-                ? "Spotify needs reconnecting"
-                : "Spotify connected"}
-              <span>
-                Account
-                <span className="account-connection-label">
-                  {" "}
-                  &amp; connection
+          <AccountChrome>
+            <details
+              className="account-details"
+              open={
+                session.connection === "reconnect" || !!session.reconnectWarning
+                  ? true
+                  : undefined
+              }
+            >
+              <summary>
+                <span className="status-dot" />
+                {session.connection === "reconnect"
+                  ? "Spotify needs reconnecting"
+                  : "Spotify connected"}
+                <span>
+                  Account
+                  <span className="account-connection-label">
+                    {" "}
+                    &amp; connection
+                  </span>
                 </span>
-              </span>
-            </summary>
-            <div className="account-content">
-              <h2 id="connection-title">
-                {session.connection === "reconnect"
-                  ? "Reconnect to continue"
-                  : "Spotify is connected"}
-              </h2>
-              <p>
-                {session.connection === "reconnect"
-                  ? "Your authorization has expired or needs renewing. Reconnect with the same Spotify account."
-                  : "Your Liked Songs stay yours. Tags and playlists live here."}
-              </p>
-              {session.reconnectWarning &&
-                session.connection !== "reconnect" && (
-                  <p className="notice" role="status">
-                    Reconnect soon: Spotify authorization reaches its renewal
-                    deadline on{" "}
-                    {new Date(
-                      session.authorizationDeadline!,
-                    ).toLocaleDateString(undefined, {
-                      dateStyle: "long",
-                      timeZone: "America/New_York",
-                    })}
-                    .
-                  </p>
-                )}
-              {session.connection === "reconnect" ||
-              session.reconnectWarning ? (
-                <a className="button" href="/auth/spotify/start">
-                  Reconnect Spotify
-                </a>
-              ) : null}
-              <button
-                className="text-button"
-                ref={settingsRef}
-                onClick={() => setConfirming(true)}
-              >
-                Disconnect & delete app data
-              </button>
-            </div>
-          </details>
+              </summary>
+              <div className="account-content">
+                <h2 id="connection-title">
+                  {session.connection === "reconnect"
+                    ? "Reconnect to continue"
+                    : "Spotify is connected"}
+                </h2>
+                <p>
+                  {session.connection === "reconnect"
+                    ? "Your authorization has expired or needs renewing. Reconnect with the same Spotify account."
+                    : "Your Liked Songs stay yours. Tags and playlists live here."}
+                </p>
+                {session.reconnectWarning &&
+                  session.connection !== "reconnect" && (
+                    <p className="notice" role="status">
+                      Reconnect soon: Spotify authorization reaches its renewal
+                      deadline on{" "}
+                      {new Date(
+                        session.authorizationDeadline!,
+                      ).toLocaleDateString(undefined, {
+                        dateStyle: "long",
+                        timeZone: "America/New_York",
+                      })}
+                      .
+                    </p>
+                  )}
+                {session.connection === "reconnect" ||
+                session.reconnectWarning ? (
+                  <a className="button" href="/auth/spotify/start">
+                    Reconnect Spotify
+                  </a>
+                ) : null}
+                <button
+                  className="text-button"
+                  ref={settingsRef}
+                  onClick={() => setConfirming(true)}
+                >
+                  Disconnect & delete app data
+                </button>
+              </div>
+            </details>
+          </AccountChrome>
         ) : (
           <>
             <h2 id="connection-title">Start with your Spotify</h2>
@@ -483,6 +493,7 @@ function App() {
           </span>{" "}
           Spotify Plus
         </Link>
+        <div id="account-control" className="header-account" />
         <ThemeControl />
       </header>
       <main id="main-content" tabIndex={-1}>
