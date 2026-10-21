@@ -52,6 +52,17 @@ select pg_temp.assert(public.app_playback_track(1,lpad('1',64,'0'))->>'uri'='spo
 update app.track_metadata set removed_at=null where track_key=lpad('1',64,'0');
 select app.refresh_song_groups(1);
 select pg_temp.assert(app.song_representative(lpad('1',64,'0'))=lpad('2',64,'0'),'returning alias does not churn eligible representative');
+savepoint group_acknowledgement;
+select public.app_library_acknowledge(1,jsonb_build_array(lpad('1',64,'0')));
+select pg_temp.assert((select count(*)=2 from app.track_metadata where acknowledged_at is not null),'acknowledgement marks every alias seen');
+update app.track_metadata set acknowledged_at=null where track_key=lpad('1',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert((select acknowledged_at is not null from app.track_metadata where track_key=lpad('1',64,'0')),'returning release inherits logical song acknowledgement');
+update app.track_metadata set duration_ms=0 where track_key=lpad('2',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_representative(lpad('2',64,'0'))=lpad('1',64,'0'),'unplayable representative replaced by playable alias');
+rollback to savepoint group_acknowledgement;
+
 -- Enabled source membership controls the whole logical pool and provenance.
 savepoint source_memberships;
 select app.ensure_sources(1);
@@ -85,6 +96,24 @@ update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaa
 select app.refresh_song_groups(1);
 select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='remove3'))->>'skippedCount'='1','membership change skips complete stale undo');
 select pg_temp.assert(exists(select 1 from app.track_tags where track_key=lpad('4',64,'0') and tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'new alias inherits shared tags');
+-- Vocabulary delete/merge undo skips complete components changed by alias arrival.
+savepoint vocabulary_alias_race;
+insert into results values('deletePreview',public.app_tags_manage_preview(1,jsonb_build_object('action','delete','tagId','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','expectedRevision',app.library_revision())));
+insert into results values('deleteAction',public.app_tags_manage(1,repeat('b',64),jsonb_build_object('action','delete','tagId','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','confirmedAssignmentCount',(select v->'assignmentCount' from results where k='deletePreview'),'expectedRevision',app.library_revision())));
+update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('5',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='deleteAction'))->>'skippedCount'='1','delete undo reports complete alias-arrival conflict');
+select pg_temp.assert(not exists(select 1 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'delete undo never partially restores older aliases');
+rollback to savepoint vocabulary_alias_race;
+savepoint merge_alias_race;
+insert into results values('mergeAction',public.app_tags_manage(1,repeat('b',64),jsonb_build_object('action','merge','sourceIds',jsonb_build_array('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),'targetId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','expectedRevision',app.library_revision())));
+update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('5',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='mergeAction'))->>'skippedCount'='1','merge undo fences new alias assignments');
+select pg_temp.assert((select count(*)=4 from app.track_tags where tag_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and present),'merge undo leaves entire later component at its current target');
+select pg_temp.assert(not exists(select 1 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'merge undo avoids restoring source to only original aliases');
+rollback to savepoint merge_alias_race;
+
 -- Annotation-only snapshots retain links after metadata retention, without names.
 delete from app.jobs where id is not null;
 insert into app.jobs(kind,epoch) values('annotation_backup',1);
