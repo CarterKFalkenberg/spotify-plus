@@ -376,3 +376,156 @@ it("an obsolete poll cleanup cannot release a newer in-flight polling ticket", a
   expect(player.pause).toHaveBeenCalledTimes(1);
   expect(player.disconnect).not.toHaveBeenCalled();
 });
+
+it.each(
+  ["initialization_error", "authentication_error", "not_ready"].flatMap(
+    (event) =>
+      ["before", "after"].flatMap((timing) =>
+        [false, true].map((rejectConnect) => ({
+          event,
+          timing,
+          rejectConnect,
+        })),
+      ),
+  ),
+)(
+  "legacy consent recovery outranks $event $timing token rejection (connect reject=$rejectConnect)",
+  async ({ event, timing, rejectConnect }) => {
+    window.Spotify = {
+      Player: class {
+        constructor() {
+          return player;
+        }
+      },
+    } as unknown as SpotifySDK;
+    let reject!: (error: { code: string }) => void;
+    token.mockImplementation(
+      () =>
+        new Promise((_, no) => {
+          reject = no;
+        }),
+    );
+    if (rejectConnect)
+      player.connect.mockRejectedValue(
+        new Error("synthetic connection failure"),
+      );
+    const pending = controller.play();
+    expect(player.activateElement).toHaveBeenCalledTimes(1);
+    if (timing === "before")
+      player.listeners.get(event)?.({
+        message: "synthetic private diagnostic",
+      });
+    reject({ code: "playback_required" });
+    await pending;
+    if (timing === "after")
+      player.listeners.get(event)?.({
+        message: "synthetic private diagnostic",
+      });
+    for (const late of [
+      "initialization_error",
+      "authentication_error",
+      "not_ready",
+      "playback_error",
+    ])
+      player.listeners.get(late)?.({ message: "synthetic private diagnostic" });
+    player.state();
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(views.at(-1)).toEqual({
+      status: "error",
+      message: "Enable playback to listen in this page.",
+      enable: true,
+    });
+    expect(JSON.stringify(views)).not.toContain("private diagnostic");
+    expect(start).not.toHaveBeenCalled();
+    expect(player.resume).not.toHaveBeenCalled();
+    expect(token).toHaveBeenCalledTimes(1);
+  },
+);
+it.each([
+  [
+    "initialization_error",
+    "Protected audio could not initialize in this browser. Try another supported browser or open Spotify.",
+  ],
+  [
+    "authentication_error",
+    "Spotify could not authenticate the player. Reconnect Spotify or try again.",
+  ],
+  [
+    "playback_error",
+    "Spotify could not play this song. Try again or open Spotify.",
+  ],
+])(
+  "verified grant reports a fixed distinct %s message",
+  async (event, message) => {
+    await prepare();
+    player.listeners.get(event!)?.({ message: "synthetic private diagnostic" });
+    expect(views.at(-1)?.message).toBe(message);
+    expect(JSON.stringify(views)).not.toContain("private diagnostic");
+  },
+);
+it("pending initial authorization is bounded even if SDK setup already failed", async () => {
+  window.Spotify = {
+    Player: class {
+      constructor() {
+        return player;
+      }
+    },
+  } as unknown as SpotifySDK;
+  token.mockImplementation(() => new Promise(() => {}));
+  const pending = controller.play();
+  player.listeners.get("initialization_error")?.({
+    message: "synthetic diagnostic",
+  });
+  expect(views.at(-1)?.status).toBe("loading");
+  await vi.advanceTimersByTimeAsync(12000);
+  await pending;
+  expect(views.at(-1)?.status).toBe("error");
+  expect(start).not.toHaveBeenCalled();
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+it("teardown still suppresses deferred grant rejection after an early SDK failure", async () => {
+  window.Spotify = {
+    Player: class {
+      constructor() {
+        return player;
+      }
+    },
+  } as unknown as SpotifySDK;
+  let reject!: (error: { code: string }) => void;
+  token.mockImplementation(
+    () =>
+      new Promise((_, no) => {
+        reject = no;
+      }),
+  );
+  const pending = controller.play();
+  player.listeners.get("authentication_error")?.({
+    message: "synthetic diagnostic",
+  });
+  controller.destroy();
+  const count = views.length;
+  reject({ code: "playback_required" });
+  await pending;
+  expect(views).toHaveLength(count);
+  expect(start).not.toHaveBeenCalled();
+});
+it("scope recovery survives synchronous SDK errors while disconnecting the failed player", async () => {
+  window.Spotify = {
+    Player: class {
+      constructor() {
+        return player;
+      }
+    },
+  } as unknown as SpotifySDK;
+  token.mockRejectedValue({ code: "playback_required" });
+  player.disconnect.mockImplementation(() => {
+    player.listeners.get("not_ready")?.({});
+    player.listeners.get("initialization_error")?.({
+      message: "synthetic diagnostic",
+    });
+  });
+  await controller.play();
+  expect(views.at(-1)?.enable).toBe(true);
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+  expect(start).not.toHaveBeenCalled();
+});

@@ -141,7 +141,8 @@ export class QueuePlayer {
     this.stopDevice();
   }
   private fail(message: string, enable = false) {
-    if (this.dead) return;
+    if (this.dead || this.status === "error") return;
+    this.emit("error", message, enable);
     this.clearAudioTimer();
     clearTimeout(this.deadline);
     clearInterval(this.polling);
@@ -149,7 +150,6 @@ export class QueuePlayer {
     this.operation++;
     this.abort.abort();
     this.stopDevice();
-    this.emit("error", message, enable);
   }
   private failure(error: unknown) {
     const code =
@@ -287,6 +287,7 @@ export class QueuePlayer {
     const operation = ++this.operation;
     const ended = this.status === "ended";
     let activated: Promise<void> | undefined;
+    let initialProof: Promise<void> | undefined;
     try {
       if (!this.player) {
         this.emit("loading");
@@ -303,17 +304,46 @@ export class QueuePlayer {
           sdk = await loadSDK();
           if (this.dead) return;
         }
+        let grantTimer: ReturnType<typeof setTimeout> | undefined;
         let firstGrant = warm
-          ? this.transport.token(this.abort.signal)
+          ? Promise.race([
+              this.transport.token(this.abort.signal),
+              new Promise<string>((_, reject) => {
+                grantTimer = setTimeout(
+                  () => reject(new Error("token_timeout")),
+                  12000,
+                );
+              }),
+            ]).finally(() => clearTimeout(grantTimer))
           : undefined;
         const verifiedGrant = firstGrant?.then(() => {});
-        // Attach rejection handling now; SDK callback/readiness may arrive later.
-        void verifiedGrant?.catch(() => {});
+        initialProof = verifiedGrant;
+        let proofPending = !!verifiedGrant;
+        let pendingSDKFailure: string | undefined;
+        const sdkFailure = (message: string) => {
+          if (proofPending) {
+            pendingSDKFailure ??= message;
+            return;
+          }
+          this.fail(message);
+        };
+        // Scope/auth recovery takes precedence over SDK failures during initial
+        // setup, even when connect rejects before its token callback runs.
+        void verifiedGrant?.then(
+          () => {
+            proofPending = false;
+            if (pendingSDKFailure) this.fail(pendingSDKFailure);
+          },
+          (error: unknown) => {
+            proofPending = false;
+            this.failure(error);
+          },
+        );
         const player = new sdk.Player({
           name: "Song Tagger",
           volume: 0.7,
           getOAuthToken: (callback) => {
-            if (this.dead) return;
+            if (this.dead || this.status === "error") return;
             if (initialToken) {
               const token = initialToken;
               initialToken = undefined;
@@ -324,7 +354,7 @@ export class QueuePlayer {
             firstGrant = undefined;
             void grant
               .then((token) => {
-                if (!this.dead) callback(token);
+                if (!this.dead && this.status !== "error") callback(token);
               })
               .catch((e) => this.failure(e));
           },
@@ -337,7 +367,7 @@ export class QueuePlayer {
           );
           this.deadline = timeout;
           player.addListener("ready", (value: { device_id: string }) => {
-            if (this.dead) {
+            if (this.dead || this.status === "error") {
               player.disconnect();
               return;
             }
@@ -357,7 +387,7 @@ export class QueuePlayer {
           player.addListener("not_ready", () => {
             clearTimeout(timeout);
             reject(new Error("device_disconnected"));
-            this.fail("The player disconnected. Try again.");
+            sdkFailure("The player disconnected. Try again.");
           });
         });
         player.addListener(
@@ -375,18 +405,24 @@ export class QueuePlayer {
           "autoplay_failed",
         ])
           player.addListener(event, () =>
-            this.fail(
-              event === "account_error"
-                ? "Spotify Premium is required to listen here."
-                : event === "autoplay_failed"
-                  ? "Your browser blocked audio. Try Play again."
-                  : "The player is unavailable. Try again or open Spotify.",
+            sdkFailure(
+              event === "initialization_error"
+                ? "Protected audio could not initialize in this browser. Try another supported browser or open Spotify."
+                : event === "authentication_error"
+                  ? "Spotify could not authenticate the player. Reconnect Spotify or try again."
+                  : event === "playback_error"
+                    ? "Spotify could not play this song. Try again or open Spotify."
+                    : event === "account_error"
+                      ? "Spotify Premium is required to listen here."
+                      : event === "autoplay_failed"
+                        ? "Your browser blocked audio. Try Play again."
+                        : "The player is unavailable. Try again or open Spotify.",
             ),
           );
         if (warm) {
           activated = player.activateElement();
           void activated.catch(() =>
-            this.fail("Your browser blocked audio. Try Play again."),
+            sdkFailure("Your browser blocked audio. Try Play again."),
           );
         }
         // Catch ready immediately, even when connect rejects before the SDK event.
@@ -431,6 +467,15 @@ export class QueuePlayer {
       this.watch();
       await this.readCurrentState(operation);
     } catch (e) {
+      // A synchronous constructor/connect failure must also wait for bounded
+      // initial authorization proof rather than hiding an actionable consent result.
+      if (initialProof) {
+        try {
+          await initialProof;
+        } catch (grantError) {
+          e = grantError;
+        }
+      }
       if (!this.dead && operation === this.operation) this.failure(e);
     }
   }

@@ -2345,3 +2345,56 @@ test("confirming disconnect stops audio before the server reply", async ({
     .toBe(1);
   release();
 });
+
+test("SDK initialization and connection failure cannot hide required playback consent", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Legacy grant SDK ordering");
+  await syntheticPlayer(page);
+  await page.addInitScript(() => {
+    const Base = window.Spotify!.Player;
+    window.Spotify!.Player = class extends Base {
+      async connect(): Promise<boolean> {
+        (this as any).listeners.get("initialization_error")?.({
+          message: "synthetic protected media diagnostic",
+        });
+        throw new Error("synthetic connection failure");
+      }
+    };
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let starts = 0;
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        await gate;
+        await route.fulfill({
+          status: 503,
+          json: { error: "playback_required" },
+        });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        starts++;
+        await route.abort();
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  release();
+  await expect(
+    page.getByRole("button", { name: "Enable playback", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Tag current song", { exact: true }).fill("sad");
+  await expect(
+    page.getByLabel("Tag current song", { exact: true }),
+  ).toHaveValue("sad");
+  expect(starts).toBe(0);
+});
