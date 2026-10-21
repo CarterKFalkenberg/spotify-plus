@@ -689,3 +689,38 @@ it.each([new Error("synthetic secret marker"), { message: "device_timeout" }])(
     expect(JSON.stringify(views)).not.toContain("synthetic secret");
   },
 );
+
+it.each([
+  [
+    "playback_target_unavailable",
+    "Spotify could not find this song or browser player. Try again or open Spotify.",
+  ],
+  [
+    "playback_unconfirmed",
+    "Spotify did not confirm whether playback started. Check Spotify before trying again.",
+  ],
+  [
+    "playback_service_error",
+    "Spotify reported a playback service error. Check Spotify before trying again.",
+  ],
+  [
+    "playback_control_unavailable",
+    "The app could not prepare playback safely. Try again later or open Spotify.",
+  ],
+])(
+  "start failure %s uses fixed copy, disconnects and never automatically retries",
+  async (code, message) => {
+    await prepare();
+    start.mockRejectedValue({
+      code,
+      message: "synthetic-sensitive-provider-detail",
+    });
+    await controller.play();
+    expect(views.at(-1)?.message).toBe(message);
+    expect(JSON.stringify(views)).not.toContain("synthetic-sensitive");
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+    expect(player.resume).not.toHaveBeenCalled();
+  },
+);

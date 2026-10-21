@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import {
   ApiError,
+  api,
   lookupTags,
   rejectsIntent,
   tagAction,
@@ -70,4 +71,22 @@ it("auth and origin rejection never resolve an accepted-but-lost intent", () => 
   expect(rejectsIntent(new ApiError("invalid_input", 400))).toBe(false);
   expect(rejectsIntent(new ApiError("stale_revision", 409))).toBe(true);
   expect(rejectsIntent(new ApiError("request_conflict", 409))).toBe(false);
+});
+
+it.each([
+  "playback_target_unavailable",
+  "playback_unconfirmed",
+  "playback_service_error",
+  "playback_control_unavailable",
+])("API preserves only the fixed playback recovery code %s", async (code) => {
+  vi.stubGlobal("fetch", async () =>
+    Response.json(
+      { error: code, detail: "synthetic-sensitive-provider-detail" },
+      { status: 503 },
+    ),
+  );
+  await expect(api("/playback/start", () => null, {})).rejects.toMatchObject({
+    code,
+    status: 503,
+  });
 });

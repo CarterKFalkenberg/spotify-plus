@@ -256,3 +256,124 @@ Deno.test("streaming/control-only grant cannot expose a token or dispatch playba
   }
   equal(network, 0);
 });
+
+for (
+  const [upstreamStatus, code, status] of [
+    [404, "playback_target_unavailable", 404],
+    [503, "playback_service_error", 503],
+    [502, "playback_service_error", 502],
+    [401, "reconnect", 503],
+    [403, "forbidden", 403],
+    [429, "playback_cooldown", 503],
+  ] as const
+) {
+  Deno.test(`playback start classifies provider HTTP ${upstreamStatus} without reflecting its body or replaying`, async () => {
+    const encryptedTokens = await box.encrypt(pair, "tokens:1");
+    let dispatches = 0;
+    const handler = createApi({
+      config,
+      box,
+      db: database((name) => {
+        if (name === "app_session") return { epoch: 1, state: "connected" };
+        if (name === "app_playback_track") return { uri, durationMs: 180001 };
+        if (name === "app_token_claim") {
+          return { action: "cached", version: 1, encryptedTokens };
+        }
+        if (name === "app_pacing_defer") {
+          return true;
+        }
+        equal(name, "app_pacing_acquire");
+        return { granted: true, retryAfterMs: 0 };
+      }),
+      fetch: (_url, init) => {
+        dispatches++;
+        equal(init?.method, "PUT");
+        return Promise.resolve(
+          Response.json({
+            error: {
+              message: "synthetic-sensitive-provider-content",
+              reason: "synthetic-private-reason",
+            },
+          }, { status: upstreamStatus }),
+        );
+      },
+    });
+    const response = await handler(
+      request("start", {
+        trackKey: "a".repeat(64),
+        deviceId: "synthetic-device-1234567890",
+      }),
+    );
+    equal(response.status, status);
+    equal(await response.json(), { error: code });
+    equal(dispatches, 1);
+  });
+}
+for (const kind of ["timeout", "unexpected-success-status"] as const) {
+  Deno.test(`playback ${kind} remains explicitly unconfirmed and is never replayed`, async () => {
+    const encryptedTokens = await box.encrypt(pair, "tokens:1");
+    let dispatches = 0;
+    const handler = createApi({
+      config,
+      box,
+      db: database((name) => {
+        if (name === "app_session") return { epoch: 1, state: "connected" };
+        if (name === "app_playback_track") return { uri, durationMs: 180001 };
+        if (name === "app_token_claim") {
+          return { action: "cached", version: 1, encryptedTokens };
+        }
+        equal(name, "app_pacing_acquire");
+        return { granted: true, retryAfterMs: 0 };
+      }),
+      fetch: () => {
+        dispatches++;
+        return kind === "timeout"
+          ? Promise.reject(
+            new DOMException("synthetic-sensitive-timeout", "AbortError"),
+          )
+          : Promise.resolve(
+            new Response("synthetic-sensitive-malformed-body", { status: 201 }),
+          );
+      },
+    });
+    const response = await handler(
+      request("start", {
+        trackKey: "a".repeat(64),
+        deviceId: "synthetic-device-1234567890",
+      }),
+    );
+    equal(response.status, 503);
+    equal(await response.json(), { error: "playback_unconfirmed" });
+    equal(dispatches, 1);
+  });
+}
+Deno.test("playback control failure is distinct and cannot dispatch a provider write", async () => {
+  const encryptedTokens = await box.encrypt(pair, "tokens:1");
+  let dispatches = 0;
+  const handler = createApi({
+    config,
+    box,
+    db: database((name) => {
+      if (name === "app_session") return { epoch: 1, state: "connected" };
+      if (name === "app_playback_track") return { uri, durationMs: 180001 };
+      if (name === "app_token_claim") {
+        return { action: "cached", version: 1, encryptedTokens };
+      }
+      equal(name, "app_pacing_acquire");
+      throw new Error("synthetic-sensitive-control-failure");
+    }),
+    fetch: () => {
+      dispatches++;
+      return Promise.resolve(new Response(null, { status: 204 }));
+    },
+  });
+  const response = await handler(
+    request("start", {
+      trackKey: "a".repeat(64),
+      deviceId: "synthetic-device-1234567890",
+    }),
+  );
+  equal(response.status, 503);
+  equal(await response.json(), { error: "playback_control_unavailable" });
+  equal(dispatches, 0);
+});

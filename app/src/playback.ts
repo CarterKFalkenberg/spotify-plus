@@ -185,7 +185,15 @@ export class QueuePlayer {
             ? "Reconnect Spotify to listen here."
             : code === "track_unavailable"
               ? "This song is unavailable for playback."
-              : setupMessage,
+              : code === "playback_target_unavailable"
+                ? "Spotify could not find this song or browser player. Try again or open Spotify."
+                : code === "playback_unconfirmed"
+                  ? "Spotify did not confirm whether playback started. Check Spotify before trying again."
+                  : code === "playback_service_error"
+                    ? "Spotify reported a playback service error. Check Spotify before trying again."
+                    : code === "playback_control_unavailable"
+                      ? "The app could not prepare playback safely. Try again later or open Spotify."
+                      : setupMessage,
       code === "playback_required",
     );
   }

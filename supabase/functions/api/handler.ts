@@ -467,6 +467,25 @@ export function createApi(
           error.kind === "invalid_input" ? 400 : 409,
         );
       }
+      if (path === "/api/playback/start" && error instanceof SpotifyError) {
+        if (error.kind === "not_found" && error.status === 404) {
+          return json({ error: "playback_target_unavailable" }, 404);
+        }
+        if (error.kind === "network" || error.kind === "response") {
+          // A lost/malformed write response cannot authorize an automatic replay.
+          return json({ error: "playback_unconfirmed" }, 503);
+        }
+        if (error.kind === "http") {
+          const status =
+            error.status !== null && error.status >= 500 && error.status <= 599
+              ? error.status
+              : 502;
+          return json({ error: "playback_service_error" }, status);
+        }
+        if (error.kind === "control_unavailable") {
+          return json({ error: "playback_control_unavailable" }, 503);
+        }
+      }
       const kind = error instanceof SpotifyError
         ? error.kind === "forbidden"
           ? "forbidden"
