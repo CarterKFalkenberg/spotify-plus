@@ -395,8 +395,8 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           <h2>One account. Your data.</h2>
           <p>
             Spotify Plus is a private app for one registered Spotify account.
-            Spotify provides the login; no separate profile or email is
-            collected.
+            Spotify provides the login. The app does not store or display your
+            email or private profile fields.
           </p>
           <h2>What is stored</h2>
           <p>
@@ -417,7 +417,9 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
             When you choose Play, a short-lived Spotify access token is held in
             browser memory; refresh credentials stay encrypted on the server.
             Spotify receives playback requests and handles SDK playback under
-            its own service policies.
+            its own service policies. Enabling playback permits the SDK to read
+            your Spotify email and private profile details. This app does not
+            store or display those fields.
           </p>
           <h2>Disconnect and delete</h2>
           <p>

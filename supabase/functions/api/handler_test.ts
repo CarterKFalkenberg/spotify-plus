@@ -586,3 +586,19 @@ Deno.test("playback OAuth requires its recorded optional scopes before replacing
   );
   equal(saved.scopes, scopes);
 });
+
+Deno.test("optional consent without either accepted SDK profile scope cannot replace the owner grant", async () => {
+  for (const missing of ["user-read-email", "user-read-private"]) {
+    const scopes = [
+      ...SPOTIFY_SCOPES,
+      ...PLAYBACK_SCOPES.filter((scope) => scope !== missing),
+    ];
+    const result = await oauthHandler("ok", true, scopes);
+    assert(
+      result.result.headers.get("Location")?.endsWith(
+        "auth_error=missing_scopes",
+      ),
+    );
+    equal(result.connectArgs, undefined);
+  }
+});

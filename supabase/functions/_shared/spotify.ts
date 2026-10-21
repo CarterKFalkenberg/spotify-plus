@@ -15,6 +15,8 @@ export const SPOTIFY_SCOPES = Object.freeze(
 export const PLAYBACK_SCOPES = Object.freeze([
   "streaming",
   "user-modify-playback-state",
+  "user-read-email",
+  "user-read-private",
 ]);
 
 const API = "https://api.spotify.com/v1";

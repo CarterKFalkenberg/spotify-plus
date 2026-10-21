@@ -494,6 +494,8 @@ Deno.test("owner binding requires immutable account_id and strips other profile 
       id: "synthetic-owner",
       email: "synthetic@example.test",
       display_name: "Synthetic",
+      product: "synthetic-subscription",
+      country: "ZZ",
     }),
   ]);
   deepStrictEqual(await client.getCurrentUser(), {

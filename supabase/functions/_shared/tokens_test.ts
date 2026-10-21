@@ -1,7 +1,7 @@
 import { mockResponse } from "./testing.ts";
 import { SecretBox } from "./crypto.ts";
 import { exchangeToken, OwnerTokens } from "./tokens.ts";
-import { SpotifyError } from "./spotify.ts";
+import { PLAYBACK_SCOPES, SpotifyError } from "./spotify.ts";
 import { assert, database, equal, rejects, TEST_KEY } from "./testing.ts";
 const box = new SecretBox(TEST_KEY);
 const pair = {
@@ -421,7 +421,7 @@ Deno.test("browser playback token rejects unproven legacy grants without exposin
   equal(await provider.getAccessToken(), pair.accessToken);
 });
 Deno.test("verified playback scope metadata survives scope-omitting refresh and is checked before browser delivery", async () => {
-  const scopes = ["streaming", "user-modify-playback-state"];
+  const scopes = [...PLAYBACK_SCOPES];
   const encryptedTokens = await box.encrypt({ ...pair, scopes }, "tokens:1");
   const provider = new OwnerTokens(
     database(async (name, args) => {
@@ -459,7 +459,7 @@ Deno.test("verified playback scope metadata survives scope-omitting refresh and 
 Deno.test("refresh scope reduction immediately removes browser playback permission", async () => {
   const encryptedTokens = await box.encrypt({
     ...pair,
-    scopes: ["streaming", "user-modify-playback-state"],
+    scopes: [...PLAYBACK_SCOPES],
   }, "tokens:1");
   const provider = new OwnerTokens(
     database((name) =>
@@ -499,4 +499,41 @@ Deno.test("malformed explicit scope response cannot reuse previously proven play
         )),
     (e) => e instanceof SpotifyError && e.kind === "response" && e.ambiguous,
   );
+});
+
+Deno.test("every optional SDK scope is required before a token can reach browser memory", async () => {
+  for (const missing of PLAYBACK_SCOPES) {
+    const encryptedTokens = await box.encrypt({
+      ...pair,
+      scopes: PLAYBACK_SCOPES.filter((scope) => scope !== missing),
+    }, "tokens:1");
+    const provider = new OwnerTokens(
+      database(() => ({ action: "cached", encryptedTokens, version: 1 })),
+      box,
+      1,
+      "client",
+    );
+    await rejects(
+      () => provider.getPlaybackToken(),
+      (e) => e instanceof SpotifyError && e.kind === "playback_required",
+    );
+    equal(await provider.getAccessToken(), pair.accessToken);
+  }
+});
+Deno.test("previous streaming/control-only grant keeps ordinary server access but requires playback consent again", async () => {
+  const encryptedTokens = await box.encrypt({
+    ...pair,
+    scopes: ["streaming", "user-modify-playback-state"],
+  }, "tokens:1");
+  const provider = new OwnerTokens(
+    database(() => ({ action: "cached", encryptedTokens, version: 1 })),
+    box,
+    1,
+    "client",
+  );
+  await rejects(
+    () => provider.getPlaybackToken(),
+    (e) => e instanceof SpotifyError && e.kind === "playback_required",
+  );
+  equal(await provider.getAccessToken(), pair.accessToken);
 });

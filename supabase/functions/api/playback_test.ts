@@ -1,5 +1,6 @@
 import { type ApiConfig, createApi } from "./handler.ts";
 import { SecretBox } from "../_shared/crypto.ts";
+import { PLAYBACK_SCOPES, SPOTIFY_SCOPES } from "../_shared/spotify.ts";
 import { SESSION_COOKIE } from "../_shared/http.ts";
 import { assert, database, equal, TEST_KEY } from "../_shared/testing.ts";
 const config: ApiConfig = {
@@ -15,7 +16,7 @@ const box = new SecretBox(TEST_KEY);
 const pair = {
   accessToken: "synthetic-access",
   refreshToken: "synthetic-refresh",
-  scopes: ["streaming", "user-modify-playback-state"],
+  scopes: [...PLAYBACK_SCOPES],
 };
 const uri = `spotify:track:${"a".repeat(22)}`;
 function request(
@@ -192,7 +193,7 @@ Deno.test("unavailable/removed lookup prevents dispatch and reconnect sessions p
     });
   }
 });
-Deno.test("optional playback consent records intent in server-encrypted verifier and adds no profile scopes", async () => {
+Deno.test("optional playback consent requests exactly the accepted SDK scopes and records server-encrypted intent", async () => {
   let encrypted = "";
   const handler = createApi({
     config,
@@ -209,13 +210,49 @@ Deno.test("optional playback consent records intent in server-encrypted verifier
   assert(response.headers.get("Set-Cookie")?.includes("HttpOnly"));
   const url = new URL((await response.json()).url);
   const scopes = url.searchParams.get("scope")!.split(" ");
-  assert(
-    scopes.includes("streaming") &&
-      scopes.includes("user-modify-playback-state"),
-  );
-  assert(
-    !scopes.some((s) => /email|private$/.test(s) && s.startsWith("user-")),
-  );
+  equal(scopes, [
+    ...SPOTIFY_SCOPES,
+    "streaming",
+    "user-modify-playback-state",
+    "user-read-email",
+    "user-read-private",
+  ]);
   assert(encrypted.length > 20);
   assert(!encrypted.includes("verifier"));
+});
+
+Deno.test("streaming/control-only grant cannot expose a token or dispatch playback after the SDK-scope upgrade", async () => {
+  const encryptedTokens = await box.encrypt({
+    ...pair,
+    scopes: ["streaming", "user-modify-playback-state"],
+  }, "tokens:1");
+  let network = 0;
+  const handler = createApi({
+    config,
+    box,
+    db: database((name) =>
+      name === "app_session"
+        ? { epoch: 1, state: "connected" }
+        : name === "app_playback_track"
+        ? { uri, durationMs: 180001 }
+        : { action: "cached", version: 1, encryptedTokens }
+    ),
+    fetch: () => {
+      network++;
+      throw new Error("unexpected");
+    },
+  });
+  for (
+    const req of [
+      request("token"),
+      request("start", {
+        trackKey: "a".repeat(64),
+        deviceId: "synthetic-device-1234567890",
+      }),
+    ]
+  ) {
+    const response = await handler(req);
+    equal(await response.json(), { error: "playback_required" });
+  }
+  equal(network, 0);
 });
