@@ -47,9 +47,9 @@
     ]
   },
   "after": {
-    "sourceHead": "2e7aa103769359b1b2b6a6478f4a359778f9b1e0",
-    "sourceTree": "0ada5dd15596922c21d448ddefe85cf31f53fefe",
-    "capturedAt": "2026-10-21T17:58:38.778Z",
+    "sourceHead": "666e6717cd518218e1376c6a24a5ddafa40baf98",
+    "sourceTree": "efda123f2e0284b2481856fc68fd5202edb94b9d",
+    "capturedAt": "2026-10-21T18:07:34.270Z",
     "stable": true,
     "fixture": "synthetic library/artwork plus synthetic SDK matching committed browser test; nonlocal traffic blocked except fixture SVG",
     "scenes": [
@@ -199,8 +199,8 @@
       }
     ]
   },
-  "afterAppTree": "a0b4901a5f9e8981e268f737cfaeecc0cb74acf1",
-  "reviewAppTree": "a0b4901a5f9e8981e268f737cfaeecc0cb74acf1",
+  "afterAppTree": "cac2f70de1ef309b431bbad578143f3b1d34bb48",
+  "reviewAppTree": "cac2f70de1ef309b431bbad578143f3b1d34bb48",
   "files": {
     "after-desktop-dark-idle.png": "b56ac38983fec3a59ad7c2ebf8a0747dcde8af10a1dfaf02d280da85798295dc",
     "after-desktop-dark-more.png": "0c328d30800261771be9d08fb6b054d940c32c5c72f61dbc30363afc872396f5",
