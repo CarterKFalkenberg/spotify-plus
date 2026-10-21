@@ -90,6 +90,28 @@ select app.refresh_source_pool(1);
 select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter'))),'source reenable restores logical song with tags');
 rollback to savepoint source_memberships;
 
+-- Latest arrivals use verified per-source checkpoints with Liked Songs disabled.
+savepoint latest_source_sync;
+select app.ensure_sources(1);
+update app.sources set enabled=false where epoch=1 and id='liked';
+insert into app.sources(epoch,id,kind,name,last_synced_at,latest_completed_run_id)
+ values(1,repeat('q',22),'playlist','Synthetic latest source',now(),'22222222-2222-4222-8222-222222222222');
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values
+ (1,repeat('q',22),lpad('1',64,'0'),now()),(1,repeat('q',22),lpad('2',64,'0'),now());
+-- Simulate the new-pool-arrival run committed by the page writer before finish.
+update app.track_metadata set added_run_id='33333333-3333-4333-8333-333333333333' where track_key=lpad('2',64,'0');
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=0 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'in-flight source additions are excluded before verified completion');
+update app.sources set latest_completed_run_id='33333333-3333-4333-8333-333333333333' where epoch=1 and id=repeat('q',22);
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'playlist-only verified arrivals include one logical song even when its representative is an older alias');
+-- A subsequent failed source walk leaves that successful checkpoint available.
+update app.sources set error_code='unavailable' where epoch=1 and id=repeat('q',22);
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'failed walk retains previous verified source arrivals');
+-- An unchanged verified pass advances its checkpoint without marking old songs new.
+update app.sources set error_code=null,latest_completed_run_id='44444444-4444-4444-8444-444444444444' where epoch=1 and id=repeat('q',22);
+select pg_temp.assert((select count(*)=0 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'unchanged next verified pass clears previous source arrivals');
+rollback to savepoint latest_source_sync;
+
 -- A new exact duplicate makes earlier group undo stale and receives annotations.
 insert into results values('remove3',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
 update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('4',64,'0');
