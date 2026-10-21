@@ -151,6 +151,12 @@ export function createSourcesRunner(input: {
               })),
             },
           );
+          if (!result || result.done || result.retryMs) return result;
+        } else {
+          const page = await client.getPlaylistItemsPage(checkpoint.sourceId, {
+            offset: checkpoint.offset,
+            limit: 50,
+          });
           const projected = await sourcePage(page, key);
           const result = await input.db.rpc<
             JobStep & { terminal?: boolean } | null
