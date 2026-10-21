@@ -10,7 +10,8 @@ async function command(args, input = "", executable = "docker") {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
   });
-  let output = "", errors = "";
+  let output = "",
+    errors = "";
   child.stdout.on("data", (chunk) => {
     output += chunk;
   });
@@ -26,20 +27,23 @@ async function command(args, input = "", executable = "docker") {
   return output.trim();
 }
 const sql = (statement) =>
-  command([
-    "exec",
-    "-i",
-    container,
-    "psql",
-    "-U",
-    "postgres",
-    "-X",
-    "-q",
-    "-t",
-    "-A",
-    "-v",
-    "ON_ERROR_STOP=1",
-  ], statement);
+  command(
+    [
+      "exec",
+      "-i",
+      container,
+      "psql",
+      "-U",
+      "postgres",
+      "-X",
+      "-q",
+      "-t",
+      "-A",
+      "-v",
+      "ON_ERROR_STOP=1",
+    ],
+    statement,
+  );
 try {
   await command(["network", "create", network]);
   await command([
@@ -73,6 +77,12 @@ try {
   await sql(
     "create role anon; create role authenticated; create role service_role;",
   );
+  // Local metadata stand-in only; real Storage API/FK proof remains a separate
+  // isolated vendor check. Song-group restore wraps the installed backup RPCs.
+  await sql(`create schema storage;
+    create table storage.buckets(id text primary key);
+    create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text references storage.buckets(id),name text);
+    insert into storage.buckets values('annotation-backups');`);
   await sql(
     await readFile(
       new URL(
@@ -96,10 +106,12 @@ try {
       "20261011000400_library_annotations.sql",
       "20261011000500_managed_playlists.sql",
       "20261011000600_fast_tagging.sql",
+      "20261011000700_annotation_backups.sql",
       "20261011000800_expire_failed_reconciliation.sql",
       "20261011000900_artwork.sql",
       "20261011001000_queue_playback.sql",
       "20261021000100_sources.sql",
+      "20261021000200_song_groups.sql",
     ]
   ) {
     await sql(
@@ -110,8 +122,14 @@ try {
     );
   }
   await sql(await readFile(new URL("./sources.sql", import.meta.url), "utf8"));
+  await sql(
+    await readFile(new URL("./song-groups.sql", import.meta.url), "utf8"),
+  );
+  await sql(
+    await readFile(new URL("./song-groups-scale.sql", import.meta.url), "utf8"),
+  );
   console.log(
-    "Synthetic source membership, scan recovery, selection, lease and retention invariants passed.",
+    "Synthetic source membership, recovery, selection, lease, retention, song identity, undo, restore and 10,000-track batch invariants passed.",
   );
 } finally {
   await command(["rm", "--force", "--volumes", container]).catch(() => {});

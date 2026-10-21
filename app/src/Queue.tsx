@@ -305,7 +305,13 @@ export function Queue({
     const c = new AbortController();
     const ownGeneration = generation.current,
       keys = new Set(queueKeys.current);
-    setCheckingEligibility(true);
+    // Annotation refreshes update tags without revoking the current song.
+    // Membership revisions remain fail-closed while eligibility is rechecked.
+    setCheckingEligibility(
+      !status ||
+        !syncedRevision.current ||
+        status.revision.library !== syncedRevision.current.library,
+    );
     async function update() {
       let cursor: string | null = null;
       const live = new Map<string, TrackDTO>();

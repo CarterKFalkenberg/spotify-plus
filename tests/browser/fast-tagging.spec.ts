@@ -2697,3 +2697,117 @@ test("another client's source selection stops the current browser player and inv
   await browser(page);
   await expect(page.locator(".bulk-bar")).toHaveCount(0);
 });
+
+for (const action of ["create a free-form tag", "undo a changed tag"] as const)
+  test(`listening continues through annotation-only refresh when you ${action}`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(
+      isMobile,
+      "Desktop focused audio; mobile teardown is covered separately",
+    );
+    await syntheticPlayer(page);
+    const created = makeTag(4, "Synthetic Listening Tag");
+    const calls = await mock(page, {
+      intercept: async (route, path, body) => {
+        if (path === "/api/playback/token") {
+          await route.fulfill({ json: { accessToken: "synthetic-access" } });
+          return true;
+        }
+        if (path === "/api/playback/start") {
+          await page.evaluate(() => {
+            (window as any).__syntheticPlayer.state.paused = false;
+          });
+          await route.fulfill({
+            json: {
+              uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+              positionMs: 60333,
+              durationMs: 181000,
+            },
+          });
+          return true;
+        }
+        if (path === "/api/tags/lookup") {
+          await route.fulfill({
+            json: {
+              tags: body.tagIds.map((key: string) =>
+                key === created.id
+                  ? created
+                  : tags.find((tag) => tag.id === key),
+              ),
+              revision: { library: "1", annotations: "1" },
+            },
+          });
+          return true;
+        }
+        return false;
+      },
+    });
+    await page.goto("/");
+    await queue(page);
+    const input = page.getByLabel("Tag current song", { exact: true });
+    if (action === "undo a changed tag") {
+      await input.press("1");
+      await expect(
+        page.getByRole("button", {
+          name: "Remove Chill from current song",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await syncControls(page);
+      await page.getByRole("button", { name: "Sync now", exact: true }).click();
+      await expect(page.locator(".queue-feedback")).toContainText("Saved");
+    }
+    await page.clock.install();
+    await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+    await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+    if (action === "create a free-form tag") {
+      await input.fill(created.name);
+      await page
+        .getByRole("button", { name: `Create “${created.name}”`, exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", {
+          name: `Remove ${created.name} from current song`,
+          exact: true,
+        }),
+      ).toBeVisible();
+    } else {
+      await page
+        .getByRole("button", { name: "Undo last action", exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", { name: "Undo last action", exact: true }),
+      ).toHaveCount(0);
+    }
+    const before = calls.filter(
+      (call) => call.path === "/api/library/search",
+    ).length;
+    const refreshed = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/library/search" &&
+        response.request().postDataJSON().sort === undefined,
+    );
+    await page.clock.fastForward(1500);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await refreshed;
+    await expect
+      .poll(
+        () =>
+          calls.filter((call) => call.path === "/api/library/search").length,
+      )
+      .toBeGreaterThan(before);
+    await page.clock.fastForward(200);
+    await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+    const player = await page.evaluate(() => ({
+      ...(window as any).__syntheticPlayer.counters,
+      paused: (window as any).__syntheticPlayer.state.paused,
+    }));
+    expect(player).toMatchObject({
+      pauses: 0,
+      disconnects: 0,
+      constructions: 1,
+      paused: false,
+    });
+  });
