@@ -110,6 +110,22 @@ Deno.test("source projection skips local and episode entries, separates unresolv
   equal(p.rows.length, 1);
   equal(p.rows[0].title, "Synthetic title (Live)");
 });
+Deno.test("missing playlist addition dates carry explicit first-discovery persistence marker", async () => {
+  const p = await sourcePage({
+    total: 1,
+    offset: 0,
+    limit: 50,
+    nextOffset: null,
+    items: [{
+      addedAt: null,
+      uri: track.uri,
+      isLocal: false,
+      type: "track",
+      track,
+    }],
+  }, TEST_KEY);
+  equal(p.rows[0].addedAtMissing, true);
+});
 Deno.test("unchanged playlist snapshot skips content reads and disabled source reads nothing", async () => {
   for (const enabled of [true, false]) {
     let reads = 0;

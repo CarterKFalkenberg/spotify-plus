@@ -81,7 +81,7 @@ create function app.refresh_source_pool(p_epoch bigint) returns void language pl
     where sm.epoch=p_epoch and sm.track_key=m.track_key and s.enabled);
   get diagnostics changed=row_count;
   update app.library_state set library_revision=library_revision+case when changed>0 then 1 else 0 end,
-   initial_sync_complete=sources_discovered_at is not null and not exists(select 1 from app.sources where epoch=p_epoch and enabled and last_synced_at is null)
+   initial_sync_complete=sources_discovered_at is not null and not exists(select 1 from app.sources where epoch=p_epoch and enabled and available and last_synced_at is null)
    where singleton and epoch=p_epoch;
   if to_regprocedure('app.refresh_song_groups(bigint)') is not null then perform app.refresh_song_groups(p_epoch); end if;
  end;
@@ -124,7 +124,7 @@ create function public.app_sources_list(p_epoch bigint,p_search text default '',
   ) page;
   return jsonb_build_object('items',items,'total',total,'enabledCount',(select count(*) from app.sources where epoch=p_epoch and enabled),
    'uniqueTrackCount',(select count(*) from app.track_metadata m join app.annotations a using(track_key) where a.epoch=p_epoch and m.removed_at is null),
-   'importing',(select sources_discovered_at is null from app.library_state where singleton) or exists(select 1 from app.sources where epoch=p_epoch and enabled and last_synced_at is null),'revision',app.library_revision());
+   'importing',(select sources_discovered_at is null from app.library_state where singleton) or exists(select 1 from app.sources where epoch=p_epoch and enabled and available and last_synced_at is null),'revision',app.library_revision());
  end;
 $$;
 create function public.app_sources_selection(p_epoch bigint,p_ids jsonb,p_enabled boolean) returns jsonb
@@ -188,7 +188,6 @@ create function public.app_source_discovery_commit(p_epoch bigint,p_id uuid,p_le
    if row->>'id' is null or row->>'id' !~ '^[A-Za-z0-9]{22}$' then raise exception 'invalid_input'; end if;
    insert into app.source_discovery_ids values(p_id,r.pass,row->>'id') on conflict do nothing;
    if not found then r.invalid:=true; end if;
-   if coalesce((row->>'eligible')::boolean,true)=false then continue; end if;
    is_managed:=exists(select 1 from app.playlists where epoch=p_epoch and spotify_id=row->>'id');
    insert into app.sources(epoch,id,kind,name,artwork_url,spotify_url,enabled,managed,track_count)
     values(p_epoch,row->>'id','playlist',row->>'name',row->>'artworkUrl','https://open.spotify.com/playlist/'||(row->>'id'),not is_managed,is_managed,(row->>'total')::integer)
@@ -300,7 +299,7 @@ $$;
 
 create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease uuid,p_offset integer,p_total integer,p_received integer,p_next_offset integer,p_snapshot text,p_rows jsonb,p_skipped integer,p_unresolved integer) returns jsonb
  language plpgsql security definer set search_path='' as $$
- declare r app.source_scans; row jsonb; key text; liked timestamptz;
+ declare r app.source_scans; row jsonb; key text; liked timestamptz; old_effective timestamptz; new_effective timestamptz;
  begin
   perform app.require_owner(p_epoch,true);
   perform 1 from app.jobs where id=p_id and epoch=p_epoch and kind='source_sync' and state='running' and lease_token=p_lease and lease_until>now() for update;
@@ -313,7 +312,13 @@ create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease u
    or p_snapshot is null or p_snapshot='' or (p_next_offset is not null and (p_next_offset<>p_offset+p_received or p_received=0)) then raise exception 'invalid_input'; end if;
   if r.snapshot_id is not null and r.snapshot_id<>p_snapshot then raise exception 'stale_revision'; end if;
   for row in select value from jsonb_array_elements(p_rows) loop
-   key:=row->>'trackKey'; liked:=(row->>'likedAt')::timestamptz;
+   key:=row->>'trackKey';
+   liked:=case when coalesce((row->>'addedAtMissing')::boolean,false) then
+    coalesce((select added_at from app.source_memberships where epoch=p_epoch and source_id=r.source_id and track_key=key),now())
+    else (row->>'likedAt')::timestamptz end;
+   liked:=greatest(liked,(select added_at from app.source_seen where job_id=p_id and track_key=key));
+   select max(sm.added_at) into old_effective from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.epoch=p_epoch and sm.track_key=key and s.enabled;
+   select greatest(liked,max(sm.added_at)) into new_effective from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.epoch=p_epoch and sm.track_key=key and sm.source_id<>r.source_id and s.enabled;
    if key is null or key !~ '^[0-9a-f]{64}$' or liked is null then raise exception 'invalid_input'; end if;
    insert into app.annotations(track_key,epoch) values(key,p_epoch) on conflict(track_key) do nothing;
    if not exists(select 1 from app.annotations where track_key=key and epoch=p_epoch) then raise exception 'unknown_track'; end if;
@@ -323,8 +328,8 @@ create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease u
     on conflict(track_key) do update set spotify_id=excluded.spotify_id,title=excluded.title,artists=excluded.artists,album=excluded.album,
      release_date=excluded.release_date,duration_ms=excluded.duration_ms,explicit=excluded.explicit,artwork_url=excluded.artwork_url,spotify_url=excluded.spotify_url,
      playable_uri=excluded.playable_uri,liked_at=case when exists(select 1 from app.source_memberships sm where sm.epoch=p_epoch and sm.source_id='liked' and sm.track_key=excluded.track_key) then app.track_metadata.liked_at else greatest(app.track_metadata.liked_at,excluded.liked_at) end,removed_at=null,
-     acknowledged_at=case when app.track_metadata.removed_at is not null or app.track_metadata.liked_at<>excluded.liked_at then null else app.track_metadata.acknowledged_at end,
-     added_run_id=case when app.track_metadata.removed_at is not null or app.track_metadata.liked_at<>excluded.liked_at then p_id else app.track_metadata.added_run_id end
+     acknowledged_at=case when app.track_metadata.removed_at is not null or old_effective is distinct from new_effective then null else app.track_metadata.acknowledged_at end,
+     added_run_id=case when app.track_metadata.removed_at is not null or old_effective is distinct from new_effective then p_id else app.track_metadata.added_run_id end
     where (app.track_metadata.spotify_id,app.track_metadata.title,app.track_metadata.artists,app.track_metadata.album,app.track_metadata.release_date,
      app.track_metadata.duration_ms,app.track_metadata.explicit,app.track_metadata.artwork_url,app.track_metadata.spotify_url,app.track_metadata.playable_uri,app.track_metadata.liked_at,app.track_metadata.removed_at)
      is distinct from (excluded.spotify_id,excluded.title,excluded.artists,excluded.album,excluded.release_date,excluded.duration_ms,excluded.explicit,excluded.artwork_url,excluded.spotify_url,excluded.playable_uri,excluded.liked_at,null::timestamptz);
@@ -335,7 +340,7 @@ create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease u
   end loop;
   update app.source_scans set snapshot_id=p_snapshot,total=p_total,received=received+p_received,skipped=skipped+p_skipped,
    invalid=invalid or p_unresolved>0 or (total is not null and total<>p_total),next_offset=coalesce(p_next_offset,p_offset+p_received) where job_id=p_id;
-  update app.sources set imported_count=p_offset+p_received,track_count=p_total where epoch=p_epoch and id=r.source_id;
+  update app.sources set available=true,error_code=null,imported_count=p_offset+p_received,track_count=p_total where epoch=p_epoch and id=r.source_id;
   update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch;
   perform app.refresh_source_pool(p_epoch);
   return jsonb_build_object('done',false,'terminal',p_next_offset is null);
@@ -355,6 +360,7 @@ create function public.app_source_finish(p_epoch bigint,p_id uuid,p_lease uuid,p
    if p_error not in ('forbidden','not_found','response','network') then raise exception 'invalid_input'; end if;
    update app.sources set error_code=p_error,available=case when p_error in ('forbidden','not_found') then false else available end where epoch=p_epoch and id=r.source_id;
    update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch;
+   perform app.refresh_source_pool(p_epoch);
    return jsonb_build_object('done',true);
   end if;
   -- Unchanged snapshots avoid all item reads; otherwise validate the complete walk
@@ -424,7 +430,7 @@ $$;
 alter function app.library_status() rename to liked_library_status;
 create function app.library_status() returns jsonb language sql stable set search_path='' as $$
  select app.liked_library_status()||jsonb_build_object('sourcesRevision',(select sources_revision::text from app.library_state where singleton),
- 'syncPhase',case when exists(select 1 from app.sources where enabled and last_synced_at is null) then 'importing'
+ 'syncPhase',case when exists(select 1 from app.sources where enabled and available and last_synced_at is null) then 'importing'
   when exists(select 1 from app.sources where id='liked' and enabled) then app.liked_library_status()->>'syncPhase' else 'idle' end,
  'importedCount',(select coalesce(sum(imported_count),0) from app.sources where enabled),
  'reportedTotal',(select coalesce(sum(track_count),0) from app.sources where enabled),'activeCount',(select count(*) from app.filter_keys('{"membership":"active","search":"","untagged":false,"newOnly":false}'::jsonb)),

@@ -154,6 +154,8 @@ export async function handleRequest(
         "application/json"
       )
         return error(415, "invalid_content_type");
+      const maxBodyBytes =
+        url.pathname === "/api/sources/selection" ? 262144 : 16384;
       const reader = request.body?.getReader();
       const chunks: Uint8Array[] = [];
       let length = 0;
@@ -162,7 +164,7 @@ export async function handleRequest(
           const part = await reader.read();
           if (part.done) break;
           length += part.value.byteLength;
-          if (length > 16384) {
+          if (length > maxBodyBytes) {
             await reader.cancel();
             return error(413, "body_too_large");
           }

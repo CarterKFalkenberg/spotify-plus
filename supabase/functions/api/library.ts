@@ -44,7 +44,7 @@ export async function libraryApi(
     );
   }
   if (path === "/api/sources/selection" && req.method === "POST") {
-    const request = sourceSelection(await readJson(req, 300000));
+    const request = sourceSelection(await readJson(req, 262144));
     return json(
       await db.rpc("app_sources_selection", {
         p_epoch: epoch,
