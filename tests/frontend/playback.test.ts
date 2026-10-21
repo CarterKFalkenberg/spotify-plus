@@ -974,6 +974,36 @@ describe("one page SDK player across queue songs", () => {
     expect(player.connect).toHaveBeenCalledTimes(2);
     expect(start).toHaveBeenCalledTimes(2);
   });
+  it("ignores raw shared readiness/state events until the replacement dispatches connect", async () => {
+    await controller.play();
+    let release!: () => void;
+    player.disconnect.mockImplementationOnce(
+      () => new Promise<void>((yes) => (release = yes)),
+    );
+    replace();
+    const playing = controller.play();
+    await vi.advanceTimersByTimeAsync(0);
+    // These are the NEW owner's actual raw listeners, not saved old callbacks.
+    player.listeners.get("ready")?.({
+      device_id: "synthetic-old-session-device-12345",
+    });
+    player.listeners.get("not_ready")?.({});
+    player.state(false);
+    expect(views.at(-1)?.status).toBe("loading");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    release();
+    await playing;
+    player.state();
+    expect(views.at(-1)?.status).toBe("snippet");
+    expect(player.connect).toHaveBeenCalledTimes(2);
+    expect(start.mock.calls.at(-1)?.[1]).toBe(device);
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+    // The same live not_ready event is actionable once this connect began.
+    player.listeners.get("not_ready")?.({});
+    expect(views.at(-1)?.status).toBe("error");
+    expect(player.disconnect).toHaveBeenCalledTimes(2);
+  });
   it("ignores a previous owner's late connection rejection after the replacement starts", async () => {
     let reject!: (error: Error) => void;
     player.connect.mockImplementationOnce(() => {

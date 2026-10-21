@@ -91,12 +91,21 @@ function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
   holder.owner?.disconnect();
   const shared = holder;
   const listeners: Array<[string, (value: any) => void]> = [];
+  let connecting = false;
   const current = () => shared.owner === lease;
   const lease: WebPlayer = {
     addListener(event, listener) {
       if (!current()) return false;
       const guarded = (value: any) => {
-        if (current()) listener(value);
+        if (!current()) return;
+        // Disconnect events from the shared iframe can arrive after the next
+        // owner has attached listeners but before its connect is dispatched.
+        if (
+          !connecting &&
+          ["ready", "not_ready", "player_state_changed"].includes(event)
+        )
+          return;
+        listener(value);
       };
       listeners.push([event, guarded]);
       return shared.player.addListener(event, guarded);
@@ -109,7 +118,9 @@ function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
     },
     async connect() {
       await shared.disconnected;
-      return current() ? shared.player.connect() : false;
+      if (!current()) return false;
+      connecting = true;
+      return shared.player.connect();
     },
     disconnect() {
       if (!current()) return;
