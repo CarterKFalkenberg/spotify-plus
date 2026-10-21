@@ -2574,6 +2574,21 @@ for (const width of [320, 360])
       await choose(page);
       await chooseStep(page);
       await expect(page.locator(".query-feedback")).toContainText("2 songs");
+      const ordinaryNavigation = await page
+        .locator(".workspace-tabs")
+        .evaluate((nav) => ({
+          height: nav.getBoundingClientRect().height,
+          rows: new Set(
+            [...nav.querySelectorAll("button")]
+              .filter((button) => button.getBoundingClientRect().width)
+              .map((button) => button.getBoundingClientRect().top),
+          ).size,
+          items: [...nav.querySelectorAll("button")].filter(
+            (button) => button.getBoundingClientRect().width,
+          ).length,
+        }));
+      expect(ordinaryNavigation.items).toBe(5);
+      expect(ordinaryNavigation.rows).toBe(1);
       const enlargeText = async () =>
         page.evaluate(() => {
           for (const element of document.querySelectorAll("*"))
@@ -2606,6 +2621,12 @@ for (const width of [320, 360])
       expect(growth.count).toBeGreaterThan(100);
       expect(growth.minimum).toBeCloseTo(2);
       expect(growth.maximum).toBeCloseTo(2);
+      await expect
+        .poll(
+          async () =>
+            (await page.locator(".workspace-tabs").boundingBox())!.height,
+        )
+        .toBeGreaterThan(ordinaryNavigation.height);
       const layout = async () => {
         await expect
           .poll(() =>
@@ -2653,6 +2674,22 @@ for (const width of [320, 360])
               if (!walker.currentNode.textContent?.trim()) continue;
               const range = document.createRange();
               range.selectNodeContents(walker.currentNode);
+              if (!range.getClientRects().length) continue;
+              // Whole-word ranges must occupy one line, not just fit the button's box.
+              for (const word of walker.currentNode.textContent!.matchAll(
+                /\S+/g,
+              )) {
+                const wordRange = document.createRange();
+                wordRange.setStart(walker.currentNode, word.index!);
+                wordRange.setEnd(
+                  walker.currentNode,
+                  word.index! + word[0].length,
+                );
+                if (wordRange.getClientRects().length !== 1)
+                  errors.push(
+                    `navigation word ${word[0]} is split across lines`,
+                  );
+              }
               for (const rect of range.getClientRects())
                 if (
                   rect.left < box.left - 1 ||
