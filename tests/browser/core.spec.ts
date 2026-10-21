@@ -837,7 +837,7 @@ for (const zero of [true, false])
       ).toBeVisible();
     else
       await expect(page.locator(".query-feedback strong")).toContainText(
-        "1 songs",
+        "1 song",
       );
     await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   });
@@ -1650,6 +1650,7 @@ test("creation offers a direct confirmed-request progress path and feedback stay
     page.getByRole("button", { name: "Tag your library →" }),
   ).toBeVisible();
   await choose(page);
+  await chooseStep(page);
   const feedback = page.locator(".query-feedback");
   await expect(feedback).toContainText("2 songs");
   await expect(feedback).toContainText("1 unavailable song excluded");
@@ -2108,4 +2109,279 @@ test("a failed library page can retry Next without corrupting displayed history"
     "synthetic-next-page",
     null,
   ]);
+});
+
+function artworkGroups(pending: boolean, artworkUrl: string | null = null) {
+  return {
+    groupBy: "artist",
+    artworkPending: pending,
+    totalGroups: 1,
+    totalTracks: 3,
+    revision,
+    groups: [{ ...group, value: group.artistId, artworkUrl }],
+    nextCursor: null,
+  };
+}
+async function artistView(page: Page) {
+  await library(page);
+  await page
+    .getByRole("navigation", { name: "Browse library" })
+    .getByRole("button", { name: "Artists", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic Artist", exact: true }),
+  ).toBeVisible();
+}
+
+test("pending artist artwork refresh preserves tagging drafts and stops after resolution", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let pending = true,
+    requests = 0;
+  const url = "https://synthetic.invalid/artist.svg";
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(pending, pending ? null : url) });
+    return true;
+  });
+  await page.route(url, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="#657d71"/></svg>',
+    }),
+  );
+  await page.goto("/");
+  await artistView(page);
+  await page.clock.install();
+  if (!isMobile) {
+    await page
+      .getByRole("button", {
+        name: "Tag all 3 songs by Synthetic Artist",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByLabel("Add tag to selection", { exact: true })
+      .fill("gentle draft");
+  }
+  const before = requests;
+  pending = false;
+  await page.clock.runFor(4_000);
+  await expect.poll(() => requests).toBeGreaterThan(before);
+  const image = page.locator(".group-artwork-link img");
+  await expect(image).toHaveAttribute("src", url);
+  await expect
+    .poll(() =>
+      image.evaluate(
+        (img: HTMLImageElement) => img.complete && img.naturalWidth === 80,
+      ),
+    )
+    .toBe(true);
+  await expect(image).toHaveCSS("object-fit", "contain");
+  if (!isMobile)
+    await expect(
+      page.getByLabel("Add tag to selection", { exact: true }),
+    ).toHaveValue("gentle draft");
+  const resolved = requests;
+  await page.clock.runFor(15_000);
+  expect(requests).toBe(resolved);
+  await expect(page.locator(".artwork-status")).toHaveCount(0);
+});
+
+test("artwork refresh pauses outside Library and while the document is hidden", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let requests = 0;
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(true) });
+    return true;
+  });
+  await page.goto("/");
+  await artistView(page);
+  await page.clock.install();
+  await builder(page);
+  const hiddenView = requests;
+  await page.clock.runFor(10_000);
+  expect(requests).toBe(hiddenView);
+  await library(page);
+  await page.clock.runFor(500);
+  await expect.poll(() => requests).toBeGreaterThan(hiddenView);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenDocument = requests;
+  await page.clock.runFor(10_000);
+  expect(requests).toBe(hiddenDocument);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.runFor(500);
+  await expect.poll(() => requests).toBeGreaterThan(hiddenDocument);
+});
+
+test("known unavailable artwork does not poll and broken images use an honest fallback", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let requests = 0;
+  const broken = "https://synthetic.invalid/broken-artist.svg";
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(false, broken) });
+    return true;
+  });
+  await page.route(broken, (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("/");
+  await artistView(page);
+  await expect(
+    page.getByRole("img", { name: "artist artwork unavailable" }),
+  ).toBeVisible();
+  await expect(page.locator(".group-artwork-link img")).toHaveCount(0);
+  await page.clock.install();
+  const before = requests;
+  await page.clock.runFor(20_000);
+  expect(requests).toBe(before);
+});
+
+test("artwork wait stops after one minute and an explicit check restarts it", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    "Artist group browsing is desktop only; mobile library stays lite",
+  );
+  let requests = 0;
+  await mock(page, async (route, path) => {
+    if (
+      path !== "/api/library/search" ||
+      !route.request().postDataJSON().groupBy
+    )
+      return false;
+    requests++;
+    await route.fulfill({ json: artworkGroups(true) });
+    return true;
+  });
+  await page.goto("/");
+  await artistView(page);
+  await page.clock.install();
+  await page.clock.runFor(65_000);
+  await expect(
+    page.getByRole("button", { name: "Check artwork", exact: true }),
+  ).toBeVisible();
+  const stopped = requests;
+  expect(stopped).toBeLessThanOrEqual(23);
+  await page.clock.runFor(15_000);
+  expect(requests).toBe(stopped);
+  await page
+    .getByRole("button", { name: "Check artwork", exact: true })
+    .click();
+  await page.clock.runFor(500);
+  await expect.poll(() => requests).toBeGreaterThan(stopped);
+  await expect(
+    page.getByRole("button", { name: "Check artwork", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("playlist cover art stays contained on phones and broken covers preserve Spotify actions", async ({
+  page,
+  isMobile,
+}) => {
+  const cover = "https://synthetic.invalid/playlist-cover.svg",
+    broken = "https://synthetic.invalid/broken-playlist.svg";
+  await mock(page, async (route, path) => {
+    if (path !== "/api/playlists" || route.request().method() !== "GET")
+      return false;
+    await route.fulfill({
+      json: {
+        playlists: [
+          { ...playlist(), artworkUrl: cover },
+          {
+            ...playlist(2),
+            name: "Synthetic (test) playlist",
+            artworkUrl: broken,
+          },
+        ],
+        nextCursor: null,
+        lastCleanupAt: new Date().toISOString(),
+        cleanupBlockedBy: null,
+      },
+    });
+    return true;
+  });
+  await page.route(cover, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="120"><rect width="90" height="120" fill="#657d71"/></svg>',
+    }),
+  );
+  await page.route(broken, (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("/");
+  await lists(page);
+  const cards = page.locator(".playlist-card");
+  await expect(
+    cards.first().locator(".collection-artwork img"),
+  ).toHaveAttribute("src", cover);
+  await expect(cards.first().locator(".collection-artwork img")).toHaveCSS(
+    "object-fit",
+    "contain",
+  );
+  await expect(
+    cards
+      .last()
+      .getByRole("heading", { name: "Synthetic (test) playlist", exact: true }),
+  ).toBeVisible();
+  await expect(
+    cards.last().getByRole("img", { name: "playlist artwork unavailable" }),
+  ).toBeVisible();
+  await expect(
+    cards.last().getByRole("link", { name: "Open in Spotify ↗" }),
+  ).toHaveAttribute("href", playlist(2).spotifyUrl);
+  if (isMobile) {
+    await library(page);
+    await expect(
+      page.getByRole("navigation", { name: "Browse library" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByLabel("Search your library", { exact: true }),
+    ).toBeVisible();
+  }
 });

@@ -222,7 +222,9 @@ export function Vocabulary({
                   : "never"}
               </small>
             </div>
-            <span className="dictionary-count">{t.activeTrackCount} songs</span>
+            <span className="dictionary-count">
+              {t.activeTrackCount} {t.activeTrackCount === 1 ? "song" : "songs"}
+            </span>
             <button
               className="compact dictionary-manage"
               aria-label={`Manage ${t.name}`}

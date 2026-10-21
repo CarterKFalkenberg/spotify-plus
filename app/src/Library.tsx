@@ -232,9 +232,7 @@ export function Library({
     active,
     visible,
   ]);
-  const artworkPending = !!(
-    data as (Search & { artworkPending?: boolean }) | null
-  )?.artworkPending;
+  const artworkPending = data?.artworkPending ?? false;
   const artworkKey = JSON.stringify([filter, grouped, groupBy, sort, cursor]);
   useEffect(() => {
     if (!artworkPending) {
@@ -251,9 +249,17 @@ export function Library({
       setArtworkTimedOut(true);
       return;
     }
+    const remaining = 60_000 - (Date.now() - artworkWindow.current.startedAt);
     const timer = setTimeout(
-      () => setArtworkAttempt((value) => value + 1),
-      3_000,
+      () => {
+        if (
+          !artworkWindow.current ||
+          Date.now() - artworkWindow.current.startedAt >= 60_000
+        )
+          setArtworkTimedOut(true);
+        else setArtworkAttempt((value) => value + 1);
+      },
+      Math.min(3_000, remaining),
     );
     return () => clearTimeout(timer);
   }, [data, artworkPending, artworkKey, active, visible]);
@@ -410,7 +416,10 @@ export function Library({
         Find a song, or tag a whole artist, album, or decade in one move.
       </p>
       <div className="library-controls">
-        <nav className="library-browse" aria-label="Browse library">
+        <nav
+          className="library-browse desktop-bulk"
+          aria-label="Browse library"
+        >
           {(["none", "artist", "album", "decade"] as const).map((view) => (
             <button
               key={view}
@@ -418,6 +427,8 @@ export function Library({
                 view === "none" ? !grouped : grouped && groupBy === view
               }
               onClick={() => {
+                if (view === "none" ? !grouped : grouped && groupBy === view)
+                  return;
                 setGrouped(view !== "none");
                 if (view !== "none") setGroupBy(view);
                 setData(null);
@@ -581,7 +592,7 @@ export function Library({
         <>
           <div className="result-toolbar">
             <span>
-              {data.totalTracks} songs
+              {data.totalTracks} {data.totalTracks === 1 ? "song" : "songs"}
               {data.groupBy !== null
                 ? ` · ${data.totalGroups} ${data.groupBy === "artist" ? (data.totalGroups === 1 ? "artist" : "artists") : data.groupBy === "album" ? (data.totalGroups === 1 ? "album" : "albums") : data.totalGroups === 1 ? "decade" : "decades"}`
                 : ""}
@@ -705,10 +716,7 @@ export function Library({
                     aria-label={`Open ${group.name} in Spotify`}
                   >
                     <CollectionArtwork
-                      url={
-                        (group as typeof group & { artworkUrl?: string | null })
-                          .artworkUrl
-                      }
+                      url={group.artworkUrl}
                       kind={
                         groupBy === "artist"
                           ? "artist"
@@ -720,14 +728,17 @@ export function Library({
                   </a>
                   <h3>{group.name}</h3>
                   <p>
-                    {group.trackCount} songs · {group.taggedCount} tagged
+                    {group.trackCount}{" "}
+                    {group.trackCount === 1 ? "song" : "songs"} ·{" "}
+                    {group.taggedCount} tagged
                   </p>
                   <button
                     className="compact desktop-bulk group-select"
                     aria-label={`Tag all ${group.trackCount} songs ${groupBy === "artist" ? "by" : "in"} ${group.name}`}
                     onClick={() => setSelection(group.selection)}
                   >
-                    Tag {group.trackCount} songs
+                    Tag {group.trackCount}{" "}
+                    {group.trackCount === 1 ? "song" : "songs"}
                   </button>
                   <button
                     className="compact group-browse"

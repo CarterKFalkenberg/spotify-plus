@@ -13,6 +13,15 @@ import { Vocabulary } from "./Vocabulary";
 import type { FastFilter } from "./fast-api";
 import { usePageActivity, useVisiblePolling } from "./useVisiblePolling";
 export function Workspace() {
+  const [mobile, setMobile] = useState(
+    () => matchMedia("(max-width:640px)").matches,
+  );
+  useEffect(() => {
+    const media = matchMedia("(max-width:640px)");
+    const update = () => setMobile(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const [tab, setTab] = useState<
     "queue" | "library" | "builder" | "playlists" | "vocabulary"
   >(() =>
@@ -96,7 +105,7 @@ export function Workspace() {
       <details
         className="workspace-sync"
         open={
-          !matchMedia("(max-width:640px)").matches ||
+          !mobile ||
           !!status?.blockedBy ||
           (!!status && !status.initialSyncComplete)
         }

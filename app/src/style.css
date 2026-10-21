@@ -3215,3 +3215,42 @@ dialog::backdrop {
     min-width: 160px !important;
   }
 }
+/* Official artwork attribution: original full logos, without recoloring. */
+.spotify-attribution {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 8px 0;
+  text-decoration: none;
+  font-size: 11px;
+}
+.spotify-attribution img {
+  display: block;
+  width: 88px;
+  height: auto;
+  margin: 0 12px;
+}
+.spotify-attribution .spotify-logo-dark {
+  display: none;
+}
+:root[data-theme="dark"] .spotify-attribution .spotify-logo-light {
+  display: none;
+}
+:root[data-theme="dark"] .spotify-attribution .spotify-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  footer {
+    gap: 12px;
+  }
+  .spotify-attribution {
+    gap: 8px;
+  }
+  .spotify-attribution img {
+    margin: 0 10px;
+  }
+  footer nav {
+    gap: 16px;
+  }
+}

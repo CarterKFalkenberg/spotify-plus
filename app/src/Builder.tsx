@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   compileQueryBuilder,
   parseCreatePlaylist,
@@ -86,9 +86,13 @@ export function Builder({
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [refinements, setRefinements] = useState(false);
   const stageHeading = useRef<HTMLHeadingElement>(null);
+  const stageMounted = useRef(false);
+  useLayoutEffect(() => {
+    if (stageMounted.current) stageHeading.current?.focus();
+    else stageMounted.current = true;
+  }, [step]);
   function go(next: 0 | 1 | 2) {
     setStep(next);
-    requestAnimationFrame(() => stageHeading.current?.focus());
   }
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const [paging, setPaging] = useState(false);
@@ -310,7 +314,8 @@ export function Builder({
               ) : matched ? (
                 <>
                   <strong>
-                    {matched.playableCount} songs{" "}
+                    {matched.playableCount}{" "}
+                    {matched.playableCount === 1 ? "song" : "songs"}{" "}
                     <span>
                       · {Math.floor(matched.durationMs / 3600000)}h{" "}
                       {Math.floor(matched.durationMs / 60000) % 60}m

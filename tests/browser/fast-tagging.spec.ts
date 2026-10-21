@@ -1,8 +1,5 @@
 import {
   appearance as chooseAppearance,
-  details,
-  chooseStep,
-  managePlaylist,
   syncControls,
   songActions,
 } from "./flows";
@@ -1904,7 +1901,7 @@ test("dictionary merge mode keeps selection explicit and previews the full union
     .getByLabel("Merge into existing tag", { exact: true })
     .fill("Chill");
   await page
-    .getByRole("option", { name: "Chill some · 1 of 3 selected", exact: true })
+    .getByRole("option", { name: "Chill 84 songs", exact: true })
     .click();
   const preview = page.getByRole("dialog").filter({ hasText: "Confirm merge" });
   await expect(preview).toContainText("99 distinct songs");

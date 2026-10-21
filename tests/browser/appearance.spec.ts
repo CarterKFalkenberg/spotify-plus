@@ -23,9 +23,20 @@ test("appearance follows the system until an explicit choice, persists and appli
     }),
   ).toBeChecked();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator(".spotify-logo-dark")).toBeVisible();
+  await expect(page.locator(".spotify-logo-light")).not.toBeVisible();
+  await expect(page.locator(".spotify-logo-dark")).toHaveCSS("width", "88px");
+  await expect(
+    page.getByRole("link", {
+      name: "Music metadata and artwork from Spotify",
+      exact: true,
+    }),
+  ).toHaveAttribute("href", "https://open.spotify.com/");
   await assertReadableSurface(page);
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator(".spotify-logo-light")).toBeVisible();
+  await expect(page.locator(".spotify-logo-dark")).not.toBeVisible();
   await assertReadableSurface(page);
   await chooseAppearance(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -109,4 +120,23 @@ test("reading storage can fail without blocking connection or appearance control
   ).toBeVisible();
   await chooseAppearance(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+});
+
+test("appearance disclosure returns focus on Escape and closes on an outside press", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const disclosure = page.locator(".theme-control"),
+    trigger = disclosure.locator("summary");
+  await trigger.focus();
+  await trigger.press("Enter");
+  await page.getByRole("radio", { name: "System", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(disclosure).not.toHaveAttribute("open", "");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page
+    .getByRole("heading", { name: "Start with your Spotify", exact: true })
+    .click();
+  await expect(disclosure).not.toHaveAttribute("open", "");
 });

@@ -502,7 +502,29 @@ function App() {
         </Routes>
       </main>
       <footer>
-        <span>Spotify Plus · A personal library</span>
+        <a
+          className="spotify-attribution"
+          href="https://open.spotify.com/"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Music metadata and artwork from Spotify"
+        >
+          <span>Music from</span>
+          <img
+            className="spotify-logo-light"
+            src="/spotify-logo-black.svg"
+            alt="Spotify"
+            width="88"
+            height="27"
+          />
+          <img
+            className="spotify-logo-dark"
+            src="/spotify-logo-white.svg"
+            alt="Spotify"
+            width="88"
+            height="27"
+          />
+        </a>
         <nav aria-label="Legal">
           <Link to="/privacy">Privacy</Link>
           <Link to="/terms">Terms</Link>

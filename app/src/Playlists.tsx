@@ -304,13 +304,7 @@ export function Playlists({
       <div className="playlist-grid">
         {data?.playlists.map((item) => (
           <article className="playlist-card" key={item.id}>
-            <CollectionArtwork
-              url={
-                (item as ManagedPlaylistDTO & { artworkUrl?: string | null })
-                  .artworkUrl
-              }
-              kind="playlist"
-            />
+            <CollectionArtwork url={item.artworkUrl} kind="playlist" />
             <div className="playlist-card-top">
               {item.status !== "ready" && (
                 <span className={`pill ${item.status}`}>
@@ -336,7 +330,7 @@ export function Playlists({
             <div className="playlist-facts">
               {" "}
               <span className="muted">
-                {item.trackCount} songs
+                {item.trackCount} {item.trackCount === 1 ? "song" : "songs"}
                 {item.status !== "ready" ? " targeted" : ""}
               </span>
               <p className="expiry">{expiryText(item.expiresOn)}</p>
