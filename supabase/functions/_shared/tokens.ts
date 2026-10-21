@@ -102,6 +102,27 @@ export class OwnerTokens {
     private readonly request: typeof fetch = fetch,
     private readonly now: () => number = Date.now,
   ) {}
+  async getGrantedScopes(): Promise<string[]> {
+    // Read encrypted proof without acquiring/refreshing a provider token.
+    const encrypted = await this.db.rpc<string | null>(
+      "app_token_scope_proof",
+      { p_epoch: this.epoch },
+    );
+    if (!encrypted) return [];
+    let pair: TokenPair;
+    try {
+      pair = await this.box.decrypt<TokenPair>(
+        encrypted,
+        `tokens:${this.epoch}`,
+      );
+    } catch {
+      throw new SpotifyError("control_unavailable");
+    }
+    return Array.isArray(pair?.scopes) &&
+        pair.scopes.every((s) => typeof s === "string")
+      ? [...pair.scopes]
+      : [];
+  }
   getAccessToken(): Promise<string> {
     return this.obtain(null);
   }

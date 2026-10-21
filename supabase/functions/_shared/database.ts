@@ -56,6 +56,7 @@ const DATABASE_ERRORS = [
   "stale_revision",
   "unknown_tag",
   "unknown_track",
+  "unknown_source",
   "unknown_action",
   "invalid_input",
   "request_conflict",

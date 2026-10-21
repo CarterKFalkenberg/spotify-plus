@@ -18,3 +18,5 @@ node supabase/tests/database/run.mjs
 node supabase/tests/database/run-playlists.mjs
 node supabase/tests/database/run-fast-tagging.mjs
 node supabase/tests/database/run-backups.mjs
+
+node supabase/tests/database/run-sources.mjs

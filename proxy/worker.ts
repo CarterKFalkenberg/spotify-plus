@@ -13,6 +13,10 @@ const routes: Readonly<Record<string, string>> = {
   "/api/playback/enable": "POST",
   "/api/playback/token": "POST",
   "/api/playback/start": "POST",
+  "/api/sources": "GET",
+  "/api/sources/selection": "POST",
+  "/api/sources/sync": "POST",
+  "/api/sources/enable": "POST",
   "/api/library/status": "GET",
   "/api/library/sync": "POST",
   "/api/library/search": "POST",
@@ -86,11 +90,13 @@ export async function handleRequest(
     return error(405, "method_not_allowed");
   if (url.pathname !== "/auth/spotify/callback") {
     const allowed =
-      method === "GET" && url.pathname === "/api/tags"
-        ? ["search", "limit"]
-        : method === "GET" && url.pathname === "/api/playlists"
-          ? ["cursor", "limit"]
-          : [];
+      method === "GET" && url.pathname === "/api/sources"
+        ? ["search", "offset", "limit"]
+        : method === "GET" && url.pathname === "/api/tags"
+          ? ["search", "limit"]
+          : method === "GET" && url.pathname === "/api/playlists"
+            ? ["cursor", "limit"]
+            : [];
     for (const key of url.searchParams.keys()) {
       if (!allowed.includes(key) || url.searchParams.getAll(key).length !== 1)
         return error(400, "invalid_input");
@@ -98,6 +104,7 @@ export async function handleRequest(
     const limit = url.searchParams.get("limit");
     const search = url.searchParams.get("search");
     const cursor = url.searchParams.get("cursor");
+    const offset = url.searchParams.get("offset");
     if (
       (limit !== null &&
         (!/^[1-9][0-9]{0,2}$/.test(limit) || Number(limit) > 100)) ||
@@ -105,7 +112,8 @@ export async function handleRequest(
         (search.length > 1600 ||
           [...search.normalize("NFC").trim().replace(/\s+/gu, " ")].length >
             200)) ||
-      (cursor !== null && !/^[A-Za-z0-9_-]{16,512}$/.test(cursor))
+      (cursor !== null && !/^[A-Za-z0-9_-]{16,512}$/.test(cursor)) ||
+      (offset !== null && !/^\d{1,9}$/.test(offset))
     )
       return error(400, "invalid_input");
   }

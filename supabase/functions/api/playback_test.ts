@@ -200,6 +200,7 @@ Deno.test("optional playback consent requests exactly the accepted SDK scopes an
     box,
     db: database((name, args) => {
       if (name === "app_session") return { epoch: 1, state: "connected" };
+      if (name === "app_token_scope_proof") return null;
       equal(name, "app_oauth_start");
       encrypted = String(args.p_encrypted_verifier);
       return true;
