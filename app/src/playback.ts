@@ -157,6 +157,25 @@ export class QueuePlayer {
   private failure(error: unknown) {
     const code =
       error && typeof error === "object" && "code" in error ? error.code : "";
+    let marker: unknown;
+    try {
+      if (error instanceof Error)
+        marker = Object.getOwnPropertyDescriptor(error, "message")?.value;
+    } catch {
+      /* Unknown errors never supply display text. */
+    }
+    const setupMessage =
+      marker === "device_timeout"
+        ? "Spotify did not make this browser player ready in time. Try again or open Spotify."
+        : marker === "connect_timeout"
+          ? "The connection to Spotify timed out. Try again or open Spotify."
+          : marker === "connect_failed"
+            ? "Spotify could not connect this browser player. Try again or open Spotify."
+            : marker === "token_timeout"
+              ? "Spotify authorization took too long to load. Try again."
+              : marker === "device_invalid"
+                ? "Spotify could not identify this browser player. Try again or open Spotify."
+                : "Playback could not be confirmed. Try again or open Spotify.";
     this.fail(
       code === "playback_required"
         ? "Enable playback to listen in this page."
@@ -166,7 +185,7 @@ export class QueuePlayer {
             ? "Reconnect Spotify to listen here."
             : code === "track_unavailable"
               ? "This song is unavailable for playback."
-              : "Playback could not be confirmed. Try again or open Spotify.",
+              : setupMessage,
       code === "playback_required",
     );
   }
@@ -407,12 +426,34 @@ export class QueuePlayer {
           "playback_error",
           "autoplay_failed",
         ])
-          player.addListener(event, () =>
+          player.addListener(event, (payload: unknown) => {
+            let permissionsRejected = false;
+            if (
+              event === "authentication_error" &&
+              payload !== null &&
+              typeof payload === "object" &&
+              !Array.isArray(payload)
+            ) {
+              try {
+                const message = Object.getOwnPropertyDescriptor(
+                  payload,
+                  "message",
+                );
+                permissionsRejected =
+                  !!message &&
+                  "value" in message &&
+                  message.value === "Invalid token scopes.";
+              } catch {
+                /* Untrusted SDK payloads cannot supply display text. */
+              }
+            }
             sdkFailure(
               event === "initialization_error"
                 ? "Protected audio could not initialize in this browser. Try another supported browser or open Spotify."
                 : event === "authentication_error"
-                  ? "Spotify could not authenticate the player. Reconnect Spotify or try again."
+                  ? permissionsRejected
+                    ? "Spotify rejected the permissions for webpage playback. You can keep tagging or open Spotify."
+                    : "Spotify could not authenticate the player. Reconnect Spotify or try again."
                   : event === "playback_error"
                     ? "Spotify could not play this song. Try again or open Spotify."
                     : event === "account_error"
@@ -420,8 +461,8 @@ export class QueuePlayer {
                       : event === "autoplay_failed"
                         ? "Your browser blocked audio. Try Play again."
                         : "The player is unavailable. Try again or open Spotify.",
-            ),
-          );
+            );
+          });
         if (warm) {
           activated = player.activateElement();
           void activated.catch(() =>

@@ -548,3 +548,144 @@ it("SDK ready cannot leave a pending connect promise unbounded", async () => {
   expect(start).not.toHaveBeenCalled();
   expect(player.disconnect).toHaveBeenCalledTimes(1);
 });
+
+it("only the exact SDK scope rejection selects fixed permissions copy", async () => {
+  await prepare();
+  player.listeners.get("authentication_error")?.({
+    message: "Invalid token scopes.",
+    extra: "synthetic private detail",
+  });
+  expect(views.at(-1)?.message).toBe(
+    "Spotify rejected the permissions for webpage playback. You can keep tagging or open Spotify.",
+  );
+  expect(JSON.stringify(views)).not.toContain("Invalid token scopes.");
+  expect(JSON.stringify(views)).not.toContain("private detail");
+});
+it.each([
+  null,
+  "Invalid token scopes.",
+  { message: "Invalid token scopes. synthetic secret" },
+  { message: "invalid token scopes." },
+  Object.create({ message: "Invalid token scopes." }),
+  Object.defineProperty({}, "message", {
+    get() {
+      throw new Error("synthetic hostile getter");
+    },
+  }),
+  new Proxy(
+    {},
+    {
+      getOwnPropertyDescriptor() {
+        throw new Error("synthetic hostile proxy");
+      },
+    },
+  ),
+])(
+  "unknown/hostile SDK auth payload keeps fixed generic copy %#",
+  async (payload) => {
+    await prepare();
+    expect(() =>
+      player.listeners.get("authentication_error")?.(payload),
+    ).not.toThrow();
+    expect(views.at(-1)?.message).toBe(
+      "Spotify could not authenticate the player. Reconnect Spotify or try again.",
+    );
+    expect(JSON.stringify(views)).not.toContain("synthetic");
+  },
+);
+it.each(["before", "after"])(
+  "exact SDK scope rejection %s grant failure cannot hide Enable playback",
+  async (timing) => {
+    window.Spotify = {
+      Player: class {
+        constructor() {
+          return player;
+        }
+      },
+    } as unknown as SpotifySDK;
+    let reject!: (error: { code: string }) => void;
+    token.mockImplementation(
+      () =>
+        new Promise((_, no) => {
+          reject = no;
+        }),
+    );
+    const pending = controller.play();
+    if (timing === "before")
+      player.listeners.get("authentication_error")?.({
+        message: "Invalid token scopes.",
+      });
+    reject({ code: "playback_required" });
+    await pending;
+    if (timing === "after")
+      player.listeners.get("authentication_error")?.({
+        message: "Invalid token scopes.",
+      });
+    expect(views.at(-1)).toEqual({
+      status: "error",
+      message: "Enable playback to listen in this page.",
+      enable: true,
+    });
+    expect(start).not.toHaveBeenCalled();
+  },
+);
+it.each([
+  [
+    "device_timeout",
+    "Spotify did not make this browser player ready in time. Try again or open Spotify.",
+  ],
+  [
+    "connect_timeout",
+    "The connection to Spotify timed out. Try again or open Spotify.",
+  ],
+  [
+    "connect_failed",
+    "Spotify could not connect this browser player. Try again or open Spotify.",
+  ],
+  ["token_timeout", "Spotify authorization took too long to load. Try again."],
+  [
+    "device_invalid",
+    "Spotify could not identify this browser player. Try again or open Spotify.",
+  ],
+])(
+  "local %s marker selects a distinct fixed setup explanation",
+  async (marker, message) => {
+    window.Spotify = {
+      Player: class {
+        constructor() {
+          return player;
+        }
+      },
+    } as unknown as SpotifySDK;
+    if (marker === "device_timeout") player.connect.mockResolvedValue(true);
+    if (marker === "connect_timeout")
+      player.connect.mockImplementation(() => {
+        player.listeners.get("ready")?.({ device_id: device });
+        return new Promise(() => {});
+      });
+    if (marker === "connect_failed") player.connect.mockResolvedValue(false);
+    if (marker === "token_timeout")
+      token.mockImplementation(() => new Promise(() => {}));
+    if (marker === "device_invalid")
+      player.connect.mockImplementation(async () => {
+        player.listeners.get("ready")?.({ device_id: "bad" });
+        return true;
+      });
+    const pending = controller.play();
+    await vi.advanceTimersByTimeAsync(12000);
+    await pending;
+    expect(views.at(-1)?.message).toBe(message);
+    expect(start).not.toHaveBeenCalled();
+  },
+);
+it.each([new Error("synthetic secret marker"), { message: "device_timeout" }])(
+  "unknown errors and plain marker-shaped objects never become setup diagnostics %#",
+  async (error) => {
+    token.mockRejectedValue(error);
+    await controller.play();
+    expect(views.at(-1)?.message).toBe(
+      "Playback could not be confirmed. Try again or open Spotify.",
+    );
+    expect(JSON.stringify(views)).not.toContain("synthetic secret");
+  },
+);
