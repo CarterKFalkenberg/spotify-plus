@@ -215,17 +215,14 @@ export function Vocabulary({
           <article key={t.id}>
             <div>
               <strong>{t.name}</strong>
-              <small>
+              <small className="tag-last-used">
                 Last used{" "}
                 {t.lastUsedAt
                   ? new Date(t.lastUsedAt).toLocaleDateString()
                   : "never"}
               </small>
             </div>
-            <span className="dictionary-count">
-              {t.activeTrackCount}
-              <span className="sr-only"> active songs</span>
-            </span>
+            <span className="dictionary-count">{t.activeTrackCount} songs</span>
             <button
               className="compact dictionary-manage"
               aria-label={`Manage ${t.name}`}

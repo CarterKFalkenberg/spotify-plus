@@ -93,72 +93,82 @@ export function Workspace() {
   const refreshFor = (view: string) => viewRefresh.current[view] ?? 0;
   return (
     <div className="workspace" data-view={tab}>
-      <div className="workspace-heading">
-        <h1 className="sr-only">Your music workspace</h1>
-        <div className="sync-controls">
-          {!!status?.newCount && (
+      <details
+        className="workspace-sync"
+        open={
+          !matchMedia("(max-width:640px)").matches ||
+          !!status?.blockedBy ||
+          (!!status && !status.initialSyncComplete)
+        }
+      >
+        <summary>Library &amp; sync</summary>
+        <div className="workspace-heading">
+          <h1 className="sr-only">Your music workspace</h1>
+          <div className="sync-controls">
+            {!!status?.newCount && (
+              <button
+                className="new-badge desktop-arrivals"
+                onClick={() => {
+                  setNewOnly(true);
+                  setQueueSource({ ...emptyFilter, newOnly: true });
+                  setTab("queue");
+                }}
+              >
+                {status.newCount} new
+              </button>
+            )}
             <button
-              className="new-badge desktop-arrivals"
-              onClick={() => {
-                setNewOnly(true);
-                setQueueSource({ ...emptyFilter, newOnly: true });
-                setTab("queue");
+              className="compact"
+              disabled={syncing}
+              onClick={async () => {
+                setSyncing(true);
+                setError("");
+                try {
+                  setStatus(
+                    await api("/library/sync", libraryStatus, {
+                      reason: "manual",
+                    }),
+                  );
+                  setRefresh((v) => v + 1);
+                  setStatusAttempt((v) => v + 1);
+                } catch (error) {
+                  setError(errorMessage(error));
+                } finally {
+                  setSyncing(false);
+                }
               }}
             >
-              {status.newCount} new
+              {syncing ? "Requesting sync…" : "Sync now"}
             </button>
-          )}
-          <button
-            className="compact"
-            disabled={syncing}
-            onClick={async () => {
-              setSyncing(true);
-              setError("");
-              try {
-                setStatus(
-                  await api("/library/sync", libraryStatus, {
-                    reason: "manual",
-                  }),
-                );
-                setRefresh((v) => v + 1);
-                setStatusAttempt((v) => v + 1);
-              } catch (error) {
-                setError(errorMessage(error));
-              } finally {
-                setSyncing(false);
-              }
-            }}
-          >
-            {syncing ? "Requesting sync…" : "Sync now"}
-          </button>
+          </div>
         </div>
-      </div>
-      {error && (
-        <p role="alert" className="notice">
-          {error}
-        </p>
-      )}
-      {status && (
-        <div className="library-status" role="status">
-          {status.blockedBy
-            ? blockMessage[status.blockedBy]
-            : status.reportedTotal === 0
-              ? "Your Spotify library is empty. Like a song in Spotify to get started."
-              : status.syncPhase === "verifying"
-                ? "Verifying your library — checking that the complete import is stable."
-                : status.syncPhase === "importing"
-                  ? `${status.importedCount.toLocaleString()} of ${status.reportedTotal?.toLocaleString() ?? "unknown total"} imported · Browse and tag while songs arrive.`
-                  : status.initialSyncComplete
-                    ? `${status.activeCount.toLocaleString()} songs · ${status.activeCount - status.untaggedCount} tagged${status.lastCompletedAt ? ` · Last synced ${new Date(status.lastCompletedAt).toLocaleDateString()}` : ""}`
-                    : "Your first import is queued. Songs will appear as they arrive."}
-          {status.blockedBy === "reconnect" && (
-            <>
-              {" "}
-              <a href="/auth/spotify/start">Reconnect Spotify</a>
-            </>
-          )}
-        </div>
-      )}
+        {error && (
+          <p role="alert" className="notice">
+            {error}
+          </p>
+        )}
+        {status && (
+          <div className="library-status" role="status">
+            {status.blockedBy
+              ? blockMessage[status.blockedBy]
+              : status.reportedTotal === 0
+                ? "Your Spotify library is empty. Like a song in Spotify to get started."
+                : status.syncPhase === "verifying"
+                  ? "Verifying your library — checking that the complete import is stable."
+                  : status.syncPhase === "importing"
+                    ? `${status.importedCount.toLocaleString()} of ${status.reportedTotal?.toLocaleString() ?? "unknown total"} imported · Browse and tag while songs arrive.`
+                    : status.initialSyncComplete
+                      ? `${status.activeCount.toLocaleString()} songs · ${status.activeCount - status.untaggedCount} tagged${status.lastCompletedAt ? ` · Last synced ${new Date(status.lastCompletedAt).toLocaleDateString()}` : ""}`
+                      : "Your first import is queued. Songs will appear as they arrive."}
+            {status.blockedBy === "reconnect" && (
+              <>
+                {" "}
+                <a href="/auth/spotify/start">Reconnect Spotify</a>
+              </>
+            )}
+          </div>
+        )}
+      </details>
       {status && status.untaggedCount > 100 && tab === "queue" && (
         <p className="guidance desktop-bulk">
           {status.untaggedCount} untagged songs · A few big artists make a good
@@ -254,6 +264,7 @@ export function Workspace() {
       <div hidden={tab !== "library"}>
         {(visited.has("library") || (visible && tab === "library")) && (
           <Library
+            active={visible && tab === "library"}
             refresh={refreshFor("library")}
             newOnly={newOnly}
             artistId={artistId}

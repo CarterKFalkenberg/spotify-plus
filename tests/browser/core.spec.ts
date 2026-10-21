@@ -3,6 +3,7 @@ import {
   details,
   chooseStep,
   managePlaylist,
+  syncControls,
 } from "./flows";
 import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
@@ -430,10 +431,13 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
   await choose(page);
   await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
   await expect(
-    page.getByText("0h 6m · from your cached library"),
+    page.getByText("Matching songs · newest liked first"),
   ).toBeVisible();
   await expect(page.getByText(/1 unavailable song is excluded/)).toBeVisible();
   await details(page);
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(page.getByText(/Playlist request accepted/)).toBeVisible();
   const body = calls.find(
@@ -554,6 +558,9 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
   await builder(page);
   await choose(page);
   await details(page);
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await expect(
     page.getByRole("button", { name: "Retry saved create request" }),
@@ -564,7 +571,9 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
     .click();
   await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(
-    page.getByText("Add at least one tag to see the songs that fit."),
+    page
+      .locator(".query-feedback")
+      .getByText("Add a tag to start", { exact: true }),
   ).toBeVisible();
 });
 test("import browsing stays available while create is gated; manual sync and new badge preserve filters", async ({
@@ -589,6 +598,7 @@ test("import browsing stays available while create is gated; manual sync and new
   await choose(page);
   await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(page.getByText(/2 of 3 imported/)).toBeVisible();
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   expect(
     calls
@@ -757,6 +767,8 @@ test("one deleted stored leaf preserves unrelated query chips and keeps regenera
   await expect(cards.last().locator(".query-summary .chip")).toHaveText(
     "Synthetic tag 2",
   );
+  await cards.first().locator(".playlist-manage > summary").click();
+  await cards.last().locator(".playlist-manage > summary").click();
   await expect(
     cards.first().getByRole("button", { name: "Regenerate" }),
   ).toBeDisabled();
@@ -1642,6 +1654,9 @@ test("creation offers a direct confirmed-request progress path and feedback stay
   await expect(feedback).toContainText("2 songs");
   await expect(feedback).toContainText("1 unavailable song excluded");
   await details(page);
+  await expect(
+    page.getByLabel("Keep this playlist", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create playlist →" }).click();
   await page.getByRole("button", { name: "View playlist progress →" }).click();
   await expect(
@@ -1926,3 +1941,171 @@ for (const width of [320, 390])
       "1 week",
     );
   });
+
+test("successful creation can start a second distinct guided request", async ({
+  page,
+}) => {
+  const calls = await mock(page);
+  await page.goto("/");
+  await builder(page);
+  for (const name of ["Synthetic first", "Synthetic second"]) {
+    await choose(page);
+    await details(page);
+    await page.getByLabel("Playlist name", { exact: true }).fill(name);
+    await page
+      .getByRole("button", { name: "Create playlist →", exact: true })
+      .click();
+    await expect(
+      page.getByText("Playlist request accepted.", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Make another playlist", exact: true })
+      .click();
+    await expect(page.locator('[data-step="choose"]')).toBeVisible();
+    await expect(page.locator(".query-feedback")).toContainText(
+      "Add a tag to start",
+    );
+  }
+  const creates = calls
+    .filter((call) => call.path === "/api/playlists" && call.body)
+    .map((call) => call.body);
+  expect(creates).toHaveLength(2);
+  expect(creates.map((body) => body.name)).toEqual([
+    "Synthetic first",
+    "Synthetic second",
+  ]);
+  expect(creates[0].requestId).not.toBe(creates[1].requestId);
+  expect(
+    await page.evaluate(() => sessionStorage.getItem("tagger-pending-create")),
+  ).toBeNull();
+});
+
+test("rapid library pagination stays bounded and Previous returns to the real first page", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop grouped bulk browser");
+  let release: (() => void) | null = null;
+  const seen: (string | null)[] = [];
+  await mock(page, async (route, path) => {
+    if (path !== "/api/library/search") return false;
+    const body = route.request().postDataJSON();
+    seen.push(body.cursor);
+    expect(body.limit).toBe(12);
+    if (body.cursor)
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    await route.fulfill({
+      json: {
+        groupBy: "artist",
+        totalGroups: 180,
+        totalTracks: 3000,
+        revision,
+        groups: [
+          {
+            ...group,
+            value: group.artistId,
+            name: body.cursor
+              ? "Synthetic page two artist"
+              : "Synthetic first page artist",
+          },
+        ],
+        nextCursor: body.cursor ? null : "synthetic-page-two",
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Synthetic first page artist" }),
+  ).toBeVisible();
+  const paging = page.getByRole("navigation", { name: "Library pages top" });
+  await paging
+    .getByRole("button", { name: "Next page →" })
+    .evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+  await expect(
+    paging.getByRole("button", { name: "Next page →" }),
+  ).toBeDisabled();
+  await expect.poll(() => release !== null).toBe(true);
+  expect(seen).toEqual([null, "synthetic-page-two"]);
+  release!();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic page two artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 2");
+  await paging.getByRole("button", { name: "← Previous page" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic first page artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 1");
+  expect(seen).toEqual([null, "synthetic-page-two", null]);
+});
+
+test("a failed library page can retry Next without corrupting displayed history", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop grouped browser");
+  let fail = true;
+  const cursors: (string | null)[] = [];
+  await mock(page, async (route, path) => {
+    if (path !== "/api/library/search") return false;
+    const body = route.request().postDataJSON();
+    cursors.push(body.cursor);
+    if (body.cursor && fail) {
+      fail = false;
+      await route.fulfill({ status: 503, json: { error: "unavailable" } });
+      return true;
+    }
+    await route.fulfill({
+      json: {
+        groupBy: "artist",
+        totalGroups: 180,
+        totalTracks: 3000,
+        revision,
+        groups: [
+          {
+            ...group,
+            value: group.artistId,
+            name: body.cursor
+              ? "Synthetic next artist"
+              : "Synthetic original artist",
+          },
+        ],
+        nextCursor: body.cursor ? null : "synthetic-next-page",
+      },
+    });
+    return true;
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Synthetic original artist" }),
+  ).toBeVisible();
+  const paging = page.getByRole("navigation", { name: "Library pages top" });
+  await paging.getByRole("button", { name: "Next page →" }).click();
+  await expect(page.getByRole("alert").first()).toBeVisible();
+  await expect(paging).toContainText("Page 1");
+  await expect(
+    page.getByRole("heading", { name: "Synthetic original artist" }),
+  ).toBeVisible();
+  await paging.getByRole("button", { name: "Next page →" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic next artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 2");
+  await paging.getByRole("button", { name: "← Previous page" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Synthetic original artist" }),
+  ).toBeVisible();
+  await expect(paging).toContainText("Page 1");
+  expect(cursors).toEqual([
+    null,
+    "synthetic-next-page",
+    "synthetic-next-page",
+    null,
+  ]);
+});

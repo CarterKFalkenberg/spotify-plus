@@ -20,7 +20,9 @@ export async function details(page: Page) {
       .getByRole("button", { name: "Review songs →", exact: true })
       .click();
   if (await page.locator('[data-step="review"]').isVisible())
-    await page.getByRole("button", { name: "Continue →", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Playlist details →", exact: true })
+      .click();
   await expect(page.locator('[data-step="details"]')).toBeVisible();
 }
 export async function chooseStep(page: Page) {
@@ -33,4 +35,14 @@ export async function managePlaylist(page: Page) {
   const manage = page.locator(".playlist-manage").first();
   if (!(await manage.evaluate((el) => (el as HTMLDetailsElement).open)))
     await manage.locator("summary").click();
+}
+export async function syncControls(page: Page) {
+  const disclosure = page.locator(".workspace-sync");
+  if (!(await disclosure.evaluate((el) => (el as HTMLDetailsElement).open)))
+    await disclosure.locator("summary").click();
+}
+export async function songActions(page: Page) {
+  const disclosure = page.locator(".queue-tool-disclosure");
+  if (!(await disclosure.evaluate((el) => (el as HTMLDetailsElement).open)))
+    await disclosure.locator("summary").click();
 }

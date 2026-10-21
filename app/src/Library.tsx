@@ -24,6 +24,7 @@ import {
 } from "./fast-api";
 import { Facets } from "./Facets";
 import { BulkTags } from "./BulkTags";
+import { usePageActivity } from "./useVisiblePolling";
 import { rangeSelection } from "./tagging";
 export const emptyFilter: LibraryFilter = {
   membership: "active",
@@ -98,6 +99,7 @@ export function Library({
   onQueue,
   artistId = null,
   artistJump = 0,
+  active = true,
 }: {
   refresh: number;
   newOnly: boolean;
@@ -105,7 +107,9 @@ export function Library({
   onQueue: (filter: FastFilter | Selection) => void;
   artistId?: string | null;
   artistJump?: number;
+  active?: boolean;
 }) {
+  const { visible } = usePageActivity();
   const [filter, setFilter] = useState<FastFilter>({
     ...emptyFilter,
     newOnly,
@@ -124,11 +128,24 @@ export function Library({
       setGrouped(false);
       setCursor(null);
       pageHistory.current = [];
+      pageNavigation.current = null;
       setSelection(null);
     }
   }, [artistId, artistJump]);
   const [data, setData] = useState<Search | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [renderedCursor, setRenderedCursor] = useState<string | null>(null);
+  const [pageAttempt, setPageAttempt] = useState(0);
+  const pageNavigation = useRef<{
+    from: string | null;
+    target: string | null;
+    direction: "next" | "previous";
+  } | null>(null);
+  const requestInFlight = useRef(false);
+  const [artworkAttempt, setArtworkAttempt] = useState(0);
+  const [artworkTimedOut, setArtworkTimedOut] = useState(false);
+  const artworkWindow = useRef<{ key: string; startedAt: number } | null>(null);
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
   const lookupConflict = useRef<string | null>(null);
@@ -152,10 +169,14 @@ export function Library({
     setData(null);
     setCursor(null);
     pageHistory.current = [];
+    pageNavigation.current = null;
     setSelection(null);
   }, [newOnly]);
   useEffect(() => {
     const controller = new AbortController();
+    if (!active || !visible) return () => controller.abort();
+    requestInFlight.current = true;
+    setLoadingPage(true);
     // Keep keyed rows, drafts and explicit keys mounted during current-view refresh.
     // A selected filter retains its original expectedRevision until explicitly reselected.
     setError("");
@@ -173,17 +194,69 @@ export function Library({
         controller.signal,
       )
         .then((value) => {
-          if (!controller.signal.aborted) setData(value);
+          if (!controller.signal.aborted) {
+            const navigation = pageNavigation.current;
+            if (navigation?.target === cursor) {
+              if (navigation.direction === "next")
+                pageHistory.current.push(navigation.from);
+              else pageHistory.current.pop();
+              pageNavigation.current = null;
+            }
+            setRenderedCursor(cursor);
+            setData(value);
+            requestInFlight.current = false;
+            setLoadingPage(false);
+          }
         })
         .catch((error) => {
-          if (!controller.signal.aborted) setError(errorMessage(error));
+          if (!controller.signal.aborted) {
+            setError(errorMessage(error));
+            requestInFlight.current = false;
+            setLoadingPage(false);
+          }
         });
     }, 180);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [filter, grouped, groupBy, sort, cursor, refresh]);
+  }, [
+    filter,
+    grouped,
+    groupBy,
+    sort,
+    cursor,
+    refresh,
+    artworkAttempt,
+    pageAttempt,
+    active,
+    visible,
+  ]);
+  const artworkPending = !!(
+    data as (Search & { artworkPending?: boolean }) | null
+  )?.artworkPending;
+  const artworkKey = JSON.stringify([filter, grouped, groupBy, sort, cursor]);
+  useEffect(() => {
+    if (!artworkPending) {
+      artworkWindow.current = null;
+      setArtworkTimedOut(false);
+      return;
+    }
+    if (!active || !visible) return;
+    if (artworkWindow.current?.key !== artworkKey) {
+      artworkWindow.current = { key: artworkKey, startedAt: Date.now() };
+      setArtworkTimedOut(false);
+    }
+    if (Date.now() - artworkWindow.current.startedAt >= 60_000) {
+      setArtworkTimedOut(true);
+      return;
+    }
+    const timer = setTimeout(
+      () => setArtworkAttempt((value) => value + 1),
+      3_000,
+    );
+    return () => clearTimeout(timer);
+  }, [data, artworkPending, artworkKey, active, visible]);
   useEffect(() => {
     const controller = new AbortController();
     setKnownTags([]);
@@ -206,6 +279,7 @@ export function Library({
               lookupConflict.current = key;
               setCursor(null);
               pageHistory.current = [];
+              pageNavigation.current = null;
               onChanged();
             }
           }
@@ -219,6 +293,7 @@ export function Library({
     setFilter(next);
     setCursor(null);
     pageHistory.current = [];
+    pageNavigation.current = null;
     setSelection(null);
   }
   async function mutate(
@@ -241,6 +316,7 @@ export function Library({
       });
       setCursor(null);
       pageHistory.current = [];
+      pageNavigation.current = null;
       onChanged();
     } catch (error) {
       setError(errorMessage(error));
@@ -250,8 +326,54 @@ export function Library({
     }
   }
   const selectedKeys = selection?.kind === "tracks" ? selection.trackKeys : [];
+  function pagination(position: "top" | "bottom") {
+    if (!data || (!data.nextCursor && !cursor)) return null;
+    return (
+      <nav
+        className={`result-pagination ${position}`}
+        aria-label={`Library pages ${position}`}
+      >
+        <button
+          disabled={pageHistory.current.length === 0 || loadingPage}
+          onClick={() => {
+            if (requestInFlight.current) return;
+            requestInFlight.current = true;
+            setLoadingPage(true);
+            const target = pageHistory.current.at(-1) ?? null;
+            pageNavigation.current = {
+              from: renderedCursor,
+              target,
+              direction: "previous",
+            };
+            setCursor(target);
+            setPageAttempt((value) => value + 1);
+          }}
+        >
+          ← Previous page
+        </button>
+        <span>Page {pageHistory.current.length + 1}</span>
+        <button
+          disabled={!data.nextCursor || loadingPage}
+          onClick={() => {
+            if (requestInFlight.current) return;
+            requestInFlight.current = true;
+            setLoadingPage(true);
+            pageNavigation.current = {
+              from: renderedCursor,
+              target: data.nextCursor,
+              direction: "next",
+            };
+            setCursor(data.nextCursor);
+            setPageAttempt((value) => value + 1);
+          }}
+        >
+          Next page →
+        </button>
+      </nav>
+    );
+  }
   return (
-    <section aria-labelledby="library-title">
+    <section className="library-page" aria-labelledby="library-title">
       <div className="section-heading">
         <div>
           <h2 id="library-title">Your library</h2>
@@ -287,105 +409,135 @@ export function Library({
       <p className="section-intro">
         Find a song, or tag a whole artist, album, or decade in one move.
       </p>
-      <nav className="library-browse" aria-label="Browse library">
-        {(["none", "artist", "album", "decade"] as const).map((view) => (
-          <button
-            key={view}
-            aria-pressed={
-              view === "none" ? !grouped : grouped && groupBy === view
-            }
-            onClick={() => {
-              setGrouped(view !== "none");
-              if (view !== "none") setGroupBy(view);
-              setData(null);
-              setCursor(null);
-              pageHistory.current = [];
-              setSelection(null);
-            }}
-          >
-            {view === "none"
-              ? "Songs"
-              : view === "artist"
-                ? "Artists"
-                : view === "album"
-                  ? "Albums"
-                  : "Decades"}
-          </button>
-        ))}
-      </nav>
-      <div className="library-filters">
-        <label className="search-label">
-          Search your library
-          <input
-            type="search"
-            placeholder="Song, artist, or album"
-            value={filter.search}
-            maxLength={200}
-            onChange={(e) =>
-              changeFilter({ ...filter, search: e.target.value })
-            }
-          />
-        </label>
-        <label>
-          View
-          <select
-            value={filter.membership}
-            onChange={(e) =>
-              changeFilter({
-                ...filter,
-                membership: e.target.value as "active" | "removed",
-                newOnly: false,
-              })
-            }
-          >
-            <option value="active">Liked Songs</option>
-            <option value="removed">Removed from Spotify</option>
-          </select>
-        </label>
-        <label className="check-label">
-          <input
-            type="checkbox"
-            checked={filter.untagged}
-            onChange={(e) =>
-              changeFilter({ ...filter, untagged: e.target.checked })
-            }
-          />
-          Untagged
-        </label>
-        <label className="desktop-bulk">
-          Sort songs
-          <select
-            value={sort}
-            onChange={(e) => {
-              setSort(e.target.value as Sort);
-              setCursor(null);
-              pageHistory.current = [];
-              setSelection(null);
-            }}
-          >
-            {(
-              ["newest", "oldest", "title", "artist", "album", "year"] as const
-            ).map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="desktop-bulk"
-          disabled={filter.membership === "removed"}
-          onClick={() => onQueue(filter)}
-        >
-          Send this filter to queue
-        </button>
+      <div className="library-controls">
+        <nav className="library-browse" aria-label="Browse library">
+          {(["none", "artist", "album", "decade"] as const).map((view) => (
+            <button
+              key={view}
+              aria-pressed={
+                view === "none" ? !grouped : grouped && groupBy === view
+              }
+              onClick={() => {
+                setGrouped(view !== "none");
+                if (view !== "none") setGroupBy(view);
+                setData(null);
+                setCursor(null);
+                pageHistory.current = [];
+                pageNavigation.current = null;
+                setSelection(null);
+              }}
+            >
+              {view === "none"
+                ? "Songs"
+                : view === "artist"
+                  ? "Artists"
+                  : view === "album"
+                    ? "Albums"
+                    : "Decades"}
+            </button>
+          ))}
+        </nav>
+        <div className="library-search-row">
+          <div className="library-filters">
+            <label className="search-label">
+              Search your library
+              <input
+                type="search"
+                placeholder="Song, artist, or album"
+                value={filter.search}
+                maxLength={200}
+                onChange={(e) =>
+                  changeFilter({ ...filter, search: e.target.value })
+                }
+              />
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={filter.untagged}
+                onChange={(e) =>
+                  changeFilter({ ...filter, untagged: e.target.checked })
+                }
+              />
+              Untagged
+            </label>
+          </div>
+          <details className="filter-disclosure">
+            <summary>
+              Filter & sort{" "}
+              <span>
+                {[
+                  filter.membership === "removed" ? "Removed from Spotify" : "",
+                  filter.artistId ? "Artist selected" : "",
+                  filter.album ? "Album selected" : "",
+                  filter.decade ? `${filter.decade}s` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Artist, album & decade"}
+              </span>
+            </summary>
+            <div className="library-advanced">
+              {" "}
+              <label>
+                View
+                <select
+                  value={filter.membership}
+                  onChange={(e) =>
+                    changeFilter({
+                      ...filter,
+                      membership: e.target.value as "active" | "removed",
+                      newOnly: false,
+                    })
+                  }
+                >
+                  <option value="active">Liked Songs</option>
+                  <option value="removed">Removed from Spotify</option>
+                </select>
+              </label>
+              <label className="desktop-bulk">
+                Sort songs
+                <select
+                  value={sort}
+                  onChange={(e) => {
+                    setSort(e.target.value as Sort);
+                    setCursor(null);
+                    pageHistory.current = [];
+                    pageNavigation.current = null;
+                    setSelection(null);
+                  }}
+                >
+                  {(
+                    [
+                      "newest",
+                      "oldest",
+                      "title",
+                      "artist",
+                      "album",
+                      "year",
+                    ] as const
+                  ).map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="desktop-bulk"
+                disabled={filter.membership === "removed"}
+                onClick={() => onQueue(filter)}
+              >
+                Send this filter to queue
+              </button>
+              <Facets
+                filter={filter}
+                refresh={refresh}
+                onChange={changeFilter}
+              />
+            </div>
+          </details>
+        </div>
       </div>
-      <details className="filter-disclosure">
-        <summary>
-          More filters <span>Artist, album & decade</span>
-        </summary>
-        <Facets filter={filter} refresh={refresh} onChange={changeFilter} />
-      </details>
       {filter.newOnly && (
         <p className="muted">
           Showing new additions.{" "}
@@ -416,6 +568,7 @@ export function Library({
             onClick={() => {
               setCursor(null);
               pageHistory.current = [];
+              pageNavigation.current = null;
               onChanged();
             }}
           >
@@ -430,14 +583,20 @@ export function Library({
             <span>
               {data.totalTracks} songs
               {data.groupBy !== null
-                ? ` · ${data.totalGroups} ${data.groupBy === "artist" ? "artists" : data.groupBy === "album" ? "albums" : "decades"}`
+                ? ` · ${data.totalGroups} ${data.groupBy === "artist" ? (data.totalGroups === 1 ? "artist" : "artists") : data.groupBy === "album" ? (data.totalGroups === 1 ? "album" : "albums") : data.totalGroups === 1 ? "decade" : "decades"}`
                 : ""}
               <small className="page-range">
-                Page {pageHistory.current.length + 1} · Showing{" "}
+                Showing{" "}
                 {data.groupBy === null
                   ? data.tracks.length
                   : data.groups.length}{" "}
-                {data.groupBy === null ? "songs" : "groups"}
+                {data.groupBy === null
+                  ? data.tracks.length === 1
+                    ? "song"
+                    : "songs"
+                  : data.groups.length === 1
+                    ? "group"
+                    : "groups"}
               </small>
             </span>
             {data.totalTracks > 0 && (
@@ -454,7 +613,35 @@ export function Library({
                 Select all {data.totalTracks} matching
               </button>
             )}
+            {pagination("top")}
           </div>
+          {artworkPending && (
+            <p className="artwork-status muted">
+              {artworkTimedOut
+                ? "Artwork is still being prepared."
+                : "Loading artwork…"}
+              {artworkTimedOut && (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    artworkWindow.current = {
+                      key: artworkKey,
+                      startedAt: Date.now(),
+                    };
+                    setArtworkTimedOut(false);
+                    setArtworkAttempt((value) => value + 1);
+                  }}
+                >
+                  Check artwork
+                </button>
+              )}
+            </p>
+          )}
+          {loadingPage && cursor && (
+            <p role="status" className="muted">
+              Loading this page…
+            </p>
+          )}
           {data.totalTracks === 0 && (
             <div className="empty-state">
               <h3>
@@ -537,7 +724,7 @@ export function Library({
                   </p>
                   <button
                     className="compact desktop-bulk group-select"
-                    aria-label={`Tag all ${group.trackCount} songs by ${group.name}`}
+                    aria-label={`Tag all ${group.trackCount} songs ${groupBy === "artist" ? "by" : "in"} ${group.name}`}
                     onClick={() => setSelection(group.selection)}
                   >
                     Tag {group.trackCount} songs
@@ -678,26 +865,7 @@ export function Library({
               All artists
             </button>
           )}
-          {(data.nextCursor || cursor) && (
-            <nav className="result-pagination" aria-label="Library pages">
-              <button
-                disabled={!cursor}
-                onClick={() => setCursor(pageHistory.current.pop() ?? null)}
-              >
-                ← Previous page
-              </button>
-              <span>Page {pageHistory.current.length + 1}</span>
-              <button
-                disabled={!data.nextCursor}
-                onClick={() => {
-                  pageHistory.current.push(cursor);
-                  setCursor(data.nextCursor);
-                }}
-              >
-                Next page →
-              </button>
-            </nav>
-          )}
+          {pagination("bottom")}
         </>
       )}
       {selection?.kind === "filter" &&

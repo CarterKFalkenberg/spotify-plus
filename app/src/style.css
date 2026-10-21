@@ -179,13 +179,6 @@ small,
   font-size: 12px;
   font-weight: 400;
 }
-.theme-control select {
-  width: 98px;
-  margin: 0;
-  min-height: 36px;
-  padding: 6px 9px;
-  font-size: 12px;
-}
 main {
   padding-top: 32px;
 }
@@ -872,22 +865,9 @@ dialog.queue-card {
 }
 .artist-card {
   display: grid;
-  column-gap: 16px;
   align-items: center;
-  padding: 17px 0;
   border-top: 1px solid var(--line);
   min-width: 0;
-}
-.artist-monogram {
-  width: 36px;
-  height: 36px;
-  background: var(--wash);
-  color: var(--muted);
-  display: grid;
-  place-items: center;
-  border-radius: 4px;
-  font-size: 16px;
-  grid-row: 1 / 3;
 }
 .artist-card h3 {
   grid-column: 2;
@@ -1051,7 +1031,6 @@ dialog.queue-card {
   margin-left: 5px;
 }
 .builder-layout {
-  display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
   column-gap: 40px;
 }
@@ -1060,16 +1039,11 @@ dialog.queue-card {
   grid-row: 1 / 3;
   min-width: 0;
 }
-.composer-title {
-  margin: 0 0 18px;
-  font-size: 15px;
-}
 .query-buckets {
   display: flex;
   flex-direction: column;
 }
 .query-bucket {
-  padding: 18px 0;
   border-top: 1px solid var(--line);
 }
 .bucket-heading {
@@ -1097,12 +1071,10 @@ dialog.queue-card {
   align-items: center;
   gap: 8px 12px;
   flex-wrap: wrap;
-  padding: 0 0 17px;
   border-bottom: 1px solid var(--line);
   align-self: start;
 }
 .query-feedback strong {
-  font-size: 26px;
   line-height: 1.2;
   letter-spacing: -0.9px;
   font-weight: 650;
@@ -1129,8 +1101,6 @@ dialog.queue-card {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
-  padding: 14px 0 24px;
-  margin: 0;
   scroll-margin-top: 20px;
 }
 .preview-panel > summary {
@@ -1162,7 +1132,6 @@ dialog.queue-card {
   display: none !important;
 }
 .preview-tracks {
-  max-height: 295px;
   overflow: auto;
   margin-top: 14px;
   overscroll-behavior: contain;
@@ -1190,9 +1159,6 @@ dialog.queue-card {
   font-size: 19px;
 }
 .create-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
-  gap: 14px;
   align-items: end;
 }
 .disclosure,
@@ -1213,41 +1179,21 @@ dialog.queue-card {
 .cleanup-status {
   font-size: 12px;
 }
-.extension-setting {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  border-top: 1px solid var(--line);
-}
-.extension-setting label {
-  width: 220px;
-  flex-shrink: 0;
-}
-.extension-setting p {
-  font-size: 12px;
-  max-width: 560px;
-  margin: 0;
-}
 .playlist-grid {
   display: flex;
   flex-direction: column;
 }
 .playlist-card {
   position: relative;
-  grid-template-columns: minmax(180px, 1fr) 185px;
-  gap: 4px 24px;
   border-top: 1px solid var(--line);
-  padding: 26px 0;
   min-width: 0;
 }
 .playlist-card h3 {
   grid-column: 1;
-  grid-row: 1;
   font-size: 23px;
   letter-spacing: -0.6px;
   font-weight: 600;
   overflow-wrap: anywhere;
-  padding-right: 10px;
 }
 .playlist-card-top {
   grid-column: 2;
@@ -1267,7 +1213,6 @@ dialog.queue-card {
   font-size: 12px;
   color: var(--muted);
   overflow-wrap: anywhere;
-  margin: 8px 0;
 }
 .playlist-card .query-summary .chip {
   display: inline-block;
@@ -1291,16 +1236,12 @@ dialog.queue-card {
   grid-column: 1 / -1;
 }
 .playlist-actions {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
   align-items: center;
-  margin-top: 16px;
 }
 .playlist-actions .button {
   order: -1;
-  margin-right: 12px;
   min-width: 155px;
 }
 .playlist-actions button {
@@ -1337,7 +1278,6 @@ dialog.queue-card {
   overflow-wrap: anywhere;
 }
 .vocabulary-list small {
-  display: block;
   font-size: 12px;
   margin-top: 4px;
 }
@@ -1601,9 +1541,6 @@ dialog::backdrop {
     border: 0;
     margin: 0;
   }
-  .create-form {
-    grid-template-columns: 1fr 1fr;
-  }
   .create-form .primary {
     grid-column: 1 / -1;
   }
@@ -1648,7 +1585,6 @@ dialog::backdrop {
   }
   .builder-layout {
     grid-template-columns: minmax(240px, 1fr) minmax(230px, 1fr);
-    gap: 24px;
   }
 }
 @media (max-width: 640px) {
@@ -1662,7 +1598,6 @@ dialog::backdrop {
   }
   .shell:has(.workspace) .wordmark {
     position: static;
-    font-size: 17px;
   }
   .shell:has(.workspace) .theme-control {
     margin: 0;
@@ -1670,10 +1605,6 @@ dialog::backdrop {
   .theme-control {
     font-size: 0;
     gap: 0;
-  }
-  .theme-control select {
-    min-height: 36px;
-    width: 84px;
   }
   .workspace::before {
     display: none;
@@ -1688,11 +1619,7 @@ dialog::backdrop {
   .shell:has(.workspace) footer {
     margin-top: 16px;
   }
-  .account-details summary {
-    width: fit-content;
-  }
   .account-details summary > span:last-child {
-    padding: 0 0 0 9px;
     border-left: 1px solid var(--line);
     margin-left: 3px;
   }
@@ -1819,26 +1746,10 @@ dialog::backdrop {
   .builder-start button {
     font-size: 12px;
   }
-  .builder-start {
-    margin: -8px 0 18px;
-  }
-  .builder-layout {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
   .query-feedback {
-    order: 0;
-    position: sticky;
     top: 0;
     z-index: 2;
-    padding: 12px 0;
     background: var(--canvas);
-    gap: 5px 8px;
-    margin-bottom: 20px;
-  }
-  .query-feedback strong {
-    font-size: 23px;
   }
   .query-feedback a {
     min-height: 32px;
@@ -1851,15 +1762,8 @@ dialog::backdrop {
   .query-composer {
     order: 1;
   }
-  .composer-title {
-    display: none;
-  }
-  .query-bucket {
-    padding: 14px 0;
-  }
   .query-bucket:first-child {
     border-top: 0;
-    padding-top: 0;
   }
   .bucket-heading {
     margin-bottom: 7px;
@@ -1870,15 +1774,11 @@ dialog::backdrop {
   .bucket-heading small {
     font-size: 11px;
   }
-  .query-bucket .chips:empty {
-    display: none;
-  }
   .query-bucket .tag-picker input {
     font-size: 16px;
   }
   .preview-panel {
     order: 2;
-    padding: 16px 0;
     border-top: 1px solid var(--line);
     margin-top: 6px;
     scroll-margin-top: 88px;
@@ -1896,17 +1796,9 @@ dialog::backdrop {
     font-size: 12px;
     margin-bottom: 0;
   }
-  .preview-tracks {
-    max-height: 230px;
-  }
   .playlist-setup {
     order: 3;
-    margin: 8px 0 0;
     padding-top: 20px;
-  }
-  .create-form {
-    grid-template-columns: 1fr;
-    gap: 14px;
   }
   .create-form .primary {
     grid-column: auto;
@@ -1922,12 +1814,8 @@ dialog::backdrop {
   select {
     font-size: 16px;
   }
-  .theme-control select {
-    font-size: 12px;
-  }
   .library-filters {
     gap: 10px;
-    padding: 14px 0;
   }
   .search-label {
     flex-basis: 100%;
@@ -1987,10 +1875,6 @@ dialog::backdrop {
     gap: 10px;
     bottom: 96px;
   }
-  .playlist-card {
-    grid-template-columns: minmax(130px, 1fr) 112px;
-    gap: 3px 12px;
-  }
   .playlist-card-top {
     gap: 6px;
   }
@@ -2006,24 +1890,12 @@ dialog::backdrop {
   .playlist-actions button {
     min-height: 44px;
   }
-  .extension-setting {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-    padding: 16px 0;
-  }
-  .extension-setting label {
-    width: 100%;
-  }
   .extension-setting p,
   .retention-hint {
     font-size: 11px;
   }
   .vocabulary-page .section-heading > .muted {
     max-width: none;
-  }
-  .vocabulary-list article > div {
-    min-width: 140px;
   }
   .vocabulary-list label {
     font-size: 11px;
@@ -2227,12 +2099,7 @@ dialog::backdrop {
 .new-badge {
   color: var(--ink);
 }
-.artist-card {
-  grid-template-columns: 40px minmax(130px, 1fr) minmax(250px, 1.3fr) 120px;
-}
 .artist-card .group-browse {
-  grid-column: 4;
-  grid-row: 1 / 3;
   min-height: 44px;
   white-space: nowrap;
 }
@@ -2243,9 +2110,6 @@ dialog::backdrop {
 .filter-disclosure {
   padding-bottom: 5px;
 }
-.result-toolbar {
-  margin: 10px 0;
-}
 .artist-card .suggestions {
   position: relative;
   top: auto;
@@ -2255,30 +2119,7 @@ dialog::backdrop {
 .artist-card > .desktop-bulk {
   align-self: start;
 }
-.retention-settings {
-  padding: 12px 0;
-  margin: 10px 0 0;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-}
-.retention-settings > summary {
-  cursor: pointer;
-  min-height: 32px;
-  padding-top: 5px;
-  color: var(--muted);
-}
-.retention-settings > summary strong {
-  color: var(--ink);
-  margin-left: 12px;
-  font-weight: 500;
-}
-.extension-setting {
-  margin: 8px 0 0;
-  padding: 8px 0;
-  border: 0;
-}
 .playlist-card {
-  display: flex;
   flex-direction: column;
   align-items: flex-start;
   padding-right: 0;
@@ -2331,7 +2172,6 @@ dialog::backdrop {
 }
 .vocabulary-list article {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 65px 110px;
   gap: 12px;
   padding: 13px 0;
 }
@@ -2348,7 +2188,6 @@ dialog::backdrop {
   font-variant-numeric: tabular-nums;
 }
 .dictionary-manage {
-  justify-self: end;
   border: 0;
   background: transparent;
 }
@@ -2370,13 +2209,7 @@ dialog::backdrop {
   .account-details summary {
     right: 222px;
   }
-  .artist-card {
-    grid-template-columns: 34px minmax(120px, 0.8fr) minmax(220px, 1.2fr);
-    gap: 3px 12px;
-  }
   .artist-card .group-browse {
-    grid-column: 2;
-    grid-row: 3;
     margin-top: 7px;
     justify-self: start;
   }
@@ -2391,25 +2224,18 @@ dialog::backdrop {
   .account-card {
     padding: 0;
     margin: 0;
-    min-height: 44px;
   }
   .account-details summary {
-    position: static;
     min-height: 44px;
     margin: 0;
-  }
-  .account-details summary > span:last-child {
-    font-size: 11px;
   }
   .account-details .status-dot {
     width: 5px;
     height: 5px;
   }
   .workspace-heading {
-    position: absolute;
     top: 72px;
     right: 18px;
-    float: none;
   }
   .library-status {
     padding-right: 0;
@@ -2423,44 +2249,11 @@ dialog::backdrop {
   .section-heading {
     margin-bottom: 18px;
   }
-  .artist-card {
-    grid-template-columns: 36px 1fr;
-  }
-  .artist-card .group-browse {
-    grid-column: 2;
-    grid-row: 3;
-  }
-  .retention-settings {
-    margin-top: 6px;
-    padding: 9px 0;
-  }
-  .retention-settings summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 4px 10px;
-    font-size: 11px;
-  }
-  .retention-settings summary::before {
-    content: "▸";
-  }
-  .retention-settings[open] summary::before {
-    content: "▾";
-  }
-  .retention-settings summary strong {
-    margin-left: auto;
-    font-size: 11px;
-  }
   .cleanup-status {
     font-size: 11px;
     margin: 8px 0;
   }
-  .playlist-card {
-    padding: 20px 0;
-  }
   .playlist-card h3 {
-    font-size: 23px;
     line-height: 1.2;
     letter-spacing: -0.7px;
   }
@@ -2474,14 +2267,7 @@ dialog::backdrop {
   .playlist-card .expiry {
     font-size: 12px;
   }
-  .playlist-actions {
-    gap: 4px 9px;
-    margin-top: 14px;
-  }
   .playlist-actions .button {
-    flex-basis: auto;
-    min-width: 166px;
-    margin: 0 100% 6px 0;
     white-space: nowrap;
   }
   .playlist-actions > button:not(.text-button) {
@@ -2517,8 +2303,6 @@ dialog::backdrop {
     font-size: 11px;
   }
   .vocabulary-list article {
-    grid-template-columns: minmax(100px, 1fr) 32px 82px;
-    gap: 9px;
     padding: 11px 0;
   }
   .vocabulary-list strong {
@@ -2557,23 +2341,13 @@ dialog::backdrop {
   margin-left: 0;
   margin-right: auto;
 }
-/* Guided task composition. */
+/* Focused task surfaces: guided creation, bounded collection browsing and contextual controls. */
 .theme-control,
 .shell:has(.workspace) .theme-control {
   position: relative;
   display: block;
   margin: 0 0 0 auto;
   font-size: 13px;
-}
-.theme-control > summary {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  list-style: none;
-  border-radius: 50%;
-  cursor: pointer;
-  color: var(--ink);
 }
 .theme-control > summary:hover {
   background: var(--wash);
@@ -2787,29 +2561,8 @@ dialog::backdrop {
   font-size: 12px;
   color: var(--muted);
 }
-.artist-card {
-  grid-template-columns: 64px minmax(100px, 1fr) auto auto;
-  gap: 3px 18px;
-  padding: 15px 0;
-}
-.collection-artwork {
-  width: 64px;
-  height: 64px;
-  background: var(--wash);
-  color: var(--muted);
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border-radius: 5px;
-  flex-shrink: 0;
-}
 .collection-artwork.artist {
   border-radius: 50%;
-}
-.collection-artwork img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .collection-artwork > span {
   font-size: 30px;
@@ -2817,15 +2570,6 @@ dialog::backdrop {
 .artist-card > .collection-artwork {
   grid-row: 1 / 3;
   grid-column: 1;
-}
-.artist-card .group-select {
-  grid-column: 3;
-  grid-row: 1 / 3;
-  display: block;
-}
-.artist-card .group-browse {
-  grid-column: 4;
-  grid-row: 1 / 3;
 }
 .queue-settings {
   position: relative;
@@ -2867,9 +2611,6 @@ dialog::backdrop {
 .queue-tool-disclosure .queue-tools {
   display: flex;
   flex-wrap: wrap;
-}
-.quick-slots .empty-slot:not(:has(button:not(:disabled))) {
-  display: none;
 }
 .playlist-card {
   display: grid;
@@ -2942,21 +2683,209 @@ dialog::backdrop {
 .playlist-manage[open] > summary {
   width: fit-content;
 }
-.vocabulary-list small {
-  display: none;
-}
 .vocabulary-list article:hover small,
 .vocabulary-list article:focus-within small {
   display: block;
 }
+.group-artwork-link {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+.collection-artwork {
+  width: 64px;
+  height: 64px;
+  background: var(--wash);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+.collection-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0;
+}
+.collection-artwork .nav-icon {
+  width: 28px;
+  height: 28px;
+}
+.queue-spotify {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 5px;
+}
+.workspace-sync {
+  display: contents;
+}
+.workspace-sync > summary {
+  display: none;
+}
+.theme-control > summary {
+  place-items: center;
+  height: 44px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--ink);
+  width: auto;
+  display: flex;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.library-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  padding: 12px 0;
+}
+.library-advanced > label {
+  min-width: 160px;
+}
+.library-advanced .facet-row {
+  flex-basis: 100%;
+  margin: 0;
+}
+.result-pagination.top {
+  border-top: 0;
+  padding: 4px 0 14px;
+}
+.artist-card {
+  gap: 3px 18px;
+  grid-template-columns: 52px minmax(100px, 1fr) auto auto;
+  padding: 11px 0;
+  column-gap: 14px;
+}
+.artist-card > .group-artwork-link .collection-artwork {
+  width: 52px;
+  height: 52px;
+}
+.artist-card .group-select,
+.artist-card .group-browse {
+  grid-row: 1 / 3;
+  margin: 0;
+  align-self: center;
+}
+.artist-card .group-select {
+  grid-row: 1 / 3;
+  display: block;
+  grid-column: 3;
+}
+.artist-card .group-browse {
+  grid-row: 1 / 3;
+  grid-column: 4;
+}
+.vocabulary-list article {
+  grid-template-columns: minmax(120px, 260px) 75px minmax(75px, 1fr);
+}
+.vocabulary-list small {
+  display: block;
+}
+.dictionary-count {
+  justify-self: start;
+}
+.dictionary-manage {
+  justify-self: end;
+}
+.creation-summary {
+  margin-top: 16px;
+}
+.creation-disclosure > summary {
+  font-size: 12px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.creation-disclosure > summary::after {
+  content: "⌄";
+}
+.creation-disclosure > p {
+  margin-top: 0;
+}
+.library-page .section-heading {
+  margin-bottom: 10px;
+}
+.library-page > .section-intro {
+  margin: 0 0 16px;
+}
+.library-page .library-browse {
+  margin: 0 0 14px;
+}
+.library-search-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.library-search-row .library-filters {
+  flex: 1;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.library-search-row .filter-disclosure {
+  border: 0;
+  padding: 0;
+}
+.library-search-row .filter-disclosure summary {
+  min-height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.library-search-row .filter-disclosure summary::before {
+  content: "⌄";
+}
+.library-search-row .filter-disclosure summary > span {
+  display: none;
+}
+.library-search-row .filter-disclosure[open] {
+  flex-basis: 100%;
+}
+.result-toolbar .result-pagination.top {
+  margin-left: auto;
+  padding: 0;
+  gap: 10px;
+}
+.library-page .result-toolbar {
+  margin: 12px 0;
+  gap: 12px 20px;
+}
+.result-toolbar > button {
+  margin-left: auto;
+}
+.quick-slots .empty-slot .chip {
+  border-color: transparent;
+}
+.builder .suggestions {
+  position: relative;
+  top: auto;
+  margin-top: 6px;
+  box-shadow: none;
+}
+.builder:has(.suggestions) .builder-navigation {
+  position: static;
+}
 @media (max-width: 850px) and (min-width: 641px) {
-  .artist-card {
-    grid-template-columns: 52px minmax(90px, 1fr) auto;
-    gap: 3px 12px;
-  }
   .artist-card .collection-artwork {
     width: 52px;
     height: 52px;
+  }
+  .artist-card {
+    gap: 3px 12px;
+    grid-template-columns: 44px minmax(80px, 1fr) auto;
   }
   .artist-card .group-browse {
     grid-column: 2;
@@ -2965,61 +2894,24 @@ dialog::backdrop {
   }
 }
 @media (max-width: 640px) {
-  .builder-steps {
-    gap: 0;
-    justify-content: space-between;
-    margin: 20px 0 24px;
-  }
-  .builder-steps li {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    font-size: 11px;
-    padding-bottom: 12px;
-  }
   .builder-stage-title {
     font-size: 24px;
-  }
-  .builder-navigation {
-    bottom: 79px;
-    padding: 12px 0;
-    margin-top: 20px;
-    gap: 12px;
   }
   .builder-navigation .primary {
     min-width: 0;
     flex: 1;
   }
-  .query-feedback {
-    margin-bottom: 20px;
-  }
-  .query-feedback strong {
-    font-size: 23px;
-  }
   .preview-tracks {
     max-height: 36dvh;
-  }
-  .library-browse {
-    flex-wrap: nowrap;
-    gap: 2px;
   }
   .library-browse button {
     flex: 1;
     padding: 10px 9px;
     font-size: 12px;
   }
-  .artist-card {
-    grid-template-columns: 52px minmax(0, 1fr) auto;
-    gap: 3px 12px;
-  }
   .artist-card > .collection-artwork {
     width: 52px;
     height: 52px;
-  }
-  .artist-card .group-browse {
-    grid-column: 3;
-    padding: 8px 4px;
-    font-size: 11px;
   }
   .result-pagination {
     gap: 10px;
@@ -3063,6 +2955,234 @@ dialog::backdrop {
   .queue-tool-disclosure {
     grid-column: 1;
   }
+  .queue-actions {
+    display: grid;
+    grid-template-columns: 1fr 1.3fr;
+    gap: 8px;
+  }
+  .queue-actions .queue-skip {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+  .shell:has(.workspace) .wordmark {
+    font-size: 15px;
+    gap: 6px;
+  }
+  .shell:has(.workspace) .wordmark .mark {
+    width: 23px;
+    font-size: 28px;
+  }
+  .theme-control > summary {
+    flex-direction: column;
+    justify-content: center;
+    width: 66px;
+    padding: 0;
+    gap: 2px;
+    font-size: 10px;
+  }
+  .theme-control > summary svg {
+    width: 19px;
+    height: 19px;
+  }
+  .account-card {
+    min-height: 0;
+  }
+  .account-details summary {
+    position: absolute;
+    top: 8px;
+    right: 88px;
+    width: 66px;
+    justify-content: center;
+  }
+  .account-details summary > span:last-child {
+    font-size: 11px;
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .account-details .status-dot,
+  .account-connection-label {
+    display: none;
+  }
+  .account-content {
+    margin-top: 12px;
+  }
+  .workspace-sync {
+    display: block;
+    margin: 0 0 10px;
+  }
+  .workspace-sync > summary {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .workspace-sync > summary::after {
+    content: "⌄";
+  }
+  .workspace-sync[open] {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .workspace-heading {
+    position: static;
+    float: none;
+  }
+  .workspace-sync .sync-controls {
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .workspace-sync .library-status {
+    margin: 0;
+    padding: 0;
+  }
+  .builder .section-heading {
+    margin-bottom: 12px;
+    gap: 5px;
+  }
+  .builder .section-heading h2 {
+    font-size: 25px;
+  }
+  .builder .section-heading .pill {
+    font-size: 10px;
+  }
+  .builder > .section-intro {
+    display: none;
+  }
+  .builder-steps {
+    justify-content: space-between;
+    margin: 16px 0 20px;
+    gap: 8px;
+  }
+  .builder-steps li {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    padding-bottom: 10px;
+  }
+  .builder-steps li > span {
+    width: 19px;
+    height: 19px;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .query-feedback {
+    margin-bottom: 18px;
+    padding: 0 0 14px;
+    gap: 4px 8px;
+  }
+  .query-feedback strong {
+    font-size: 23px;
+  }
+  .query-feedback small {
+    font-size: 11px;
+  }
+  .composer-title {
+    font-size: 12px;
+    margin: 0 0 18px;
+  }
+  .query-bucket {
+    padding: 14px 0;
+  }
+  .query-bucket .tag-picker {
+    margin-top: 8px;
+  }
+  .query-bucket .chips {
+    margin-bottom: 8px;
+  }
+  .query-bucket .chips:empty {
+    display: none;
+  }
+  .refine-query {
+    margin-top: 0;
+    font-size: 12px;
+  }
+  .builder-navigation {
+    bottom: 79px;
+    padding: 12px 0;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .builder input,
+  .builder select {
+    scroll-margin-bottom: 170px;
+  }
+  .builder .preview-tracks {
+    max-height: 27dvh;
+    margin-top: 10px;
+  }
+  .builder .preview-heading {
+    font-size: 11px;
+  }
+  .builder .preview-panel .notice {
+    font-size: 11px;
+    margin: 9px 0;
+    padding: 10px;
+  }
+  .builder .disclosure {
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .builder .create-form {
+    gap: 16px;
+  }
+  .builder .creation-summary {
+    margin-bottom: 0;
+  }
+  .builder-start {
+    margin: 0 0 16px;
+  }
+  .library-browse {
+    flex-wrap: nowrap;
+    gap: 2px;
+    margin: 18px 0 12px;
+  }
+  .library-filters {
+    padding: 12px 0;
+  }
+  .artist-card {
+    gap: 3px 12px;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    padding: 11px 0;
+  }
+  .artist-card .group-artwork-link .collection-artwork {
+    width: 44px;
+    height: 44px;
+  }
+  .artist-card .group-browse {
+    padding: 8px 4px;
+    font-size: 11px;
+    grid-column: 3;
+  }
+  .vocabulary-list article {
+    grid-template-columns: minmax(100px, 1fr) 40px 52px;
+    gap: 10px;
+  }
+  .library-search-row {
+    gap: 8px;
+    align-items: center;
+  }
+  .library-search-row .library-filters {
+    flex-basis: 100%;
+  }
+  .library-search-row .library-filters > .check-label {
+    flex: none;
+  }
+  .library-search-row .filter-disclosure {
+    width: 100%;
+  }
+  .library-search-row .filter-disclosure summary {
+    min-height: 36px;
+  }
+  .result-toolbar .result-pagination.top {
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
 }
 @media (max-height: 550px) {
   .builder-navigation {
@@ -3072,40 +3192,26 @@ dialog::backdrop {
     max-height: none;
   }
 }
-.group-artwork-link {
-  grid-column: 1;
-  grid-row: 1 / 3;
-}
-.collection-artwork {
-  overflow: visible;
-}
-.collection-artwork img {
-  object-fit: contain;
-  border-radius: 0;
-}
-.collection-artwork .nav-icon {
-  width: 28px;
-  height: 28px;
-}
-.queue-spotify {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  font-size: 13px;
-  margin-top: 5px;
-}
-@media (max-width: 640px) {
-  .artist-card .group-artwork-link .collection-artwork {
-    width: 52px;
-    height: 52px;
+@media (min-width: 1101px) {
+  .library-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
   }
-  .queue-actions {
-    display: grid;
-    grid-template-columns: 1fr 1.3fr;
-    gap: 8px;
+  .library-controls .library-browse {
+    margin: 0 0 12px;
+    flex-shrink: 0;
+    gap: 3px;
   }
-  .queue-actions .queue-skip {
-    grid-column: 1 / -1;
-    justify-self: center;
+  .library-controls .library-browse button {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+  .library-controls .library-search-row {
+    flex: 1;
+    min-width: 0;
+  }
+  .library-controls .search-label {
+    min-width: 160px !important;
   }
 }

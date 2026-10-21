@@ -234,7 +234,13 @@ function Home() {
               {session.connection === "reconnect"
                 ? "Spotify needs reconnecting"
                 : "Spotify connected"}
-              <span>Account & connection</span>
+              <span>
+                Account
+                <span className="account-connection-label">
+                  {" "}
+                  &amp; connection
+                </span>
+              </span>
             </summary>
             <div className="account-content">
               <h2 id="connection-title">

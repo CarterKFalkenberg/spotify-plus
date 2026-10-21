@@ -80,7 +80,7 @@ export function Builder({
   } | null>(null);
   const [reconnect, setReconnect] = useState(false);
   const [error, setError] = useState("");
-  const [name, setName] = useState("");
+  const [name, setName] = useState<string | null>(null);
   const [retention, setRetention] = useState<Retention>("month");
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<0 | 1 | 2>(0);
@@ -176,7 +176,7 @@ export function Builder({
           requestId: crypto.randomUUID(),
           query,
           previewRevision: matched!.revision,
-          name: name.trim() || defaultName,
+          name: name?.trim() || defaultName,
           retention,
         });
       // Persist the exact intent before transmission. An ambiguous reply must retry
@@ -237,7 +237,11 @@ export function Builder({
               ),
             )}
           </ol>
-          <h3 className="builder-stage-title" tabIndex={-1} ref={stageHeading}>
+          <h3
+            className="builder-stage-title sr-only"
+            tabIndex={-1}
+            ref={stageHeading}
+          >
             {
               [
                 "What do you want to hear?",
@@ -266,6 +270,22 @@ export function Builder({
           <button className="primary" onClick={onViewPlaylists}>
             View playlist progress →
           </button>
+          <button
+            onClick={() => {
+              if (pending || busy) return;
+              version.current++;
+              setBuckets({ all: [], any: [], none: [] });
+              setName(null);
+              setRetention("month");
+              setResult(null);
+              setError("");
+              setSubmitted(false);
+              setRefinements(false);
+              go(0);
+            }}
+          >
+            Make another playlist
+          </button>
         </div>
       )}
       {pending ? (
@@ -281,7 +301,7 @@ export function Builder({
         </div>
       ) : (
         <>
-          <div className="builder-layout">
+          <div className="builder-layout" hidden={submitted}>
             <div className="query-feedback" role="status" aria-live="polite">
               {!key ? (
                 <strong>Add a tag to start</strong>
@@ -302,7 +322,7 @@ export function Builder({
                       an exclusion.
                     </p>
                   )}
-                  {matched.excludedCount > 0 && (
+                  {matched.excludedCount > 0 && step !== 1 && (
                     <small>
                       {matched.excludedCount} unavailable{" "}
                       {matched.excludedCount === 1
@@ -409,11 +429,7 @@ export function Builder({
                   <>
                     <div className="preview-heading">
                       <div>
-                        <span>
-                          {Math.floor(matched.durationMs / 3600000)}h{" "}
-                          {Math.floor(matched.durationMs / 60000) % 60}m · from
-                          your cached library
-                        </span>
+                        <span>Matching songs · newest liked first</span>
                       </div>
                       <span className="preview-label">Preview</span>
                     </div>
@@ -510,7 +526,7 @@ export function Builder({
                 <label>
                   Playlist name
                   <input
-                    value={name}
+                    value={name ?? defaultName}
                     placeholder={defaultName}
                     maxLength={100}
                     onChange={(event) => setName(event.target.value)}
@@ -518,15 +534,24 @@ export function Builder({
                 </label>
                 <RetentionPicker value={retention} onChange={setRetention} />
               </form>
-              <p className="disclosure">
-                We ask Spotify to hide the playlist from your profile and
-                search. Anyone with its link can still access it. Spotify
-                acknowledges the request; hiding cannot be independently
-                verified. The query and expiry date appear in Spotify’s
-                description. Playlists are snapshots. Regenerate replaces manual
-                track edits; expiry removes the playlist from Your Library. Pin
-                it to keep it.
+              <p className="disclosure creation-summary">
+                {retention === "pinned"
+                  ? "Pinned: stays until you remove it."
+                  : "Removed from your Spotify library after the selected retention. Pin it later to keep it."}{" "}
+                Anyone with the Spotify link can access it.
               </p>
+              <details className="creation-disclosure">
+                <summary>Spotify visibility &amp; playlist details</summary>
+                <p className="disclosure">
+                  We ask Spotify to hide the playlist from your profile and
+                  search. Anyone with its link can still access it. Spotify
+                  acknowledges the request; hiding cannot be independently
+                  verified. The query and expiry date appear in Spotify’s
+                  description. Playlists are snapshots. Regenerate replaces
+                  manual track edits; expiry removes the playlist from Your
+                  Library. Pin it to keep it.
+                </p>
+              </details>
             </div>
           </div>
           {!submitted && (
@@ -548,7 +573,7 @@ export function Builder({
                     go(step === 0 ? 1 : 2);
                   }}
                 >
-                  {step === 0 ? "Review songs →" : "Continue →"}
+                  {step === 0 ? "Review songs →" : "Playlist details →"}
                 </button>
               ) : (
                 <button

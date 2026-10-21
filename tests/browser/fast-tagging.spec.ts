@@ -3,6 +3,8 @@ import {
   details,
   chooseStep,
   managePlaylist,
+  syncControls,
+  songActions,
 } from "./flows";
 import { assertReadableSurface, resolvedAppearance } from "./visual-assertions";
 import { test, expect, type Page, type Route } from "@playwright/test";
@@ -742,12 +744,14 @@ test("membership removals before the focused row keep that song current; delayed
     .getByLabel("Tag current song", { exact: true })
     .press("ArrowRight");
   await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(page.locator(".mobile-track")).toHaveCount(2);
   await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
   // Hold the next membership result while the user replaces the queue.
   delayed = true;
   deferred.replied = false;
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect.poll(() => !!deferred.release).toBe(true);
   if (
@@ -834,6 +838,7 @@ test("arrival review is an explicit owner mutation; navigation and typing never 
   expect(
     calls.filter((c) => c.path === "/api/library/acknowledge"),
   ).toHaveLength(0);
+  await songActions(page);
   await page
     .getByRole("button", { name: "Mark arrival reviewed", exact: true })
     .click();
@@ -923,8 +928,11 @@ for (const action of ["tag", "acknowledge"])
     await queue(page);
     if (action === "tag")
       await page.getByLabel("Tag current song", { exact: true }).press("1");
-    else
+    else {
+      await songActions(page);
       await page.getByRole("button", { name: "Mark arrival reviewed" }).click();
+    }
+    await syncControls(page);
     await page.getByRole("button", { name: "Sync now" }).click();
     await expect(page.locator(".mobile-track")).toHaveCount(2);
     await page
@@ -1108,6 +1116,7 @@ for (const scenario of ["restored", "empty", "skipped", "noop"] as const)
     await expect(
       page.locator(".section-heading").filter({ hasText: "Tagging queue" }),
     ).toContainText(`${changed ? 1 : 0} tagged this session`);
+    await syncControls(page);
     await page.getByRole("button", { name: "Sync now" }).click();
     if (hasLaterTag)
       await expect(
@@ -1445,6 +1454,7 @@ test("deleting a frequent tag leaves its slot empty instead of changing the rema
       .locator(".quick-slots")
       .getByRole("button", { name: "1 Chill", exact: true }),
   ).toBeVisible();
+  await syncControls(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(
     page
@@ -1674,6 +1684,7 @@ for (const appearance of ["light", "dark"] as const)
     expect(emphasis).not.toEqual(await resolvedAppearance(previous));
     expect(emphasis).not.toEqual(await resolvedAppearance(skip));
     await assertReadableSurface(page);
+    await songActions(page);
     await page
       .getByRole("button", { name: "Mark arrival reviewed", exact: true })
       .click();
@@ -1777,20 +1788,35 @@ for (const height of [720, 600])
       const calls = await mock(page);
       await page.goto("/");
       await browser(page);
-      const groupInput = page.getByLabel(
-        "Tag all 3 songs by Synthetic Artist",
-        { exact: true },
-      );
+      await page
+        .getByRole("button", {
+          name: "Tag all 3 songs by Synthetic Artist",
+          exact: true,
+        })
+        .click();
+      const groupInput = page.getByLabel("Add tag to selection", {
+        exact: true,
+      });
       await groupInput.fill("Chill");
       const refreshed = page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === "/api/library/search",
       );
       await page
-        .getByRole("option", { name: "Chill 84 songs", exact: true })
+        .getByRole("option", {
+          name: "Chill some · 1 of 3 selected",
+          exact: true,
+        })
         .click();
       await expect(page.locator(".toast")).toContainText("Added");
       await refreshed;
+      if (!selection)
+        await page
+          .getByRole("button", {
+            name: "Tag all 3 songs by Synthetic Artist",
+            exact: true,
+          })
+          .click();
       if (selection)
         await page
           .getByRole("button", { name: "Select all 3 matching", exact: true })
@@ -1878,7 +1904,7 @@ test("dictionary merge mode keeps selection explicit and previews the full union
     .getByLabel("Merge into existing tag", { exact: true })
     .fill("Chill");
   await page
-    .getByRole("option", { name: "Chill 84 songs", exact: true })
+    .getByRole("option", { name: "Chill some · 1 of 3 selected", exact: true })
     .click();
   const preview = page.getByRole("dialog").filter({ hasText: "Confirm merge" });
   await expect(preview).toContainText("99 distinct songs");
