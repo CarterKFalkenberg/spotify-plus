@@ -1,3 +1,4 @@
+import { artworkJobs } from "../_shared/artwork.ts";
 import {
   AnnotationBackupCodec,
   annotationBackupJob,
@@ -23,6 +24,14 @@ Deno.serve(
     library: createLibraryRunner({
       db,
       annotationBox: new SecretBox(config.annotationKey),
+      spotify: librarySpotify({
+        db,
+        tokenBox: new SecretBox(config.tokenEncryptionKey),
+        clientId: config.clientId,
+      }),
+    }),
+    artwork: artworkJobs({
+      db,
       spotify: librarySpotify({
         db,
         tokenBox: new SecretBox(config.tokenEncryptionKey),

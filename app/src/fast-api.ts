@@ -8,11 +8,12 @@ import {
   type TagDTO,
   type TrackDTO,
 } from "../../supabase/functions/_shared/contracts";
-import { ApiError, tag, track } from "./api";
+import { ApiError, parseArtworkUrl, tag, track } from "./api";
 export type FastFilter = LibraryFilter;
 export type Sort = LibrarySort;
 export type Facet = "artist" | "album" | "decade";
 export type Group = {
+  artworkUrl: string | null;
   value: string;
   name: string;
   trackCount: number;
@@ -79,6 +80,7 @@ export function search(value: unknown): Search {
       if (selection.kind !== "filter") throw new ApiError("invalid_response");
       return {
         value: string(g.value ?? g.artistId),
+        artworkUrl: parseArtworkUrl(g.artworkUrl ?? null),
         name: string(g.name),
         trackCount: count(g.trackCount),
         taggedCount: count(g.taggedCount),

@@ -18,6 +18,7 @@ export interface JobContext {
   library?: FeatureJob;
   playlist?: FeatureJob;
   annotationBackup?: FeatureJob;
+  artwork?: FeatureJob;
 }
 export async function drainJobs(
   context: JobContext,
@@ -129,6 +130,18 @@ export async function drainJobs(
             p_outcome: "queued",
             p_retry_ms: result.retryMs ?? 1000,
             p_error: (result.retryMs ?? 0) >= 60000 ? "library_unstable" : null,
+          });
+          continue;
+        }
+      } else if (job.kind === "artwork" && context.artwork) {
+        const result = await context.artwork(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
           });
           continue;
         }

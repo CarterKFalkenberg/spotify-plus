@@ -565,6 +565,7 @@ try {
       .status === 401,
   );
   phase = "disconnect_and_purge";
+  check((await fixture("artwork")).artworkCount === 1);
   await db.rpc("app_oauth_start", {
     p_state_hash: "f".repeat(64),
     p_browser_hash: "g".repeat(64),
@@ -595,7 +596,8 @@ try {
   const purged = await fixture("inspect");
   check(
     purged.credentials === false && purged.sessions === 0 &&
-      purged.oauthStates === 0 && purged.accountJobs === 0,
+      purged.oauthStates === 0 && purged.accountJobs === 0 &&
+      purged.artworkCount === 0,
   );
   check(await db.rpc("app_session", { p_token_hash: sessionHash }) === null);
   check(

@@ -134,6 +134,8 @@ export interface SpotifyRequest {
 }
 
 type Operation =
+  | "artist_artwork"
+  | "playlist_artwork"
   | "identity"
   | "saved"
   | "playlists"
@@ -146,6 +148,7 @@ type Operation =
   | "contains"
   | "remove";
 type Result =
+  | { artworkUrl: string | null }
   | { accountId: string; id: string }
   | SpotifyPage<SpotifySavedTrack>
   | SpotifyPage<SpotifyPlaylist>
@@ -218,7 +221,11 @@ function prepare(input: SpotifyRequest): Prepared {
     else if (path === "/me/tracks") operation = "saved";
     else if (path === "/me/playlists") operation = "playlists";
     else if (path === "/me/library/contains") operation = "contains";
-    else if (match) operation = match[2] ? "items" : "playlist";
+    else if (/^\/artists\/[A-Za-z0-9]{22}$/.test(path)) {
+      operation = "artist_artwork";
+    } else if (/^\/playlists\/[A-Za-z0-9]{22}\/images$/.test(path)) {
+      operation = "playlist_artwork";
+    } else if (match) operation = match[2] ? "items" : "playlist";
     else throw new SpotifyError("guard");
     if (["saved", "playlists", "items"].includes(operation)) {
       keys(query, ["offset", "limit"]);
@@ -489,6 +496,17 @@ export class SpotifyClient {
     }
   }
 
+  getArtistArtwork(id: string) {
+    return this.request({ method: "GET", path: `/artists/${id}` }) as Promise<
+      { artworkUrl: string | null }
+    >;
+  }
+  getPlaylistArtwork(id: string) {
+    return this.request({
+      method: "GET",
+      path: `/playlists/${id}/images`,
+    }) as Promise<{ artworkUrl: string | null }>;
+  }
   getCurrentUser() {
     return this.request({ method: "GET", path: "/me" }) as Promise<
       { accountId: string; id: string }
@@ -583,7 +601,33 @@ export class SpotifyClient {
   }
 }
 
+// Direct provider image URL only; no fetching or proxying the image bytes.
+export function artworkUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 4096) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password &&
+        !url.hash
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+function imageArtwork(images: unknown): { artworkUrl: string | null } {
+  if (!Array.isArray(images)) return { artworkUrl: null };
+  for (const image of images) {
+    const url = record(image) ? artworkUrl(image.url) : null;
+    if (url) return { artworkUrl: url };
+  }
+  return { artworkUrl: null };
+}
 function normalize(data: unknown, request: Prepared): Result {
+  if (request.operation === "artist_artwork") {
+    requireSchema(record(data));
+    return imageArtwork(data.images);
+  }
+  if (request.operation === "playlist_artwork") return imageArtwork(data);
   if (request.operation === "contains") {
     requireSchema(
       Array.isArray(data) && data.length === request.uriCount &&

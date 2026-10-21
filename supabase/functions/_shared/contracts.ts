@@ -83,6 +83,7 @@ export type LibrarySort =
   | "year"
   | "random";
 export interface LibraryGroupDTO {
+  readonly artworkUrl: string | null;
   readonly value: string;
   readonly name: string;
   readonly trackCount: number;
@@ -179,6 +180,7 @@ export interface LibraryStatusDTO {
   readonly blockedBy: WorkBlock | null;
 }
 export interface ArtistGroupDTO {
+  readonly artworkUrl: string | null;
   readonly artistId: string;
   readonly name: string;
   readonly trackCount: number;
@@ -247,6 +249,7 @@ export interface QueryPreviewResponse {
   readonly nextCursor: string | null;
 }
 export interface ManagedPlaylistDTO {
+  readonly artworkUrl: string | null;
   readonly id: string;
   readonly revision: Revision;
   readonly name: string;
