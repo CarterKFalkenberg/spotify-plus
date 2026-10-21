@@ -1,0 +1,105 @@
+begin;
+create function pg_temp.assert(ok boolean,label text) returns void language plpgsql as $$ begin if ok is distinct from true then raise exception 'assertion: %',label; end if; end $$;
+select public.app_connect(1,'synthetic-account',repeat('a',64),true,'synthetic',now()+interval '1 hour',now(),repeat('b',64),true);
+update app.library_state set initial_sync_complete=true,encrypted_annotation_key='synthetic-key' where singleton;
+insert into app.annotations select lpad(i::text,64,'0'),1 from generate_series(1,7) i;
+insert into app.tags(id,epoch,name,normalized_name) values
+ ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'One','one'),('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'Two','two');
+-- Duplicate original annotations conflict; migration/ingestion must union rather than overwrite.
+insert into app.track_tags(track_key,tag_id,present) values
+ (lpad('1',64,'0'),'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true),
+ (lpad('2',64,'0'),'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true);
+insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,added_run_id,playable_uri,duration_ms)
+ select lpad(i::text,64,'0'),lpad(i::text,22,'0'),
+ case i when 1 then ' Synthetic  Café ' when 2 then 'synthetic Café' when 3 then 'Synthetic Café (Live)' else 'Other '||i end,
+ case when i=2 then '[{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"},{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"}]'::jsonb
+ else '[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]'::jsonb end,
+ 'Synthetic album',now()-make_interval(days=>i),'11111111-1111-4111-8111-111111111111',
+ 'spotify:track:'||lpad(i::text,22,'0'),180000 from generate_series(1,7) i;
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))=app.song_group_key(lpad('2',64,'0')),'normalized title with full reordered artist identity groups');
+select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))<>app.song_group_key(lpad('3',64,'0')),'live suffix preserved');
+select pg_temp.assert(app.song_identity('Same','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Name"}]')<>app.song_identity('Same','[{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Name"}]'),'same artist name with distinct known IDs is not equivalent');
+select pg_temp.assert(app.song_identity('Same','[{"name":"  NAME "}]')=app.song_identity('same','[{"name":"name"}]'),'missing artist IDs use normalized full names');
+select pg_temp.assert(app.song_identity('Same','[]') is null,'unknown artist metadata cannot merge unrelated tracks');
+select pg_temp.assert((select count(*)=4 from app.track_tags where present and track_key in (lpad('1',64,'0'),lpad('2',64,'0'))),'preexisting tags union keeps original identities');
+create temp table results(k text primary key,v jsonb);
+insert into results values('filter','{"membership":"active","untagged":false,"newOnly":false}');
+select pg_temp.assert((select count(*)=6 from app.filter_keys((select v from results where k='filter'))),'library filters list logical songs once');
+select pg_temp.assert((select count(*)=1 from app.query_targets('{"version":1,"root":{"op":"tag","tagId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}}')),'query preview and generated snapshot input unique');
+select pg_temp.assert(cardinality(app.selection_keys(1,jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'),lpad('2',64,'0')))))=1,'manual bulk selection canonicalized');
+insert into results values('selection',jsonb_build_object('kind','filter','filter',(select v from results where k='filter'),'expectedRevision',app.library_revision()));
+insert into results values('remove',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('2',64,'0'))))));
+select pg_temp.assert((select v->>'selectedCount'='1' and v->>'changedCount'='1' from results where k='remove'),'mutation counts logical songs');
+select pg_temp.assert(not exists(select 1 from app.track_tags where tag_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and present),'removal shared immediately');
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='remove'))->>'restoredCount'='1','undo restores logical group once');
+select pg_temp.assert((select count(*)=2 from app.track_tags where tag_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and present),'undo restores every changed original assignment');
+do $$ begin
+ begin perform app.selection_keys(1,(select v from results where k='selection')); raise exception 'stale selection accepted'; exception when raise_exception then if sqlerrm<>'stale_revision' then raise; end if; end;
+end $$;
+-- Later edits fence stale undo for the complete logical song.
+insert into results values('remove2',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
+select public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','add','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('2',64,'0')))));
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='remove2'))->>'skippedCount'='1','later edit skips whole undo group');
+-- Stable representative survives new aliases, then falls back if removed/unplayable.
+insert into results values('representative',to_jsonb(app.song_representative(lpad('1',64,'0'))));
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_representative(lpad('2',64,'0'))=(select v#>>'{}' from results where k='representative'),'representative stable');
+update app.track_metadata set removed_at=now() where track_key=lpad('1',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_representative(lpad('1',64,'0'))=lpad('2',64,'0'),'removed representative replaced by eligible alias');
+select pg_temp.assert(public.app_playback_track(1,lpad('1',64,'0'))->>'uri'='spotify:track:'||lpad('2',22,'0'),'playback resolves replacement alias');
+update app.track_metadata set removed_at=null where track_key=lpad('1',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_representative(lpad('1',64,'0'))=lpad('2',64,'0'),'returning alias does not churn eligible representative');
+-- Enabled source membership controls the whole logical pool and provenance.
+savepoint source_memberships;
+select app.ensure_sources(1);
+insert into app.sources(epoch,id,kind,name,last_synced_at) values(1,repeat('p',22),'playlist','Synthetic source',now());
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values
+ (1,'liked',lpad('1',64,'0'),now()),(1,repeat('p',22),lpad('1',64,'0'),now()),(1,repeat('p',22),lpad('2',64,'0'),now());
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter'))),'source union deduplicates aliases and overlapping memberships');
+select pg_temp.assert(jsonb_array_length(app.track_dto(lpad('1',64,'0'))->'sources')=2,'provenance unions enabled sources across aliases');
+select pg_temp.assert(public.app_sources_list(1)->>'uniqueTrackCount'='1','Sources summary counts logical songs');
+select pg_temp.assert((select item->>'uniqueCount'='1' from jsonb_array_elements(public.app_sources_list(1)->'items') item where item->>'id'=repeat('p',22)),'source duplicates count once');
+update app.sources set enabled=false where id='liked' and epoch=1;
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter'))),'disabling one overlapping source preserves song');
+delete from app.source_memberships where epoch=1 and source_id=repeat('p',22) and track_key=lpad('2',64,'0');
+select app.refresh_source_pool(1);
+select pg_temp.assert(app.song_representative(lpad('2',64,'0'))=lpad('1',64,'0'),'source removal chooses surviving eligible representative');
+select pg_temp.assert(public.app_playback_track(1,lpad('2',64,'0'))->>'uri'='spotify:track:'||lpad('1',22,'0'),'playback excludes alias removed from enabled sources');
+update app.sources set enabled=false where id=repeat('p',22) and epoch=1;
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=0 from app.filter_keys((select v from results where k='filter'))),'last enabled source removal archives logical song');
+select pg_temp.assert((select count(*)=2 from app.track_tags where tag_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and present),'source removal preserves opaque annotations');
+update app.sources set enabled=true where id='liked' and epoch=1;
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter'))),'source reenable restores logical song with tags');
+rollback to savepoint source_memberships;
+
+-- A new exact duplicate makes earlier group undo stale and receives annotations.
+insert into results values('remove3',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
+update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('4',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='remove3'))->>'skippedCount'='1','membership change skips complete stale undo');
+select pg_temp.assert(exists(select 1 from app.track_tags where track_key=lpad('4',64,'0') and tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'new alias inherits shared tags');
+-- Annotation-only snapshots retain links after metadata retention, without names.
+delete from app.jobs where id is not null;
+insert into app.jobs(kind,epoch) values('annotation_backup',1);
+insert into results values('job',public.app_job_claim());
+insert into results values('plan',public.app_backup_prepare(1,(select (v->>'id')::uuid from results where k='job'),(select (v->>'leaseToken')::uuid from results where k='job')));
+select pg_temp.assert((select jsonb_array_length(v#>'{snapshot,songGroups}')=1 from results where k='plan'),'backup carries only grouped opaque aliases');
+select pg_temp.assert((select position('Synthetic' in (v->'snapshot')::text)=0 from results where k='plan'),'backup excludes recording/source metadata');
+select public.app_backup_bucket_start(1,(select (v->>'id')::uuid from results where k='job'),(select (v->>'leaseToken')::uuid from results where k='job'),(select (v#>>'{snapshot,id}')::uuid from results where k='plan'));
+select public.app_backup_upload_allowed(1,(select (v->>'id')::uuid from results where k='job'),(select (v->>'leaseToken')::uuid from results where k='job'),(select (v#>>'{snapshot,id}')::uuid from results where k='plan'));
+select public.app_backup_commit(1,(select (v->>'id')::uuid from results where k='job'),(select (v->>'leaseToken')::uuid from results where k='job'),(select (v#>>'{snapshot,id}')::uuid from results where k='plan'),(select (v#>>'{snapshot,revision}')::bigint from results where k='plan'),encode(sha256(convert_to('synthetic-key','UTF8')),'hex'));
+insert into results values('snapshot',(select v->'snapshot'||jsonb_build_object('keyLink',encode(sha256(convert_to('synthetic-key','UTF8')),'hex')) from results where k='plan'));
+delete from app.track_metadata where track_key in (lpad('1',64,'0'),lpad('2',64,'0'),lpad('4',64,'0'));
+delete from app.song_group_members where group_key=app.song_group_key(lpad('1',64,'0'));
+delete from app.song_groups where group_key=lpad('1',64,'0');
+select public.app_backup_restore(1,repeat('a',64),(select annotation_revision from app.library_state),(select v from results where k='snapshot'));
+select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))=app.song_group_key(lpad('4',64,'0')),'restore recovers opaque group links after metadata purge');
+select pg_temp.assert(not exists(select 1 from app.track_metadata where track_key in (lpad('1',64,'0'),lpad('2',64,'0'),lpad('4',64,'0'))),'annotation restore does not resurrect purged metadata');
+rollback;
