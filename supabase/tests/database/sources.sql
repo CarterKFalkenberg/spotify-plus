@@ -30,19 +30,28 @@ insert into app.source_scans(job_id,epoch,source_id) values('11111111-1111-4111-
 select pg_temp.assert(public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111',gen_random_uuid(),0,0,0,null,'snapshot-one','[]',0,0) is null,'stale lease cannot write');
 select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,0,0,null,'snapshot-one','[]',0,0);
 select pg_temp.assert((select count(*)=3 from app.source_memberships),'terminal page alone cannot remove membership');
+select pg_temp.assert((select latest_completed_run_id is null from app.sources where id=repeat('p',22)),'inflight first scan cannot publish a latest-completed cohort');
 select pg_temp.assert(public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','snapshot-two')->>'done'='false','changed after snapshot resets walk');
 select pg_temp.assert((select count(*)=3 from app.source_memberships),'failed snapshot retains previous memberships');
 select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,0,0,null,'snapshot-two','[]',0,0);
 select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','snapshot-two');
 select pg_temp.assert((select count(*)=1 from app.source_memberships),'complete validated empty source reconciles only its memberships');
+select pg_temp.assert((select latest_completed_run_id='11111111-1111-4111-8111-111111111111' from app.sources where id=repeat('p',22)),'validated source publishes its own completed job identity');
 select pg_temp.assert((select removed_at is null from app.track_metadata where track_key=repeat('1',64)),'source scan preserves liked membership');
 select pg_temp.assert((select removed_at is not null from app.track_metadata where track_key=repeat('2',64)),'validated removal soft removes last member');
 select pg_temp.assert((select present from app.track_tags where track_key=repeat('2',64)),'validated removal keeps annotations');
+-- Unchanged snapshots still advance the per-source verified cohort, clearing
+-- old arrivals without making content requests or republishing an inflight ID.
+insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('99999999-9999-4999-8999-999999999999',1,'source_sync','running','88888888-8888-4888-8888-888888888888',now()+interval '1 hour');
+insert into app.source_scans(job_id,epoch,source_id) values('99999999-9999-4999-8999-999999999999',1,repeat('p',22));
+select public.app_source_finish(1,'99999999-9999-4999-8999-999999999999','88888888-8888-4888-8888-888888888888','snapshot-two');
+select pg_temp.assert((select latest_completed_run_id='99999999-9999-4999-8999-999999999999' from app.sources where id=repeat('p',22)),'unchanged verified snapshot advances latest source cohort');
 -- Forbidden reads never clear membership; unavailable status is explicit.
 insert into app.source_memberships values(1,repeat('p',22),repeat('2',64),now());
 select app.refresh_source_pool(1);
 select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',null,'forbidden');
 select pg_temp.assert((select not available and error_code='forbidden' from app.sources where id=repeat('p',22)),'unavailable source honest');
+select pg_temp.assert((select latest_completed_run_id='99999999-9999-4999-8999-999999999999' from app.sources where id=repeat('p',22)),'failed scan preserves prior completed source cohort');
 select pg_temp.assert((select removed_at is null from app.track_metadata where track_key=repeat('2',64)),'access loss retains prior active membership');
 -- Existing liked reconciliation can never remove playlist-only tracks.
 select app.start_liked_walk(1);
@@ -56,6 +65,7 @@ do $$ declare r app.sync_runs; j app.jobs; begin
 end $$;
 select pg_temp.assert((select removed_at is null from app.track_metadata where track_key=repeat('2',64)),'liked global reconciliation preserves playlist-only active track');
 select pg_temp.assert(not exists(select 1 from app.source_memberships where source_id='liked'),'completed empty liked reconciles liked only');
+select pg_temp.assert((select s.latest_completed_run_id=l.completed_run_id from app.sources s cross join app.library_state l where s.id='liked' and l.singleton),'liked verification publishes the validated run cohort');
 
 -- A rescan whose playlist date differs from the preserved liked date does not
 -- turn an acknowledged overlapping song into a false arrival.

@@ -16,6 +16,7 @@ create table app.sources (
  skipped_count integer not null default 0,
  snapshot_id text,
  last_synced_at timestamptz,
+ latest_completed_run_id uuid,
  error_code text,
  primary key(epoch,id)
 );
@@ -61,8 +62,8 @@ create table app.source_seen (
  primary key(job_id,track_key)
 );
 create function app.ensure_sources(p_epoch bigint) returns void language sql set search_path='' as $$
- insert into app.sources(epoch,id,kind,name,last_synced_at)
- select p_epoch,'liked','liked','Liked Songs',last_completed_at from app.library_state where singleton and epoch=p_epoch
+ insert into app.sources(epoch,id,kind,name,last_synced_at,latest_completed_run_id)
+ select p_epoch,'liked','liked','Liked Songs',last_completed_at,completed_run_id from app.library_state where singleton and epoch=p_epoch
  on conflict(epoch,id) do nothing;
 $$;
 select app.ensure_sources(epoch) from app.library_state where singleton;
@@ -281,7 +282,7 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
   if same then
    delete from app.source_memberships sm where sm.epoch=p_epoch and sm.source_id='liked'
     and not exists(select 1 from app.sync_seen where run_id=r.id and pass=r.pass and track_key=sm.track_key);
-   update app.sources set last_synced_at=now(),track_count=r.reported_total,imported_count=r.reported_total,skipped_count=r.skipped_count,error_code=null where epoch=p_epoch and id='liked';
+   update app.sources set latest_completed_run_id=r.id,last_synced_at=now(),track_count=r.reported_total,imported_count=r.reported_total,skipped_count=r.skipped_count,error_code=null where epoch=p_epoch and id='liked';
    get diagnostics affected=row_count;
    update app.library_state set initial_sync_complete=true,last_completed_at=now(),completed_run_id=r.id,head_signature=r.first_head,
     library_revision=library_revision+case when affected>0 or not initial_sync_complete or completed_run_id is distinct from r.id then 1 else 0 end where singleton and epoch=p_epoch;
@@ -366,14 +367,14 @@ create function public.app_source_finish(p_epoch bigint,p_id uuid,p_lease uuid,p
   -- Unchanged snapshots avoid all item reads; otherwise validate the complete walk
   -- against both metadata snapshots. Counts alone do not establish a snapshot.
   if r.snapshot_id is null and exists(select 1 from app.sources where epoch=p_epoch and id=r.source_id and snapshot_id=p_snapshot and last_synced_at is not null) then
-   update app.sources set available=true,error_code=null,last_synced_at=now() where epoch=p_epoch and id=r.source_id;
+   update app.sources set available=true,error_code=null,last_synced_at=now(),latest_completed_run_id=p_id where epoch=p_epoch and id=r.source_id;
    return jsonb_build_object('done',true);
   end if;
   valid:=not r.invalid and r.snapshot_id=p_snapshot and r.received=r.total;
   if valid then
    delete from app.source_memberships sm where sm.epoch=p_epoch and sm.source_id=r.source_id
     and not exists(select 1 from app.source_seen seen where seen.job_id=p_id and seen.track_key=sm.track_key);
-   update app.sources set available=true,error_code=null,last_synced_at=now(),snapshot_id=p_snapshot,skipped_count=r.skipped,track_count=r.total,imported_count=r.received where epoch=p_epoch and id=r.source_id;
+   update app.sources set available=true,error_code=null,last_synced_at=now(),latest_completed_run_id=p_id,snapshot_id=p_snapshot,skipped_count=r.skipped,track_count=r.total,imported_count=r.received where epoch=p_epoch and id=r.source_id;
    update app.library_state set library_revision=library_revision+1 where singleton and epoch=p_epoch;
    perform app.refresh_source_pool(p_epoch);
    delete from app.source_seen where job_id=p_id;
