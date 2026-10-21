@@ -49,8 +49,8 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
   -- Existing links survive metadata retention and returning tracks. Newly discovered exact
   -- identities union complete components, preserving every original annotation assignment.
   for bucket in select app.song_identity(m.title,m.artists) identity,array_agg(m.track_key) keys
-   from app.track_metadata m join app.annotations a using(track_key) where a.epoch=p_epoch
-   group by app.song_identity(m.title,m.artists) having count(*)>1 and app.song_identity(m.title,m.artists) is not null loop
+   from app.track_metadata m join app.annotations a using(track_key) join app.song_group_members sm using(track_key) where a.epoch=p_epoch
+   group by app.song_identity(m.title,m.artists) having count(distinct sm.group_key)>1 and app.song_identity(m.title,m.artists) is not null loop
    select array_agg(distinct group_key order by group_key) into roots from app.song_group_members where track_key=any(bucket.keys);
    if cardinality(roots)>1 then
     select group_key into target from app.song_groups where group_key=any(roots) order by created_at,group_key limit 1;
@@ -59,6 +59,14 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
     changed:=true;
    end if;
   end loop;
+  -- Acknowledgement belongs to the logical song too: another source/release
+  -- must not turn an already seen song into a new-arrivals notification again.
+  with acknowledged as (
+   select sm.group_key,min(m.acknowledged_at) seen_at from app.song_group_members sm
+   join app.track_metadata m using(track_key) join app.song_groups g using(group_key)
+   where g.epoch=p_epoch and m.acknowledged_at is not null group by sm.group_key
+  ) update app.track_metadata m set acknowledged_at=a.seen_at from app.song_group_members sm
+   join acknowledged a using(group_key) where sm.track_key=m.track_key and m.acknowledged_at is null;
   -- Union preexisting conflicting annotations without deleting original identities.
   insert into app.track_tags(track_key,tag_id,present,version)
    select distinct dest.track_key,t.tag_id,true,1 from app.song_group_members src
@@ -73,7 +81,7 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
    select distinct on (sm.group_key) sm.group_key,m.track_key
    from app.song_group_members sm join app.song_groups g using(group_key)
    join app.track_metadata m using(track_key) where g.epoch=p_epoch
-   order by sm.group_key,(m.removed_at is null) desc,(m.playable_uri is not null) desc,
+   order by sm.group_key,(m.removed_at is null) desc,(m.playable_uri is not null and m.duration_ms>0 and m.duration_ms<=86400000) desc,
     (m.track_key=g.representative_key) desc,m.track_key
   ) update app.song_groups g set representative_key=c.track_key from candidates c
    where g.group_key=c.group_key and g.representative_key is distinct from c.track_key;
@@ -84,8 +92,8 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
 $$;
 create function app.song_added_at(p_key text) returns timestamptz language sql stable set search_path='' as $$
  select coalesce((select max(sm.added_at) from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
- where app.song_group_key(sm.track_key)=app.song_group_key(p_key) and s.enabled),
- (select max(m.liked_at) from app.track_metadata m where app.song_group_key(m.track_key)=app.song_group_key(p_key)));
+ where sm.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key) and s.enabled),
+ (select max(m.liked_at) from app.track_metadata m where m.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key)));
 $$;
 
 create or replace function app.filter_keys(p_filter jsonb) returns table(track_key text,liked_at timestamptz)
@@ -134,7 +142,7 @@ create or replace function app.selection_keys(p_epoch bigint,p_selection jsonb) 
 $$;
 create or replace function public.app_tag_action(p_epoch bigint,p_session_hash text,p_request jsonb) returns jsonb
  language plpgsql security definer set search_path='' as $$
- declare keys text[]; logical_keys text[]; changed_groups text[]:='{}'; v_tag_id uuid; resolved jsonb; desired boolean; action_id uuid; changed integer:=0; key text; old_edge app.track_tags; next_version bigint;
+ declare keys text[]; logical_keys text[];  v_tag_id uuid; resolved jsonb; desired boolean; v_action_id uuid; changed integer:=0; key text; old_edge app.track_tags; next_version bigint;
  begin
   perform app.require_owner(p_epoch);
   if not exists(select 1 from app.sessions where token_hash=p_session_hash and epoch=p_epoch and expires_at>now()) then raise exception 'inactive_epoch'; end if;
@@ -155,24 +163,23 @@ create or replace function public.app_tag_action(p_epoch bigint,p_session_hash t
    v_tag_id:=(p_request->>'tagId')::uuid;
    if not exists(select 1 from app.tags where id=v_tag_id and epoch=p_epoch and deleted_at is null) then raise exception 'unknown_tag'; end if;
   end if;
-  insert into app.tag_actions(epoch,session_hash,tag_id) values(p_epoch,p_session_hash,v_tag_id) returning id into action_id;
+  insert into app.tag_actions(epoch,session_hash,tag_id) values(p_epoch,p_session_hash,v_tag_id) returning id into v_action_id;
   insert into app.song_action_groups(action_id,group_key,member_keys)
-   select action_id,app.song_group_key(k),array_agg(k order by k) from unnest(keys) k group by app.song_group_key(k);
+   select v_action_id,app.song_group_key(k),array_agg(k order by k) from unnest(keys) k group by app.song_group_key(k);
   foreach key in array keys loop
    select * into old_edge from app.track_tags where track_key=key and app.track_tags.tag_id=v_tag_id;
    if coalesce(old_edge.present,false)=desired then continue; end if;
    next_version:=coalesce(old_edge.version,0)+1;
    insert into app.track_tags(track_key,tag_id,present,version) values(key,v_tag_id,desired,next_version)
     on conflict(track_key,tag_id) do update set present=excluded.present,version=excluded.version;
-   insert into app.tag_action_edges values(action_id,key,coalesce(old_edge.present,false),next_version);
-   changed_groups:=array_append(changed_groups,app.song_group_key(key));
+   insert into app.tag_action_edges values(v_action_id,key,coalesce(old_edge.present,false),next_version);
    changed:=changed+1;
   end loop;
   if changed>0 then
    update app.library_state set annotation_revision=annotation_revision+1 where singleton and epoch=p_epoch;
    if desired then update app.tags set last_used_at=now() where id=v_tag_id and epoch=p_epoch; end if;
   end if;
-  return jsonb_build_object('actionId',action_id,'tag',app.tag_dto(v_tag_id),'selectedCount',cardinality(logical_keys),'changedCount',(select count(distinct g) from unnest(changed_groups) g),'revision',app.library_revision());
+  return jsonb_build_object('actionId',v_action_id,'tag',app.tag_dto(v_tag_id),'selectedCount',cardinality(logical_keys),'changedCount',(select count(distinct app.song_group_key(e.track_key)) from app.tag_action_edges e where e.action_id=v_action_id),'revision',app.library_revision());
  end;
 $$;
 -- Undo each logical song atomically. A later edit or changed component skips that
@@ -190,10 +197,12 @@ create or replace function app.app_tag_assignment_undo(p_epoch bigint,p_session_
   for entry in select app.song_group_key(e.track_key) group_key,array_agg(e.track_key) keys
    from app.tag_action_edges e where e.action_id=p_action_id group by app.song_group_key(e.track_key) loop
    total:=total+1;
-   select array_agg(a.track_key order by a.track_key) into current_keys from app.annotations a
-    where a.epoch=p_epoch and app.song_group_key(a.track_key)=entry.group_key;
+   select array_agg(member.track_key order by member.track_key) into current_keys from (
+    select sm.track_key from app.song_group_members sm where sm.group_key=entry.group_key
+    union select entry.group_key where not exists(select 1 from app.song_group_members where track_key=entry.group_key)
+   ) member;
    if exists(select 1 from app.song_action_groups g where g.action_id=p_action_id
-    and (g.group_key=entry.group_key or g.member_keys && current_keys) and g.member_keys is distinct from current_keys)
+    and g.group_key=any(current_keys) and g.member_keys is distinct from current_keys)
     or exists(select 1 from app.tag_action_edges e left join app.track_tags t on t.track_key=e.track_key and t.tag_id=action.tag_id
      where e.action_id=p_action_id and e.track_key=any(current_keys) and t.version is distinct from e.after_version)
     or exists(select 1 from unnest(current_keys) k where not exists(select 1 from app.tag_action_edges e where e.action_id=p_action_id and e.track_key=k))
@@ -326,7 +335,7 @@ notify pgrst,'reload schema';
 create or replace function app.track_dto(p_key text) returns jsonb language sql stable set search_path='' as $$
  select jsonb_set(app.track_dto_before_sources(app.song_representative(p_key)),'{metadata,addedAt}',to_jsonb(app.song_added_at(p_key)))||jsonb_build_object('sources',coalesce((select jsonb_agg(jsonb_build_object('id',s.id,'kind',s.kind,'name',s.name) order by s.kind,s.id)
  from app.sources s where s.enabled and exists(select 1 from app.source_memberships sm
- where sm.epoch=s.epoch and sm.source_id=s.id and app.song_group_key(sm.track_key)=app.song_group_key(p_key))),'[]'::jsonb));
+ where sm.epoch=s.epoch and sm.source_id=s.id and sm.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key))),'[]'::jsonb));
 $$;
 alter function public.app_sources_list(bigint,text,integer,integer) rename to app_sources_list_before_song_groups;
 create function public.app_sources_list(p_epoch bigint,p_search text default '',p_offset integer default 0,p_limit integer default 50) returns jsonb
@@ -411,3 +420,70 @@ create or replace function public.app_library_search_before_artwork(p_epoch bigi
 $$;
 
 revoke all on function public.app_library_search_before_artwork(bigint,jsonb) from public,anon,authenticated,service_role;
+-- Vocabulary actions keep component membership snapshots too. A newly arriving
+-- alias is a later edit: undo may restore the vocabulary identity while skipping
+-- that complete song's assignments instead of restoring only its older aliases.
+alter function public.app_tags_manage(bigint,text,jsonb) rename to app_tags_manage_before_song_groups;
+create function public.app_tags_manage(p_epoch bigint,p_session_hash text,p_request jsonb) returns jsonb
+ language plpgsql security definer set search_path='' as $$
+ declare result jsonb; aid uuid;
+ begin
+  result:=public.app_tags_manage_before_song_groups(p_epoch,p_session_hash,p_request);
+  aid:=(result->>'actionId')::uuid;
+  if aid is not null then
+   insert into app.song_action_groups(action_id,group_key,member_keys)
+    select aid,groups.group_key,array_agg(a.track_key order by a.track_key) from (
+     select distinct app.song_group_key(e.track_key) group_key from app.tag_action_edges e where e.action_id=aid
+     union select distinct app.song_group_key(edge->>'key') from app.vocabulary_changes v
+      cross join lateral jsonb_array_elements(v.edges) edge where v.action_id=aid
+    ) groups cross join lateral (
+     select sm.track_key from app.song_group_members sm where sm.group_key=groups.group_key
+     union select groups.group_key where not exists(select 1 from app.song_group_members where track_key=groups.group_key)
+    ) a group by groups.group_key;
+  end if;
+  return result;
+ end;
+$$;
+alter function public.app_tag_undo(bigint,text,uuid) rename to app_tag_undo_before_song_groups;
+create function public.app_tag_undo(p_epoch bigint,p_session_hash text,p_action_id uuid) returns jsonb
+ language plpgsql security definer set search_path='' as $$
+ declare action app.tag_actions; conflicts text[]; result jsonb; filtered jsonb;
+ begin
+  perform app.require_owner(p_epoch);
+  if not exists(select 1 from app.sessions where token_hash=p_session_hash and epoch=p_epoch and expires_at>now()) then raise exception 'inactive_epoch'; end if;
+  select * into action from app.tag_actions where id=p_action_id and epoch=p_epoch and session_hash=p_session_hash for update;
+  if not found then raise exception 'unknown_action'; end if;
+  if action.undone_at is not null or not (exists(select 1 from app.vocabulary_deletes where action_id=p_action_id)
+   or exists(select 1 from app.vocabulary_changes where action_id=p_action_id)) then
+   return public.app_tag_undo_before_song_groups(p_epoch,p_session_hash,p_action_id);
+  end if;
+  select coalesce(array_agg(distinct app.song_group_key(g.member_keys[1])),'{}'::text[]) into conflicts
+   from app.song_action_groups g where g.action_id=p_action_id and g.member_keys is distinct from
+    (select array_agg(sm.track_key order by sm.track_key) from app.song_group_members sm
+     where sm.group_key=app.song_group_key(g.member_keys[1]));
+  -- Pre-migration vocabulary undo has no component snapshot. Keep its original
+  -- behavior for singletons and conservatively skip newly grouped assignments.
+  if not exists(select 1 from app.song_action_groups where action_id=p_action_id) then
+   select coalesce(array_agg(distinct group_key),'{}'::text[]) into conflicts from (
+    select app.song_group_key(e.track_key) group_key from app.tag_action_edges e where e.action_id=p_action_id
+    union select app.song_group_key(edge->>'key') from app.vocabulary_changes v
+     cross join lateral jsonb_array_elements(v.edges) edge where v.action_id=p_action_id
+   ) affected where (select count(*) from app.annotations a where a.epoch=p_epoch and app.song_group_key(a.track_key)=affected.group_key)>1;
+  end if;
+  if cardinality(conflicts)>0 then
+   -- These journals are session-scoped and terminal after undo. Removing skipped
+   -- edges fences the underlying changed-only version checks for complete songs.
+   delete from app.tag_action_edges where action_id=p_action_id and app.song_group_key(track_key)=any(conflicts);
+   select coalesce(jsonb_agg(edge),'[]') into filtered from app.vocabulary_changes v
+    cross join lateral jsonb_array_elements(v.edges) edge where v.action_id=p_action_id
+     and not app.song_group_key(edge->>'key')=any(conflicts);
+   update app.vocabulary_changes set edges=filtered where action_id=p_action_id;
+  end if;
+  result:=public.app_tag_undo_before_song_groups(p_epoch,p_session_hash,p_action_id);
+  return result||jsonb_build_object('skippedCount',(result->>'skippedCount')::integer+cardinality(conflicts));
+ end;
+$$;
+revoke all on function public.app_tags_manage(bigint,text,jsonb),public.app_tag_undo(bigint,text,uuid) from public,anon,authenticated;
+grant execute on function public.app_tags_manage(bigint,text,jsonb),public.app_tag_undo(bigint,text,uuid) to service_role;
+revoke all on function public.app_tags_manage_before_song_groups(bigint,text,jsonb),public.app_tag_undo_before_song_groups(bigint,text,uuid) from public,anon,authenticated,service_role;
+notify pgrst,'reload schema';
