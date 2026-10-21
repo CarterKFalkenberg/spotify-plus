@@ -13,6 +13,8 @@ import {
   errorMessage,
   lookupTags,
   ApiError,
+  trackSources,
+  trackAddedAt,
 } from "./api";
 import { TagPicker } from "./TagPicker";
 import {
@@ -62,6 +64,7 @@ export function TrackSummary({
   link?: boolean;
 }) {
   const m = track.metadata;
+  const sources = trackSources("sources" in track ? track.sources : undefined);
   return (
     <div className="track-summary">
       {m?.artworkUrl ? (
@@ -77,6 +80,11 @@ export function TrackSummary({
           {m?.artists.map((a) => a.name).join(", ") || "Artist unavailable"}
           {m?.album ? ` · ${m.album}` : ""}
         </span>
+        {sources.length > 0 && (
+          <small className="track-sources">
+            Sources: {sources.map((s) => s.name).join(" · ")}
+          </small>
+        )}
         {m && !m.playableUri && <small>Unavailable for playlists</small>}
       </div>
       {link && m?.spotifyUrl && (
@@ -94,6 +102,8 @@ export function TrackSummary({
 }
 export function Library({
   refresh,
+  poolVersion = 0,
+  onSources,
   newOnly,
   onChanged,
   onQueue,
@@ -102,6 +112,8 @@ export function Library({
   active = true,
 }: {
   refresh: number;
+  poolVersion?: number;
+  onSources?: () => void;
   newOnly: boolean;
   onChanged: () => void;
   onQueue: (filter: FastFilter | Selection) => void;
@@ -148,6 +160,15 @@ export function Library({
   const artworkWindow = useRef<{ key: string; startedAt: number } | null>(null);
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
+  useEffect(() => {
+    setSelection(null);
+    setCursor(null);
+    setData(null);
+    setEditingTrack(null);
+    anchor.current = null;
+    pageHistory.current = [];
+    pageNavigation.current = null;
+  }, [poolVersion]);
   const lookupConflict = useRef<string | null>(null);
   const [tagError, setTagError] = useState("");
   const [knownTags, setKnownTags] = useState<readonly TagDTO[]>([]);
@@ -524,7 +545,7 @@ export function Library({
                     })
                   }
                 >
-                  <option value="active">Liked Songs</option>
+                  <option value="active">Enabled sources</option>
                   <option value="removed">Removed from Spotify</option>
                 </select>
               </label>
@@ -585,8 +606,8 @@ export function Library({
       )}
       {filter.membership === "removed" && (
         <p className="notice">
-          Tags stay safe when you remove a song from Spotify. Re-liking restores
-          them. Cached song details disappear after 90 days.
+          Tags stay safe when a song leaves your enabled sources. Adding it back
+          restores them. Cached song details disappear after 90 days.
         </p>
       )}
       {tagError && (
@@ -689,7 +710,7 @@ export function Library({
               </h3>
               <p>
                 {filter.membership === "removed"
-                  ? "Songs removed from your Liked Songs appear here. Your tags stay safe for when you like them again."
+                  ? "Songs outside your enabled sources appear here. Your tags stay safe when they return."
                   : filter.search ||
                       filter.untagged ||
                       filter.newOnly ||
@@ -697,8 +718,18 @@ export function Library({
                       filter.album ||
                       filter.decade
                     ? "Try a broader view. Your other songs and their tags are still here."
-                    : "Like songs in Spotify, then use Sync now. You can tag them as soon as they arrive."}
+                    : "Choose Liked Songs or playlists in Sources, then sync. You can tag songs as soon as they arrive."}
               </p>
+              {onSources &&
+                filter.membership === "active" &&
+                !filter.search &&
+                !filter.untagged &&
+                !filter.newOnly &&
+                !filter.artistId &&
+                !filter.album &&
+                !filter.decade && (
+                  <button onClick={onSources}>Choose Sources</button>
+                )}
               {(filter.search ||
                 filter.untagged ||
                 filter.newOnly ||
@@ -718,7 +749,7 @@ export function Library({
               )}
               {filter.membership === "removed" && (
                 <button onClick={() => changeFilter({ ...emptyFilter })}>
-                  Back to Liked Songs
+                  Back to enabled sources
                 </button>
               )}
             </div>
@@ -818,7 +849,7 @@ export function Library({
                         "Year unavailable"}{" "}
                       · Added{" "}
                       {track.metadata
-                        ? new Date(track.metadata.likedAt).toLocaleDateString()
+                        ? new Date(trackAddedAt(track)!).toLocaleDateString()
                         : "date unavailable"}
                     </p>
                     <div className="chips">
