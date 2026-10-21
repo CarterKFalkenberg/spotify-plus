@@ -248,6 +248,12 @@ for (const theme of ["light", "dark"] as const)
   test(`sources ${theme} has readable unavailable/progress states and mobile navigation`, async ({
     page,
   }, testInfo) => {
+    if (process.env.SOURCES_PROOF === "1")
+      await page.setViewportSize(
+        testInfo.project.name === "mobile"
+          ? { width: 390, height: 844 }
+          : { width: 1440, height: 900 },
+      );
     await mock(page, { importing: true });
     await appearance(page, theme);
     await expect(page.getByText("140 unique songs enabled")).toBeVisible();
