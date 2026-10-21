@@ -21,6 +21,7 @@ import {
   SESSION_COOKIE,
 } from "../_shared/http.ts";
 import {
+  PLAYBACK_SCOPES,
   SPOTIFY_SCOPES,
   SpotifyClient,
   SpotifyError,
@@ -28,6 +29,7 @@ import {
 import {
   databasePacing,
   exchangeToken,
+  OwnerTokens,
   type TokenPair,
 } from "../_shared/tokens.ts";
 
@@ -128,6 +130,34 @@ export function createApi(
     });
     return accepted ? session : null;
   }
+  async function beginOAuth(playback = false) {
+    const state = opaqueToken(),
+      browser = opaqueToken(),
+      verifier = opaqueToken();
+    const stateHash = await sha256(state);
+    await db.rpc("app_oauth_start", {
+      p_state_hash: stateHash,
+      p_browser_hash: await sha256(browser),
+      p_encrypted_verifier: await box.encrypt(
+        playback ? { verifier, playback: true } : verifier,
+        `oauth:${stateHash}`,
+      ),
+    });
+    const auth = new URL("https://accounts.spotify.com/authorize");
+    auth.search = new URLSearchParams({
+      client_id: config.clientId,
+      response_type: "code",
+      redirect_uri: `${config.origin}/auth/spotify/callback`,
+      state,
+      code_challenge_method: "S256",
+      code_challenge: await pkceChallenge(verifier),
+      scope: [...SPOTIFY_SCOPES, ...(playback ? PLAYBACK_SCOPES : [])].join(
+        " ",
+      ),
+      show_dialog: "true",
+    }).toString();
+    return { url: auth.toString(), browser };
+  }
   return async (req: Request): Promise<Response> => {
     if (
       !await secretMatches(
@@ -194,6 +224,7 @@ export function createApi(
           pair: {
             accessToken: stringField(body, "accessToken"),
             refreshToken: stringField(body, "refreshToken"),
+            scopes: scopes.filter((s): s is string => typeof s === "string"),
           },
           expiresAt,
           authorizedAt,
@@ -205,30 +236,8 @@ export function createApi(
         });
       }
       if (path === "/auth/spotify/start" && req.method === "GET") {
-        const state = opaqueToken(),
-          browser = opaqueToken(),
-          verifier = opaqueToken();
-        const stateHash = await sha256(state);
-        await db.rpc("app_oauth_start", {
-          p_state_hash: stateHash,
-          p_browser_hash: await sha256(browser),
-          p_encrypted_verifier: await box.encrypt(
-            verifier,
-            `oauth:${stateHash}`,
-          ),
-        });
-        const auth = new URL("https://accounts.spotify.com/authorize");
-        auth.search = new URLSearchParams({
-          client_id: config.clientId,
-          response_type: "code",
-          redirect_uri: `${config.origin}/auth/spotify/callback`,
-          state,
-          code_challenge_method: "S256",
-          code_challenge: await pkceChallenge(verifier),
-          scope: SPOTIFY_SCOPES.join(" "),
-          show_dialog: "true",
-        }).toString();
-        return redirect(auth.toString(), [cookie(OAUTH_COOKIE, browser, 600)]);
+        const auth = await beginOAuth();
+        return redirect(auth.url, [cookie(OAUTH_COOKIE, auth.browser, 600)]);
       }
       if (path === "/auth/spotify/callback" && req.method === "GET") {
         const state = url.searchParams.get("state"),
@@ -253,10 +262,17 @@ export function createApi(
         }
         const code = url.searchParams.get("code");
         if (!code || code.length > 4096) return authFailure("invalid_callback");
-        const verifier = await box.decrypt<string>(
+        const verifierRecord = await box.decrypt<
+          string | { verifier: string; playback: boolean }
+        >(
           grant.encryptedVerifier,
           `oauth:${stateHash}`,
         );
+        const verifier = typeof verifierRecord === "string"
+          ? verifierRecord
+          : verifierRecord.verifier;
+        const playback = typeof verifierRecord !== "string" &&
+          verifierRecord.playback === true;
         const tokens = await exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
@@ -269,13 +285,16 @@ export function createApi(
         );
         if (
           !tokens.refreshToken ||
-          SPOTIFY_SCOPES.some((scope) => !tokens.scopes?.includes(scope))
+          [...SPOTIFY_SCOPES, ...(playback ? PLAYBACK_SCOPES : [])].some((
+            scope,
+          ) => !tokens.scopes?.includes(scope))
         ) return authFailure("missing_scopes");
         const session = await persistGrant({
           epoch: grant.epoch,
           pair: {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
+            scopes: tokens.scopes,
           },
           expiresAt: new Date(now() + tokens.expiresIn * 1000).toISOString(),
           authorizedAt: new Date(now()).toISOString(),
@@ -325,6 +344,70 @@ export function createApi(
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
         req.headers.get("Origin") !== config.origin
       ) return json({ error: "invalid_origin" }, 403);
+      if (path.startsWith("/api/playback/") && req.method === "POST") {
+        const body = await readJson(req);
+        if (session.state !== "connected") {
+          return json({ error: "reconnect" }, 409);
+        }
+        if (path === "/api/playback/enable") {
+          if (Object.keys(body).length) throw new Error("invalid_input");
+          const auth = await beginOAuth(true);
+          return json({ url: auth.url }, 200, {
+            "Set-Cookie": cookie(OAUTH_COOKIE, auth.browser, 600),
+          });
+        }
+        const tokens = new OwnerTokens(
+          db,
+          box,
+          session.epoch,
+          config.clientId,
+          request,
+          now,
+        );
+        if (path === "/api/playback/token") {
+          if (Object.keys(body).length) throw new Error("invalid_input");
+          return json({ accessToken: await tokens.getPlaybackToken() });
+        }
+        if (path === "/api/playback/start") {
+          if (
+            Object.keys(body).some((k) =>
+              !["trackKey", "deviceId"].includes(k)
+            ) || typeof body.trackKey !== "string" ||
+            !/^[0-9a-f]{64}$/.test(body.trackKey) ||
+            typeof body.deviceId !== "string" ||
+            !/^[A-Za-z0-9_-]{20,128}$/.test(body.deviceId)
+          ) throw new Error("invalid_input");
+          const track = await db.rpc<
+            { uri: string; durationMs: number } | null
+          >("app_playback_track", {
+            p_epoch: session.epoch,
+            p_track_key: body.trackKey,
+          });
+          if (
+            !track || !/^spotify:track:[A-Za-z0-9]{22}$/.test(track.uri) ||
+            !Number.isSafeInteger(track.durationMs) || track.durationMs <= 0 ||
+            track.durationMs > 86400000
+          ) return json({ error: "track_unavailable" }, 409);
+          const accessToken = await tokens.getPlaybackToken();
+          const client = new SpotifyClient({
+            tokens: {
+              getAccessToken: () => Promise.resolve(accessToken),
+              refreshAccessToken: () =>
+                Promise.reject(new SpotifyError("authentication")),
+            },
+            pacing: databasePacing(db, session.epoch),
+            isManagedPlaylist: () => Promise.resolve(false),
+            fetch: request,
+          });
+          const positionMs = Math.floor(track.durationMs / 3);
+          await client.startPlayback(body.deviceId, track.uri, positionMs);
+          return json({
+            uri: track.uri,
+            positionMs,
+            durationMs: track.durationMs,
+          });
+        }
+      }
       if (path === "/api/disconnect" && req.method === "POST") {
         const body = await readJson(req);
         if (body.confirmation !== "DELETE ALL APP DATA") {
@@ -389,6 +472,11 @@ export function createApi(
           ? "forbidden"
           : error.kind === "authentication"
           ? "reconnect"
+          : error.kind === "playback_required"
+          ? "playback_required"
+          : error.kind === "cooldown" || error.kind === "rate_limit" ||
+              error.kind === "quota"
+          ? "playback_cooldown"
           : "temporarily_unavailable"
         : error instanceof DatabaseError && error.kind === "wrong_account"
         ? "wrong_account"

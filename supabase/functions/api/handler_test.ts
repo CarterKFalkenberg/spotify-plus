@@ -4,7 +4,7 @@ import { ownerFingerprint, SecretBox, sha256 } from "../_shared/crypto.ts";
 import { OAUTH_COOKIE, SESSION_COOKIE } from "../_shared/http.ts";
 import { DatabaseError } from "../_shared/database.ts";
 import { assert, database, equal, TEST_KEY } from "../_shared/testing.ts";
-import { SPOTIFY_SCOPES } from "../_shared/spotify.ts";
+import { PLAYBACK_SCOPES, SPOTIFY_SCOPES } from "../_shared/spotify.ts";
 const config: ApiConfig = {
   origin: "https://synthetic.example",
   sha: "a".repeat(40),
@@ -243,6 +243,8 @@ Deno.test("consent denial consumes browser-bound state and shows explicit denial
 });
 async function oauthHandler(
   outcome: "ok" | "wrong" | "cancelled" | "forbidden",
+  playback = false,
+  scopes: readonly string[] = SPOTIFY_SCOPES,
 ) {
   let requests = 0;
   let connectArgs: Record<string, unknown> | undefined;
@@ -254,7 +256,9 @@ async function oauthHandler(
         return {
           epoch: 1,
           encryptedVerifier: await box.encrypt(
-            "synthetic-verifier",
+            playback
+              ? { verifier: "synthetic-verifier", playback: true }
+              : "synthetic-verifier",
             `oauth:${await sha256(state)}`,
           ),
         };
@@ -278,7 +282,7 @@ async function oauthHandler(
             refresh_token: "synthetic-refresh",
             expires_in: 3600,
             token_type: "Bearer",
-            scope: SPOTIFY_SCOPES.join(" "),
+            scope: scopes.join(" "),
           }),
         );
       }
@@ -459,6 +463,7 @@ Deno.test("bootstrap verifies live owner identity and commits encrypted grant an
   equal(await box.decrypt(connect.p_encrypted_tokens as string, "tokens:1"), {
     accessToken: bootstrapGrant.accessToken,
     refreshToken: bootstrapGrant.refreshToken,
+    scopes: [...SPOTIFY_SCOPES],
   });
 });
 for (
@@ -561,4 +566,23 @@ Deno.test("playlist admission starts bounded background work only after authenti
   equal(await conflict.json(), { error: "stale_revision" });
   equal((await handler(request("/api/playlists", { headers }))).status, 200);
   equal(starts, 1);
+});
+
+Deno.test("playback OAuth requires its recorded optional scopes before replacing the owner grant", async () => {
+  const missing = await oauthHandler("ok", true);
+  assert(
+    missing.result.headers.get("Location")?.endsWith(
+      "auth_error=missing_scopes",
+    ),
+  );
+  equal(missing.connectArgs, undefined);
+  const scopes = [...SPOTIFY_SCOPES, ...PLAYBACK_SCOPES];
+  const accepted = await oauthHandler("ok", true, scopes);
+  equal(accepted.result.headers.get("Location"), config.origin);
+  assert(accepted.connectArgs);
+  const saved = await box.decrypt<{ scopes: string[] }>(
+    accepted.connectArgs.p_encrypted_tokens as string,
+    "tokens:1",
+  );
+  equal(saved.scopes, scopes);
 });

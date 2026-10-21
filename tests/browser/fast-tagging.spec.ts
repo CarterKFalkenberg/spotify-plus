@@ -1993,3 +1993,355 @@ test("a pointer press outside an in-flow picker preserves its target through cli
   await page.mouse.up();
   await expect(page.locator(".bulk-bar")).toHaveCount(0);
 });
+
+async function syntheticPlayer(page: Page) {
+  await page.addInitScript(() => {
+    const state = {
+      paused: true,
+      position: 60000,
+      duration: 181000,
+      track_window: {
+        current_track: { uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa" },
+      },
+    };
+    const counters = { connections: 0, pauses: 0, resumes: 0, disconnects: 0 };
+    (window as any).__syntheticPlayer = { counters, state };
+    window.Spotify = {
+      Player: class {
+        listeners = new Map<string, (v: any) => void>();
+        constructor(options: {
+          getOAuthToken: (callback: (token: string) => void) => void;
+        }) {
+          options.getOAuthToken(() => {});
+        }
+        addListener(event: string, callback: (v: any) => void) {
+          this.listeners.set(event, callback);
+          return true;
+        }
+        async connect() {
+          counters.connections++;
+          this.listeners.get("ready")?.({
+            device_id: "synthetic-device-1234567890",
+          });
+          return true;
+        }
+        disconnect() {
+          counters.disconnects++;
+        }
+        async activateElement() {}
+        async pause() {
+          counters.pauses++;
+          state.paused = true;
+          this.listeners.get("player_state_changed")?.({ ...state });
+        }
+        async resume() {
+          counters.resumes++;
+          state.paused = false;
+          this.listeners.get("player_state_changed")?.({ ...state });
+        }
+        async getCurrentState() {
+          return { ...state };
+        }
+      },
+    };
+  });
+}
+test("queue listening is explicit, confirms audio, pauses after20s and continues only on Play more", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== "desktop",
+    "Desktop flow; sheet teardown covered separately",
+  );
+  await syntheticPlayer(page);
+  let starts = 0,
+    tokens = 0;
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        tokens++;
+        await route.fulfill({ json: { accessToken: "synthetic-access" } });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        starts++;
+        expect(route.request().postDataJSON()).toEqual({
+          trackKey: String(1).padStart(64, "0"),
+          deviceId: "synthetic-device-1234567890",
+        });
+        await page.evaluate(() => {
+          (window as any).__syntheticPlayer.state.paused = false;
+        });
+        await route.fulfill({
+          json: {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+            positionMs: 60333,
+            durationMs: 181000,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  expect(tokens).toBe(0);
+  await page.clock.install();
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  expect(tokens).toBe(1);
+  expect(starts).toBe(1);
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ⅱ Pause", exact: true }),
+  ).toBeVisible();
+  await page.clock.fastForward(20000);
+  await expect(
+    page.getByRole("button", { name: "▶ Play more", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "▶ Play more", exact: true }).click();
+  await expect(page.getByText("Playing until you pause")).toBeVisible();
+  await page.clock.fastForward(30000);
+  await expect(page.getByText("Playing until you pause")).toBeVisible();
+  expect(starts).toBe(1);
+  await page.getByRole("button", { name: "Ⅱ Pause", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "▶ Play more", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Next →", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.disconnects,
+      ),
+    )
+    .toBe(1);
+  expect(starts).toBe(1);
+});
+test("mobile sheet close disconnects its player and scope upgrade leaves tagging available", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "mobile", "Mobile lifecycle");
+  await syntheticPlayer(page);
+  let legacy = false;
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        await route.fulfill(
+          legacy
+            ? { status: 503, json: { error: "playback_required" } }
+            : { json: { accessToken: "synthetic-access" } },
+        );
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        await page.evaluate(() => {
+          (window as any).__syntheticPlayer.state.paused = false;
+        });
+        await route.fulfill({
+          json: {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+            positionMs: 60333,
+            durationMs: 181000,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
+  await page
+    .getByRole("button", { name: /Synthetic song 1.*Tap to tag/ })
+    .click();
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.connections,
+      ),
+    )
+    .toBe(1);
+  await page
+    .getByRole("button", { name: "Close song sheet", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.disconnects,
+      ),
+    )
+    .toBe(1);
+  legacy = true;
+  await page
+    .getByRole("button", { name: /Synthetic song 1.*Tap to tag/ })
+    .click();
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Enable playback", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Tag current song", { exact: true }).fill("sad");
+  await expect(
+    page.getByLabel("Tag current song", { exact: true }),
+  ).toHaveValue("sad");
+});
+
+test("leaving the sheet cancels pending playback consent and prevents late navigation", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "mobile", "Mobile consent lifecycle");
+  await syntheticPlayer(page);
+  let calls = 0,
+    finished = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        await route.fulfill({
+          status: 503,
+          json: { error: "playback_required" },
+        });
+        return true;
+      }
+      if (path === "/api/playback/enable") {
+        calls++;
+        await gate;
+        await route
+          .fulfill({
+            json: {
+              url: "https://accounts.spotify.com/authorize?state=synthetic",
+            },
+          })
+          .catch(() => {});
+        finished = true;
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
+  await page.locator(".mobile-track").first().click();
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Enable playback", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Connecting Spotify…", exact: true }),
+  ).toBeDisabled();
+  await expect.poll(() => calls).toBe(1);
+  await page
+    .getByRole("button", { name: "Close song sheet", exact: true })
+    .click();
+  release();
+  await expect.poll(() => finished).toBe(true);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(".mobile-cards")).toBeVisible();
+});
+
+test("invalid start timing is rejected before showing playback", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Response boundary");
+  await syntheticPlayer(page);
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        await route.fulfill({ json: { accessToken: "synthetic-access" } });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        await route.fulfill({
+          json: {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+            positionMs: 0,
+            durationMs: 181000,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Try playback again", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Playing a 20-second listen")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.disconnects,
+      ),
+    )
+    .toBe(1);
+});
+
+test("confirming disconnect stops audio before the server reply", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Disconnect initiation");
+  await syntheticPlayer(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let deleting = false;
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        await route.fulfill({ json: { accessToken: "synthetic-access" } });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        await page.evaluate(() => {
+          (window as any).__syntheticPlayer.state.paused = false;
+        });
+        await route.fulfill({
+          json: {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+            positionMs: 60333,
+            durationMs: 181000,
+          },
+        });
+        return true;
+      }
+      if (path === "/api/disconnect") {
+        deleting = true;
+        await gate;
+        await route
+          .fulfill({ status: 503, json: { error: "temporarily_unavailable" } })
+          .catch(() => {});
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  await page.locator(".account-details summary").click();
+  await page
+    .getByRole("button", { name: "Disconnect & delete app data", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete all app data", exact: true })
+    .click();
+  await expect.poll(() => deleting).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.disconnects,
+      ),
+    )
+    .toBe(1);
+  release();
+});

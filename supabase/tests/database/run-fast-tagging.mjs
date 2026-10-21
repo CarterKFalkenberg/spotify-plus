@@ -100,6 +100,7 @@ try {
       "20261011000600_fast_tagging.sql",
       "20261011000800_expire_failed_reconciliation.sql",
       "20261011000900_artwork.sql",
+      "20261011001000_queue_playback.sql",
     ]
   ) {
     await sql(

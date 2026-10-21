@@ -1079,3 +1079,39 @@ Deno.test("playlist description response normalization is shared, single-pass an
   strictEqual(JSON.parse(String(h.calls[3].init.body)).description, canonical);
   strictEqual((await h.client.getPlaylist(PLAYLIST)).description, null);
 });
+
+Deno.test("playback command permits exactly one track and an explicit bounded device, never remote context/transfer", async () => {
+  const valid = {
+    method: "PUT",
+    path: "/me/player/play",
+    query: { device_id: "synthetic-device-1234567890" },
+    body: { uris: [URI], position_ms: 60000 },
+  } as const;
+  for (
+    const input of [
+      { ...valid, query: {} },
+      { ...valid, query: { device_id: "https://synthetic.example" } },
+      { ...valid, body: { context_uri: PLAYLIST_URI, position_ms: 0 } },
+      { ...valid, body: { uris: [URI, URI], position_ms: 0 } },
+      { ...valid, body: { uris: [PLAYLIST_URI], position_ms: 0 } },
+      { ...valid, body: { uris: [URI], position_ms: -1 } },
+      {
+        ...valid,
+        body: { uris: [URI], position_ms: 0, offset: { position: 0 } },
+      },
+      { ...valid, path: "/me/player" },
+      { ...valid, path: "/me/player/pause" },
+    ]
+  ) {
+    const h = harness();
+    await fails(() => h.client.request(input as SpotifyRequest), "guard");
+    deepStrictEqual(h.events, []);
+  }
+  const h = harness([new Response(null, { status: 204 })]);
+  await h.client.startPlayback("synthetic-device-1234567890", URI, 60000);
+  deepStrictEqual(h.events, ["token", "permit", "fetch"]);
+  strictEqual(
+    h.calls[0].url.searchParams.get("device_id"),
+    "synthetic-device-1234567890",
+  );
+});

@@ -8,6 +8,23 @@ insert into app.track_metadata(track_key,spotify_id,title,artists,album,release_
  case when i<3 then 'Synthetic  Album' else 'synthetic album' end,case when i=5 then null else '199'||i end,timestamptz '2026-01-01'+make_interval(days=>i),
  case when i=1 then '11111111-1111-4111-8111-111111111111'::uuid else '22222222-2222-4222-8222-222222222222'::uuid end,
  case when i=1 then now() else null end,case when i=5 then now() else null end from generate_series(1,5) i;
+-- Queue playback resolves only current active owner metadata and exposes no names.
+update app.track_metadata set playable_uri='spotify:track:'||repeat('a',22),duration_ms=180001 where track_key=lpad('1',64,'0');
+update app.track_metadata set playable_uri='spotify:track:'||repeat('a',22),duration_ms=180001 where track_key=lpad('5',64,'0');
+select pg_temp.assert(public.app_playback_track(1,lpad('1',64,'0'))=jsonb_build_object('uri','spotify:track:'||repeat('a',22),'durationMs',180001),'playback returns only active owner playable URI and duration');
+select pg_temp.assert(public.app_playback_track(1,lpad('5',64,'0')) is null,'removed song cannot start playback');
+select pg_temp.assert(public.app_playback_track(1,lpad('2',64,'0')) is null,'unavailable song cannot start playback');
+select pg_temp.assert(public.app_playback_track(1,repeat('f',64)) is null,'unknown song cannot start playback');
+select pg_temp.assert(not has_function_privilege('anon','public.app_playback_track(bigint,text)','execute') and not has_function_privilege('authenticated','public.app_playback_track(bigint,text)','execute'),'no direct public playback RPC access');
+do $$ begin
+ begin perform public.app_playback_track(2,lpad('1',64,'0')); raise exception 'stale playback epoch accepted'; exception when raise_exception then if sqlerrm<>'inactive_epoch' then raise; end if; end;
+ begin perform public.app_playback_track(1,'bad'); raise exception 'invalid playback key accepted'; exception when raise_exception then if sqlerrm<>'invalid_input' then raise; end if; end;
+end $$;
+update app.account set state='reconnect' where singleton;
+do $$ begin
+ begin perform public.app_playback_track(1,lpad('1',64,'0')); raise exception 'reconnect playback accepted'; exception when raise_exception then if sqlerrm<>'inactive_epoch' then raise; end if; end;
+end $$;
+update app.account set state='connected' where singleton;
 update app.track_metadata set artists=artists||jsonb_build_array(jsonb_build_object('id',repeat('c',22),'name','Synthetic collaborator')) where track_key=lpad('1',64,'0');
 insert into app.tags(id,epoch,name,normalized_name) values
  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'Chill','chill'),('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'Chil','chil'),('cccccccc-cccc-4ccc-8ccc-cccccccccccc',1,'Chillout','chillout'),('dddddddd-dddd-4ddd-8ddd-dddddddddddd',1,'Unused','unused');

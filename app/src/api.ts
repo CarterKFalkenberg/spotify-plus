@@ -28,6 +28,9 @@ export class ApiError extends Error {
   }
 }
 const messages: Record<string, string> = {
+  playback_required: "Enable playback to listen here.",
+  track_unavailable: "This song is unavailable for playback.",
+  playback_cooldown: "Spotify is busy. Wait before trying playback again.",
   stale_revision: "Your library changed. Refresh the results and try again.",
   unknown_tag: "A tag in this query no longer exists. Update your selection.",
   initial_sync_incomplete:

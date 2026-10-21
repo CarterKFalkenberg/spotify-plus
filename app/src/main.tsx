@@ -309,7 +309,11 @@ function Home() {
           </>
         )}
       </section>
-      {connected && <Workspace />}
+      {connected && (
+        <Workspace
+          playbackAllowed={!deleting && session?.connection === "connected"}
+        />
+      )}
       {!connected && (
         <div className="connection-notes">
           <div>

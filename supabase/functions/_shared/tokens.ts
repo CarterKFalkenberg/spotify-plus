@@ -1,11 +1,12 @@
 import type { Database } from "./database.ts";
 import { SecretBox } from "./crypto.ts";
-import { SpotifyError } from "./spotify.ts";
+import { PLAYBACK_SCOPES, SpotifyError } from "./spotify.ts";
 import { retryAfter } from "./retry-after.ts";
 
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
+  scopes?: string[];
 }
 interface Claim {
   action: "cached" | "refresh" | "busy" | "reconnect" | "cooldown";
@@ -16,7 +17,6 @@ interface Claim {
 }
 export interface TokenGrant extends TokenPair {
   expiresIn: number;
-  scopes?: string[];
 }
 export async function exchangeToken(
   parameters: URLSearchParams,
@@ -75,6 +75,7 @@ export async function exchangeToken(
     typeof data.access_token !== "string" || !data.access_token ||
     typeof data.expires_in !== "number" || data.expires_in <= 0 ||
     data.expires_in > 86400 || data.token_type !== "Bearer" ||
+    (Object.hasOwn(data, "scope") && typeof data.scope !== "string") ||
     (data.refresh_token !== undefined &&
       (typeof data.refresh_token !== "string" || !data.refresh_token))
   ) {
@@ -91,6 +92,7 @@ export async function exchangeToken(
 }
 // SQL claims serialize workers; a token version prevents duplicate refresh when two reads get 401.
 export class OwnerTokens {
+  private scopes: string[] | undefined;
   private observed: { token: string; version: number } | undefined;
   constructor(
     private readonly db: Database,
@@ -102,6 +104,13 @@ export class OwnerTokens {
   ) {}
   getAccessToken(): Promise<string> {
     return this.obtain(null);
+  }
+  async getPlaybackToken(): Promise<string> {
+    const token = await this.obtain(null);
+    if (!PLAYBACK_SCOPES.every((scope) => this.scopes?.includes(scope))) {
+      throw new SpotifyError("playback_required");
+    }
+    return token;
   }
   refreshAccessToken(rejectedToken: string): Promise<string> {
     return this.obtain(
@@ -150,6 +159,10 @@ export class OwnerTokens {
       }
       throw new SpotifyError("control_unavailable");
     }
+    this.scopes = Array.isArray(pair.scopes) &&
+        pair.scopes.every((s) => typeof s === "string")
+      ? pair.scopes
+      : undefined;
     if (claim.action === "cached") {
       this.observed = { token: pair.accessToken, version: claim.version };
       // A newly constructed provider may be asked to refresh a rejected token. Resolve its version first.
@@ -187,6 +200,9 @@ export class OwnerTokens {
     const nextPair = {
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken || pair.refreshToken,
+      ...(refreshed.scopes || pair.scopes
+        ? { scopes: refreshed.scopes ?? pair.scopes }
+        : {}),
     };
     const accepted = await this.db.rpc<boolean>("app_token_finish", {
       p_epoch: this.epoch,
@@ -199,6 +215,7 @@ export class OwnerTokens {
         .toISOString(),
     });
     if (!accepted) throw new SpotifyError("authentication");
+    this.scopes = nextPair.scopes;
     this.observed = { token: nextPair.accessToken, version: claim.version + 1 };
     return nextPair.accessToken;
   }

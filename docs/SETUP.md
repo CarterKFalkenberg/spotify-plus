@@ -75,7 +75,7 @@ No manual `supabase link` is needed now. The runner passes these values through 
 
 1. Sign in to the [Developer Dashboard](https://developer.spotify.com/dashboard) with your Premium account; accept its terms.
 2. Create `Spotify Song Tagger`. Description: `Personal tags for my Liked Songs and private playlists that expire. Never changes my Liked Songs.`
-3. Choose **Web API**, keep Development Mode, and leave Playback SDK/mobile integrations unchecked.
+3. Choose **Web API**, keep Development Mode. For optional queue listening under the October 21 decision, enable **Web Playback SDK** in the same app; mobile native integrations remain unused.
 4. Register exactly `http://127.0.0.1:3000/auth/spotify/callback` for setup/local use.
 5. Register your exact hosted `appUrl` followed by `/auth/spotify/callback`, e.g. `https://spotify-plus.YOUR-SUBDOMAIN.workers.dev/auth/spotify/callback`. No wildcard, `localhost`, or HTTP hosted callback. [Redirect requirements](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri).
 6. If asked for Website, enter the HTTPS origin. The build publishes `/privacy` and `/terms`; configure policy links when those pages exist. Do not describe the placeholder as an already-published policy.

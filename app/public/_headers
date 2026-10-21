@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://i.scdn.co; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://sdk.scdn.co; style-src 'self'; img-src 'self' https://i.scdn.co; connect-src 'self' https://api.spotify.com https://*.spotify.com wss://*.spotify.com https://*.scdn.co; frame-src https://sdk.scdn.co https://*.spotify.com; media-src blob: https://*.scdn.co; worker-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   Permissions-Policy: camera=(), microphone=(), geolocation=()
