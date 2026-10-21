@@ -114,6 +114,35 @@ select pg_temp.assert((select count(*)=4 from app.track_tags where tag_id='aaaaa
 select pg_temp.assert(not exists(select 1 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'merge undo avoids restoring source to only original aliases');
 rollback to savepoint merge_alias_race;
 
+-- Exact identity follows later complete metadata corrections, without losing tags.
+savepoint metadata_identity_correction;
+insert into results values('beforeSplitAction',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','add','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
+update app.track_metadata set title='Synthetic Café (Live)' where track_key=lpad('2',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))<>app.song_group_key(lpad('2',64,'0')),'later Live correction splits formerly exact aliases');
+select pg_temp.assert((select count(*)=6 from app.track_tags where present and track_key in (lpad('1',64,'0'),lpad('2',64,'0'),lpad('4',64,'0'))),'known identity split retains every replicated annotation');
+select pg_temp.assert((select count(*)=2 from app.query_targets('{"version":1,"root":{"op":"tag","tagId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}}')),'query emits corrected Live version separately');
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='beforeSplitAction'))->>'skippedCount'='2','changed component undo skips every partition');
+select public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('2',64,'0')))));
+select pg_temp.assert((select count(*)=2 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'post-split edits affect only the corrected identity');
+-- Metadata disappearance alone keeps the original opaque relation.
+delete from app.track_metadata where track_key=lpad('4',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_group_key(lpad('4',64,'0'))=app.song_group_key(lpad('1',64,'0')),'missing metadata alone does not split historical aliases');
+insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,added_run_id,playable_uri,duration_ms)
+ values(lpad('4',64,'0'),lpad('4',22,'0'),'Synthetic Café (Live)','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]','Synthetic album',now(),'11111111-1111-4111-8111-111111111111','spotify:track:'||lpad('4',22,'0'),180000);
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_group_key(lpad('4',64,'0'))=app.song_group_key(lpad('2',64,'0')) and app.song_group_key(lpad('4',64,'0'))<>app.song_group_key(lpad('1',64,'0')),'returning metadata resolves missing alias to its current exact identity');
+select pg_temp.assert((select count(*)=4 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'returning exact alias unions retained annotations without loss');
+rollback to savepoint metadata_identity_correction;
+-- A later artist-ID correction is also an exact identity divergence.
+savepoint artist_identity_correction;
+update app.track_metadata set artists='[{"id":"cccccccccccccccccccccc","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('2',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))<>app.song_group_key(lpad('2',64,'0')),'artist ID correction splits same-name artists');
+select pg_temp.assert((select count(*)=3 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'artist correction preserves original annotations');
+rollback to savepoint artist_identity_correction;
+
 -- Annotation-only snapshots retain links after metadata retention, without names.
 delete from app.jobs where id is not null;
 insert into app.jobs(kind,epoch) values('annotation_backup',1);
@@ -125,6 +154,14 @@ select public.app_backup_bucket_start(1,(select (v->>'id')::uuid from results wh
 select public.app_backup_upload_allowed(1,(select (v->>'id')::uuid from results where k='job'),(select (v->>'leaseToken')::uuid from results where k='job'),(select (v#>>'{snapshot,id}')::uuid from results where k='plan'));
 select public.app_backup_commit(1,(select (v->>'id')::uuid from results where k='job'),(select (v->>'leaseToken')::uuid from results where k='job'),(select (v#>>'{snapshot,id}')::uuid from results where k='plan'),(select (v#>>'{snapshot,revision}')::bigint from results where k='plan'),encode(sha256(convert_to('synthetic-key','UTF8')),'hex'));
 insert into results values('snapshot',(select v->'snapshot'||jsonb_build_object('keyLink',encode(sha256(convert_to('synthetic-key','UTF8')),'hex')) from results where k='plan'));
+savepoint known_metadata_restore;
+update app.track_metadata set title='Synthetic Café (Live)' where track_key=lpad('2',64,'0');
+select app.refresh_song_groups(1);
+select public.app_backup_restore(1,repeat('a',64),(select annotation_revision from app.library_state),(select v from results where k='snapshot'));
+select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))<>app.song_group_key(lpad('2',64,'0')),'snapshot links never override current known identity divergence');
+select pg_temp.assert(app.song_group_key(lpad('2',64,'0'))=app.song_group_key(lpad('3',64,'0')),'snapshot restore retains current exact corrected identity grouping');
+rollback to savepoint known_metadata_restore;
+
 delete from app.track_metadata where track_key in (lpad('1',64,'0'),lpad('2',64,'0'),lpad('4',64,'0'));
 delete from app.song_group_members where group_key=app.song_group_key(lpad('1',64,'0'));
 delete from app.song_groups where group_key=lpad('1',64,'0');

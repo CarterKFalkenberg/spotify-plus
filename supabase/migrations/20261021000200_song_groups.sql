@@ -21,6 +21,7 @@ create table app.song_action_groups (
 alter table app.song_groups enable row level security;
 alter table app.song_group_members enable row level security;
 alter table app.song_action_groups enable row level security;
+create index song_action_groups_members on app.song_action_groups using gin(member_keys);
 
 create function app.song_group_key(p_key text) returns text language sql stable set search_path='' as $$
  select coalesce((select group_key from app.song_group_members where track_key=p_key),p_key);
@@ -37,7 +38,7 @@ create function app.song_identity(p_title text,p_artists jsonb) returns text lan
 $$;
 
 create function app.refresh_song_groups(p_epoch bigint) returns void language plpgsql set search_path='' as $$
- declare bucket record; roots text[]; target text; prior text; candidate text; changed boolean:=false; affected integer;
+ declare bucket record; cohort record; retained_identity text; roots text[]; target text; prior text; candidate text; changed boolean:=false; affected integer;
  begin
   perform app.require_owner(p_epoch);
   insert into app.song_groups(group_key,epoch,representative_key)
@@ -46,6 +47,26 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
    on conflict(group_key) do nothing;
   insert into app.song_group_members(track_key,group_key)
    select track_key,track_key from app.annotations where epoch=p_epoch on conflict(track_key) do nothing;
+  -- Fresh complete metadata can correct a formerly equal recording (for example
+  -- adding a Live suffix). Partition only known divergences; metadata-free aliases
+  -- remain with their original opaque component until fresh metadata identifies them.
+  for bucket in select sm.group_key,min(app.song_identity(m.title,m.artists)) first_identity
+   from app.song_group_members sm join app.song_groups g using(group_key)
+   join app.track_metadata m using(track_key) where g.epoch=p_epoch
+   group by sm.group_key having count(distinct app.song_identity(m.title,m.artists))>1 loop
+   select coalesce((select app.song_identity(m.title,m.artists) from app.track_metadata m where m.track_key=bucket.group_key),
+    (select app.song_identity(m.title,m.artists) from app.song_groups g join app.track_metadata m on m.track_key=g.representative_key where g.group_key=bucket.group_key),
+    bucket.first_identity) into retained_identity;
+   for cohort in select app.song_identity(m.title,m.artists) identity,array_agg(sm.track_key order by sm.track_key) keys
+    from app.song_group_members sm join app.track_metadata m using(track_key) where sm.group_key=bucket.group_key
+    and app.song_identity(m.title,m.artists) is not null and app.song_identity(m.title,m.artists)<>retained_identity
+    group by app.song_identity(m.title,m.artists) order by app.song_identity(m.title,m.artists) loop
+    target:=cohort.keys[1];
+    insert into app.song_groups(group_key,epoch,representative_key) values(target,p_epoch,target);
+    update app.song_group_members set group_key=target where track_key=any(cohort.keys);
+    changed:=true;
+   end loop;
+  end loop;
   -- Existing links survive metadata retention and returning tracks. Newly discovered exact
   -- identities union complete components, preserving every original annotation assignment.
   for bucket in select app.song_identity(m.title,m.artists) identity,array_agg(m.track_key) keys
@@ -202,7 +223,7 @@ create or replace function app.app_tag_assignment_undo(p_epoch bigint,p_session_
     union select entry.group_key where not exists(select 1 from app.song_group_members where track_key=entry.group_key)
    ) member;
    if exists(select 1 from app.song_action_groups g where g.action_id=p_action_id
-    and g.group_key=any(current_keys) and g.member_keys is distinct from current_keys)
+    and g.member_keys && current_keys and g.member_keys is distinct from current_keys)
     or exists(select 1 from app.tag_action_edges e left join app.track_tags t on t.track_key=e.track_key and t.tag_id=action.tag_id
      where e.action_id=p_action_id and e.track_key=any(current_keys) and t.version is distinct from e.after_version)
     or exists(select 1 from unnest(current_keys) k where not exists(select 1 from app.tag_action_edges e where e.action_id=p_action_id and e.track_key=k))
@@ -457,8 +478,8 @@ create function public.app_tag_undo(p_epoch bigint,p_session_hash text,p_action_
    or exists(select 1 from app.vocabulary_changes where action_id=p_action_id)) then
    return public.app_tag_undo_before_song_groups(p_epoch,p_session_hash,p_action_id);
   end if;
-  select coalesce(array_agg(distinct app.song_group_key(g.member_keys[1])),'{}'::text[]) into conflicts
-   from app.song_action_groups g where g.action_id=p_action_id and g.member_keys is distinct from
+  select coalesce(array_agg(distinct app.song_group_key(member.key)),'{}'::text[]) into conflicts
+   from app.song_action_groups g cross join lateral unnest(g.member_keys) member(key) where g.action_id=p_action_id and g.member_keys is distinct from
     (select array_agg(sm.track_key order by sm.track_key) from app.song_group_members sm
      where sm.group_key=app.song_group_key(g.member_keys[1]));
   -- Pre-migration vocabulary undo has no component snapshot. Keep its original
