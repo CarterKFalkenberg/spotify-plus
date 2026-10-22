@@ -22,6 +22,7 @@ select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))<>app.song_group_key(l
 select pg_temp.assert(app.song_identity('Same','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Name"}]')<>app.song_identity('Same','[{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Name"}]'),'same artist name with distinct known IDs is not equivalent');
 select pg_temp.assert(app.song_identity('Same','[{"name":"  NAME "}]')=app.song_identity('same','[{"name":"name"}]'),'missing artist IDs use normalized full names');
 select pg_temp.assert(app.song_identity('Same','[]') is null,'unknown artist metadata cannot merge unrelated tracks');
+select pg_temp.assert((select bool_and(normalized_song_identity is not distinct from app.song_identity(title,artists)) from app.track_metadata),'stored identity exactly matches immutable title and artist normalization');
 select pg_temp.assert((select count(*)=4 from app.track_tags where present and track_key in (lpad('1',64,'0'),lpad('2',64,'0'))),'preexisting tags union keeps original identities');
 create temp table results(k text primary key,v jsonb);
 insert into results values('filter','{"membership":"active","untagged":false,"newOnly":false}');
@@ -219,6 +220,7 @@ rollback to savepoint merge_alias_race;
 savepoint metadata_identity_correction;
 insert into results values('beforeSplitAction',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','add','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
 update app.track_metadata set title='Synthetic Café (Live)' where track_key=lpad('2',64,'0');
+select pg_temp.assert((select normalized_song_identity=app.song_identity(title,artists) from app.track_metadata where track_key=lpad('2',64,'0')),'metadata correction automatically refreshes stored identity');
 select app.refresh_song_groups(1);
 select pg_temp.assert(app.song_group_key(lpad('1',64,'0'))<>app.song_group_key(lpad('2',64,'0')),'later Live correction splits formerly exact aliases');
 select pg_temp.assert((select count(*)=6 from app.track_tags where present and track_key in (lpad('1',64,'0'),lpad('2',64,'0'),lpad('4',64,'0'))),'known identity split retains every replicated annotation');

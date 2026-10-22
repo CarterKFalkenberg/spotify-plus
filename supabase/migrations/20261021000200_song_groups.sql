@@ -37,6 +37,12 @@ create function app.song_identity(p_title text,p_artists jsonb) returns text lan
  from jsonb_array_elements(p_artists) a) artists))::text else null end;
 $$;
 
+-- Identity is derived only from the retained metadata row and expires with it.
+-- Persisting this immutable normalization avoids recomputing Unicode/title/artist
+-- identity across the whole library for every bounded source page reconciliation.
+alter table app.track_metadata add column normalized_song_identity text
+ generated always as (app.song_identity(title,artists)) stored;
+
 create function app.refresh_song_groups(p_epoch bigint) returns void language plpgsql set search_path='' as $$
  declare bucket record; cohort record; retained_identity text; roots text[]; target text; prior text; candidate text; changed boolean:=false; affected integer;
  begin
@@ -50,17 +56,17 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
   -- Fresh complete metadata can correct a formerly equal recording (for example
   -- adding a Live suffix). Partition only known divergences; metadata-free aliases
   -- remain with their original opaque component until fresh metadata identifies them.
-  for bucket in select sm.group_key,min(app.song_identity(m.title,m.artists)) first_identity
+  for bucket in select sm.group_key,min(m.normalized_song_identity) first_identity
    from app.song_group_members sm join app.song_groups g using(group_key)
    join app.track_metadata m using(track_key) where g.epoch=p_epoch
-   group by sm.group_key having count(distinct app.song_identity(m.title,m.artists))>1 loop
-   select coalesce((select app.song_identity(m.title,m.artists) from app.track_metadata m where m.track_key=bucket.group_key),
-    (select app.song_identity(m.title,m.artists) from app.song_groups g join app.track_metadata m on m.track_key=g.representative_key where g.group_key=bucket.group_key),
+   group by sm.group_key having count(distinct m.normalized_song_identity)>1 loop
+   select coalesce((select m.normalized_song_identity from app.track_metadata m where m.track_key=bucket.group_key),
+    (select m.normalized_song_identity from app.song_groups g join app.track_metadata m on m.track_key=g.representative_key where g.group_key=bucket.group_key),
     bucket.first_identity) into retained_identity;
-   for cohort in select app.song_identity(m.title,m.artists) identity,array_agg(sm.track_key order by sm.track_key) keys
+   for cohort in select m.normalized_song_identity identity,array_agg(sm.track_key order by sm.track_key) keys
     from app.song_group_members sm join app.track_metadata m using(track_key) where sm.group_key=bucket.group_key
-    and app.song_identity(m.title,m.artists) is not null and app.song_identity(m.title,m.artists)<>retained_identity
-    group by app.song_identity(m.title,m.artists) order by app.song_identity(m.title,m.artists) loop
+    and m.normalized_song_identity is not null and m.normalized_song_identity<>retained_identity
+    group by m.normalized_song_identity order by m.normalized_song_identity loop
     target:=cohort.keys[1];
     insert into app.song_groups(group_key,epoch,representative_key) values(target,p_epoch,target);
     update app.song_group_members set group_key=target where track_key=any(cohort.keys);
@@ -69,9 +75,9 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
   end loop;
   -- Existing links survive metadata retention and returning tracks. Newly discovered exact
   -- identities union complete components, preserving every original annotation assignment.
-  for bucket in select app.song_identity(m.title,m.artists) identity,array_agg(m.track_key) keys
+  for bucket in select m.normalized_song_identity identity,array_agg(m.track_key) keys
    from app.track_metadata m join app.annotations a using(track_key) join app.song_group_members sm using(track_key) where a.epoch=p_epoch
-   group by app.song_identity(m.title,m.artists) having count(distinct sm.group_key)>1 and app.song_identity(m.title,m.artists) is not null loop
+   group by m.normalized_song_identity having count(distinct sm.group_key)>1 and m.normalized_song_identity is not null loop
    select array_agg(distinct group_key order by group_key) into roots from app.song_group_members where track_key=any(bucket.keys);
    if cardinality(roots)>1 then
     select group_key into target from app.song_groups where group_key=any(roots) order by created_at,group_key limit 1;
