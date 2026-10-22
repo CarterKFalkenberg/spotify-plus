@@ -89,6 +89,7 @@ export function Queue({
     (t) => t.trackKey === identities.current.get(order[index] ?? ""),
   );
   const hasCurrent = !!current;
+  const showQueueDialog = hasCurrent || (mobile && sheet && order.length > 0);
   const [actions, setActions] = useState<
     {
       id: string;
@@ -110,7 +111,7 @@ export function Queue({
   }, [active]);
   useEffect(() => {
     const element = sheetElement.current;
-    if (!element || !hasCurrent || !active) return;
+    if (!element || !showQueueDialog || !active) return;
     const modal = mobile && sheet;
     const oldOverflow = document.body.style.overflow;
     if (modal) {
@@ -124,10 +125,10 @@ export function Queue({
         originatingCard.current?.focus();
       }
     };
-  }, [sheet, mobile, hasCurrent, active]);
+  }, [sheet, mobile, showQueueDialog, active]);
   useEffect(() => {
-    if (!hasCurrent) setSheet(false);
-  }, [hasCurrent]);
+    if (!order.length) setSheet(false);
+  }, [order.length]);
   const syncedRevision = useRef<LibraryStatusDTO["revision"] | null>(null);
   const [retry, setRetry] = useState(0);
   const helpDialog = useRef<HTMLDialogElement>(null);
@@ -297,12 +298,14 @@ export function Queue({
   useEffect(() => {
     if (!active || !initialized.current || busy || !order.length) return;
     const nearby = order.slice(Math.max(0, index - 10), index + 41);
+    // Unknown status cannot prove cached metadata stale. Keep interaction
+    // fail-closed above, but wait for authoritative status before revalidation.
     const stale = nearby.filter((key) => {
       const revision = hydrated.current.get(key);
       return (
         revision &&
-        (!status ||
-          BigInt(revision.library) < BigInt(status.revision.library) ||
+        status &&
+        (BigInt(revision.library) < BigInt(status.revision.library) ||
           BigInt(revision.annotations) < BigInt(status.revision.annotations))
       );
     });
@@ -717,7 +720,7 @@ export function Queue({
           );
         })}
       </div>
-      {current && (
+      {showQueueDialog && (
         <dialog
           className={`queue-card ${sheet ? "sheet-open" : ""}`}
           ref={sheetElement}
@@ -750,211 +753,236 @@ export function Queue({
           >
             Close song sheet
           </button>
-          {error && sheet && (
-            <div role="alert" className="notice">
-              {error}{" "}
-              <button onClick={() => setRetry((v) => v + 1)}>
-                Refresh queue
-              </button>
-            </div>
-          )}
-          <div className="queue-identity">
-            <TrackSummary track={current} link={false} />
-            <p className="queue-details">
-              {current.metadata?.releaseDate?.slice(0, 4) ?? "Year unavailable"}{" "}
-              ·{" "}
-              {current.metadata?.durationMs === null
-                ? "Duration unavailable"
-                : `${Math.floor((current.metadata?.durationMs ?? 0) / 60000)}:${String(Math.floor(((current.metadata?.durationMs ?? 0) % 60000) / 1000)).padStart(2, "0")}`}{" "}
-              · Added{" "}
-              {current.metadata
-                ? new Date(trackAddedAt(current)!).toLocaleDateString()
-                : ""}
-            </p>
-            <QueuePlayback
-              key={current.trackKey}
-              trackKey={current.trackKey}
-              available={
-                !!current.metadata?.playableUri && !!current.metadata.durationMs
-              }
-              active={
-                active &&
-                playbackAllowed &&
-                !eligibilityPending &&
-                (!mobile || sheet)
-              }
-            />
-            {current.metadata?.spotifyUrl && (
-              <a
-                className="queue-spotify"
-                href={current.metadata.spotifyUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open in Spotify ↗
-              </a>
-            )}
-          </div>
-          <div className="tagging-desk">
-            <div className="current-tags-heading">
-              Current tags <span>Saved as you tag</span>
-            </div>
-            <div className="chips current-tags">
-              {known.length === 0 && <span className="muted">No tags yet</span>}
-              {known.map((t) => (
-                <button
-                  className="chip"
-                  key={t.id}
-                  disabled={busy || eligibilityPending}
-                  onClick={() => void mutate(t, "remove").catch(() => {})}
-                  aria-label={`Remove ${t.name} from current song`}
-                >
-                  {t.name} ×
-                </button>
-              ))}
-            </div>
-            <TagPicker
-              label="Tag current song"
-              showEmptySuggestions={false}
-              autoFocus={active && !matchMedia("(max-width:640px)").matches}
-              refresh={refresh}
-              disabled={busy || eligibilityPending}
-              onCreate={mutate}
-              onChoose={mutate}
-            />
-            <div className="quick-tags-heading">
-              <strong>
-                Quick tags{" "}
-                <small className="desktop-bulk">
-                  Press 1–9 on an empty input
-                </small>
-              </strong>
-              <button
-                className="compact desktop-bulk"
-                aria-expanded={editingSlots}
-                onClick={() => {
-                  setEditingSlots((v) => !v);
-                  setPinSlot(null);
-                }}
-              >
-                {editingSlots ? "Done editing quick tags" : "Edit quick tags"}
-              </button>
-            </div>
-            <div className="quick-slots" aria-label="Quick tags">
-              {slots.map((t, i) => (
-                <div key={i} className={!t ? "empty-slot" : undefined}>
-                  <button
-                    className="chip"
-                    disabled={!t || busy || eligibilityPending}
-                    onClick={() => t && void mutate(t).catch(() => {})}
-                  >
-                    <kbd>{i + 1}</kbd> {t?.name ?? "Empty slot"}
+          {current ? (
+            <>
+              {error && sheet && (
+                <div role="alert" className="notice">
+                  {error}{" "}
+                  <button onClick={() => setRetry((v) => v + 1)}>
+                    Refresh queue
                   </button>
-                  {editingSlots && (
+                </div>
+              )}
+              <div className="queue-identity">
+                <TrackSummary track={current} link={false} />
+                <p className="queue-details">
+                  {current.metadata?.releaseDate?.slice(0, 4) ??
+                    "Year unavailable"}{" "}
+                  ·{" "}
+                  {current.metadata?.durationMs === null
+                    ? "Duration unavailable"
+                    : `${Math.floor((current.metadata?.durationMs ?? 0) / 60000)}:${String(Math.floor(((current.metadata?.durationMs ?? 0) % 60000) / 1000)).padStart(2, "0")}`}{" "}
+                  · Added{" "}
+                  {current.metadata
+                    ? new Date(trackAddedAt(current)!).toLocaleDateString()
+                    : ""}
+                </p>
+                <QueuePlayback
+                  key={current.trackKey}
+                  trackKey={current.trackKey}
+                  available={
+                    !!current.metadata?.playableUri &&
+                    !!current.metadata.durationMs
+                  }
+                  active={
+                    active &&
+                    playbackAllowed &&
+                    !eligibilityPending &&
+                    (!mobile || sheet)
+                  }
+                />
+                {current.metadata?.spotifyUrl && (
+                  <a
+                    className="queue-spotify"
+                    href={current.metadata.spotifyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in Spotify ↗
+                  </a>
+                )}
+              </div>
+              <div className="tagging-desk">
+                <div className="current-tags-heading">
+                  Current tags <span>Saved as you tag</span>
+                </div>
+                <div className="chips current-tags">
+                  {known.length === 0 && (
+                    <span className="muted">No tags yet</span>
+                  )}
+                  {known.map((t) => (
                     <button
-                      className="compact desktop-bulk"
-                      aria-label={`Set or pin slot ${i + 1}`}
-                      onClick={() => setPinSlot(i)}
+                      className="chip"
+                      key={t.id}
+                      disabled={busy || eligibilityPending}
+                      onClick={() => void mutate(t, "remove").catch(() => {})}
+                      aria-label={`Remove ${t.name} from current song`}
                     >
-                      {" "}
-                      {pinned[i] ? "Pinned" : "Pin"}
+                      {t.name} ×
+                    </button>
+                  ))}
+                </div>
+                <TagPicker
+                  label="Tag current song"
+                  showEmptySuggestions={false}
+                  autoFocus={active && !matchMedia("(max-width:640px)").matches}
+                  refresh={refresh}
+                  disabled={busy || eligibilityPending}
+                  onCreate={mutate}
+                  onChoose={mutate}
+                />
+                <div className="quick-tags-heading">
+                  <strong>
+                    Quick tags{" "}
+                    <small className="desktop-bulk">
+                      Press 1–9 on an empty input
+                    </small>
+                  </strong>
+                  <button
+                    className="compact desktop-bulk"
+                    aria-expanded={editingSlots}
+                    onClick={() => {
+                      setEditingSlots((v) => !v);
+                      setPinSlot(null);
+                    }}
+                  >
+                    {editingSlots
+                      ? "Done editing quick tags"
+                      : "Edit quick tags"}
+                  </button>
+                </div>
+                <div className="quick-slots" aria-label="Quick tags">
+                  {slots.map((t, i) => (
+                    <div key={i} className={!t ? "empty-slot" : undefined}>
+                      <button
+                        className="chip"
+                        disabled={!t || busy || eligibilityPending}
+                        onClick={() => t && void mutate(t).catch(() => {})}
+                      >
+                        <kbd>{i + 1}</kbd> {t?.name ?? "Empty slot"}
+                      </button>
+                      {editingSlots && (
+                        <button
+                          className="compact desktop-bulk"
+                          aria-label={`Set or pin slot ${i + 1}`}
+                          onClick={() => setPinSlot(i)}
+                        >
+                          {" "}
+                          {pinned[i] ? "Pinned" : "Pin"}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {pinSlot !== null && (
+                  <div className="notice">
+                    <TagPicker
+                      label={`Choose tag for slot ${pinSlot + 1}`}
+                      onChoose={(t) => {
+                        setPinned((old) => ({ ...old, [pinSlot]: t }));
+                        setPinSlot(null);
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        setPinned((old) => {
+                          const next = { ...old };
+                          delete next[pinSlot];
+                          return next;
+                        });
+                        setPinSlot(null);
+                      }}
+                    >
+                      Unpin slot
+                    </button>
+                    <button onClick={() => setPinSlot(null)}>Cancel</button>
+                  </div>
+                )}
+              </div>
+              <div className="queue-actions">
+                <button
+                  className="queue-previous"
+                  disabled={index === 0 || busy}
+                  onClick={() => advance(-1)}
+                >
+                  ← Previous
+                </button>
+                <button
+                  className="primary queue-next"
+                  disabled={busy || index === order.length - 1}
+                  onClick={() => advance(1)}
+                >
+                  Next →
+                </button>
+                <button
+                  className="queue-skip"
+                  disabled={busy || eligibilityPending}
+                  onClick={skip}
+                >
+                  Skip · requeue
+                </button>
+              </div>
+              <details className="queue-tool-disclosure">
+                <summary>Song actions &amp; shortcuts</summary>
+                <div className="queue-tools">
+                  {current.metadata?.acknowledgedAt === null && (
+                    <button
+                      disabled={busy || eligibilityPending}
+                      onClick={() => void markReviewed()}
+                    >
+                      Mark arrival reviewed
                     </button>
                   )}
-                </div>
-              ))}
-            </div>
-            {pinSlot !== null && (
-              <div className="notice">
-                <TagPicker
-                  label={`Choose tag for slot ${pinSlot + 1}`}
-                  onChoose={(t) => {
-                    setPinned((old) => ({ ...old, [pinSlot]: t }));
-                    setPinSlot(null);
-                  }}
-                />
-                <button
-                  onClick={() => {
-                    setPinned((old) => {
-                      const next = { ...old };
-                      delete next[pinSlot];
-                      return next;
-                    });
-                    setPinSlot(null);
-                  }}
-                >
-                  Unpin slot
-                </button>
-                <button onClick={() => setPinSlot(null)}>Cancel</button>
-              </div>
-            )}
-          </div>
-          <div className="queue-actions">
-            <button
-              className="queue-previous"
-              disabled={index === 0 || busy}
-              onClick={() => advance(-1)}
-            >
-              ← Previous
-            </button>
-            <button
-              className="primary queue-next"
-              disabled={busy || index === order.length - 1}
-              onClick={() => advance(1)}
-            >
-              Next →
-            </button>
-            <button
-              className="queue-skip"
-              disabled={busy || eligibilityPending}
-              onClick={skip}
-            >
-              Skip · requeue
-            </button>
-          </div>
-          <details className="queue-tool-disclosure">
-            <summary>Song actions &amp; shortcuts</summary>
-            <div className="queue-tools">
-              {current.metadata?.acknowledgedAt === null && (
-                <button
-                  disabled={busy || eligibilityPending}
-                  onClick={() => void markReviewed()}
-                >
-                  Mark arrival reviewed
-                </button>
-              )}
 
-              <button
-                className="desktop-bulk"
-                disabled={!current.metadata?.artists[0]?.id}
-                onClick={() =>
-                  current.metadata?.artists[0]?.id &&
-                  onArtist(current.metadata.artists[0].id)
-                }
-              >
-                Browse this artist
-              </button>
-              <button
-                className="desktop-bulk"
-                disabled={busy || eligibilityPending}
-                onClick={() => void removeLast().catch(() => {})}
-              >
-                Remove last-applied tag
-              </button>
-              <button className="desktop-bulk" onClick={() => setHelp(true)}>
-                Hotkey help
-              </button>
-            </div>
-          </details>
-          {!!actions.length && (
-            <div role="status" className="queue-feedback">
-              {savedFeedback}
-              <button
-                disabled={busy || eligibilityPending}
-                onClick={() => void undo()}
-              >
-                Undo last action
-              </button>
-            </div>
+                  <button
+                    className="desktop-bulk"
+                    disabled={!current.metadata?.artists[0]?.id}
+                    onClick={() =>
+                      current.metadata?.artists[0]?.id &&
+                      onArtist(current.metadata.artists[0].id)
+                    }
+                  >
+                    Browse this artist
+                  </button>
+                  <button
+                    className="desktop-bulk"
+                    disabled={busy || eligibilityPending}
+                    onClick={() => void removeLast().catch(() => {})}
+                  >
+                    Remove last-applied tag
+                  </button>
+                  <button
+                    className="desktop-bulk"
+                    onClick={() => setHelp(true)}
+                  >
+                    Hotkey help
+                  </button>
+                </div>
+              </details>
+              {!!actions.length && (
+                <div role="status" className="queue-feedback">
+                  {savedFeedback}
+                  <button
+                    disabled={busy || eligibilityPending}
+                    onClick={() => void undo()}
+                  >
+                    Undo last action
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p role="status">Loading next song…</p>
+              {error && (
+                <div role="alert" className="notice">
+                  {error}{" "}
+                  <button onClick={() => setRetry((v) => v + 1)}>
+                    Refresh queue
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </dialog>
       )}

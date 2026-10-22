@@ -194,7 +194,10 @@ visited metadata and order. The client hydrates forty at a time near the current
 position, stops prefetch once enough are ready, and renders at most forty-one
 mobile cards around the current position. Status changes refresh at most the
 nearby loaded window; membership uncertainty or failed eligibility revalidation
-keeps current playback and tagging disabled until verified. Cancellation and
+keeps current playback and tagging disabled until verified. Unknown status pauses
+revalidation rather than repeatedly fetching successful batches. On mobile, a
+missing next DTO keeps an accessible loading sheet open; explicit Close while
+loading stays closed when metadata arrives. Cancellation and
 queue generation checks prevent obsolete requests from modifying a replacement
 queue or restarting work while inactive.
 

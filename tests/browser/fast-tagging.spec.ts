@@ -1352,7 +1352,9 @@ test("mobile native song modal traps background interaction, restores origin, an
   await expect(
     page.getByLabel("Tag current song", { exact: true }),
   ).toHaveValue("unfinished");
-  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+  await expect
+    .poll(() => page.evaluate(() => document.body.style.overflow))
+    .toBe("");
   await page.setViewportSize({ width: 390, height: 844 });
   await origin.click();
   await expect(
@@ -1362,7 +1364,9 @@ test("mobile native song modal traps background interaction, restores origin, an
     await page.screenshot({ path: ".local/ux/mobile-song-sheet.png" });
   await dialog.getByRole("button", { name: "Close song sheet" }).click();
   await expect(origin).toBeFocused();
-  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+  await expect
+    .poll(() => page.evaluate(() => document.body.style.overflow))
+    .toBe("");
 });
 
 test("quick-tag failures stay reachable inside the mobile modal and removing its last song unlocks scrolling", async ({
@@ -3141,3 +3145,149 @@ test("a failed membership refresh keeps the current song fail-closed until queue
   await expect(input).toBeEnabled();
   await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
 });
+
+test("unknown library status keeps the queue fail-closed without repeating successful metadata batches, then recovers", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop status recovery");
+  let statusAvailable = false;
+  const tracks = Array.from({ length: 100 }, (_, n) => makeTrack(n + 1));
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/status" && !statusAvailable) {
+        await route.fulfill({ status: 503, json: { error: "unavailable" } });
+        return true;
+      }
+      if (path === "/api/library/queue") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "1" },
+            trackKeys: tracks.map((t) => t.trackKey),
+            entries: tracks
+              .slice(0, 40)
+              .map((track) => ({ key: track.trackKey, track })),
+          },
+        });
+        return true;
+      }
+      if (path === "/api/library/queue-tracks") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "1" },
+            entries: tracks
+              .filter((t) => body.trackKeys.includes(t.trackKey))
+              .map((track) => ({ key: track.trackKey, track })),
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await expect(input).toBeDisabled();
+  await expect(page.locator(".listen-play")).toBeDisabled();
+  await expect
+    .poll(
+      () => calls.filter((c) => c.path === "/api/library/queue-tracks").length,
+    )
+    .toBe(1);
+  // Allow successive successful hydration callbacks to expose an accidental loop.
+  await page.waitForTimeout(250);
+  expect(
+    calls.filter((c) => c.path === "/api/library/queue-tracks"),
+  ).toHaveLength(1);
+  expect(calls.filter((c) => c.path === "/api/tag-actions")).toHaveLength(0);
+  statusAvailable = true;
+  await page.clock.install();
+  await page.clock.fastForward(1500);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(input).toBeEnabled();
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 1");
+  expect(
+    calls.filter((c) => c.path === "/api/library/queue-tracks"),
+  ).toHaveLength(1);
+});
+
+for (const navigation of ["Next →", "Skip · requeue"] as const)
+  for (const closeDuringLoading of [false, true])
+    test(`mobile ${navigation} preserves sheet intent across delayed metadata (close=${closeDuringLoading})`, async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(!isMobile, "Mobile delayed sheet boundary");
+      const tracks = [makeTrack(1), makeTrack(2), makeTrack(3)];
+      const releases: (() => void)[] = [];
+      await mock(page, {
+        intercept: async (route, path, body) => {
+          if (path === "/api/library/queue") {
+            await route.fulfill({
+              json: {
+                revision: { library: "1", annotations: "1" },
+                trackKeys: tracks.map((t) => t.trackKey),
+                entries: [{ key: tracks[0]!.trackKey, track: tracks[0] }],
+              },
+            });
+            return true;
+          }
+          if (path === "/api/library/queue-tracks") {
+            await new Promise<void>((resolve) => releases.push(resolve));
+            try {
+              await route.fulfill({
+                json: {
+                  revision: { library: "1", annotations: "1" },
+                  entries: tracks
+                    .filter((t) => body.trackKeys.includes(t.trackKey))
+                    .map((track) => ({ key: track.trackKey, track })),
+                },
+              });
+            } catch {
+              /* obsolete navigation request aborted */
+            }
+            return true;
+          }
+          return false;
+        },
+      });
+      await page.goto("/");
+      await page
+        .getByRole("button", { name: "New arrivals 2", exact: true })
+        .click();
+      await page.locator(".mobile-track").first().click();
+      const sheet = page.getByRole("dialog", { name: "Tag song", exact: true });
+      await sheet
+        .getByRole("button", { name: navigation, exact: true })
+        .click();
+      await expect(sheet.getByRole("status")).toHaveText("Loading next song…");
+      expect(await page.evaluate(() => document.body.style.overflow)).toBe(
+        "hidden",
+      );
+      await expect(
+        sheet.getByLabel("Tag current song", { exact: true }),
+      ).toHaveCount(0);
+      await expect(sheet.locator(".listen-play")).toHaveCount(0);
+      await expect.poll(() => releases.length).toBeGreaterThanOrEqual(2);
+      if (closeDuringLoading) {
+        await sheet
+          .getByRole("button", { name: "Close song sheet", exact: true })
+          .click();
+        await expect(sheet).not.toBeVisible();
+      }
+      for (const release of releases) release();
+      if (closeDuringLoading) {
+        await expect(page.locator(".mobile-track")).toHaveCount(3);
+        await expect(sheet).not.toBeVisible();
+        expect(await page.evaluate(() => document.body.style.overflow)).toBe(
+          "",
+        );
+      } else {
+        await expect(sheet).toBeVisible();
+        await expect(sheet).toContainText("Synthetic song 2");
+        await expect(
+          sheet.getByLabel("Tag current song", { exact: true }),
+        ).toBeEnabled();
+      }
+    });
