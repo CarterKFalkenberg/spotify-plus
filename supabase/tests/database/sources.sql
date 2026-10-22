@@ -69,6 +69,39 @@ select pg_temp.assert((select removed_at is null from app.track_metadata where t
 select pg_temp.assert(not exists(select 1 from app.source_memberships where source_id='liked'),'completed empty liked reconciles liked only');
 select pg_temp.assert((select s.latest_completed_run_id=l.completed_run_id from app.sources s cross join app.library_state l where s.id='liked' and l.singleton),'liked verification publishes the validated run cohort');
 
+-- A provisional Liked Songs pass must preserve the verified playlist arrival
+-- cohort of a song already active there, including after an invalidated pass.
+savepoint cross_source_liked_arrival;
+update app.track_metadata set added_run_id='99999999-9999-4999-8999-999999999999',acknowledged_at=now(),liked_at='2025-01-01' where track_key=repeat('2',64);
+update app.jobs set state='done' where epoch=1 and kind='library_sync';
+select app.start_liked_walk(1);
+update app.jobs set state='running',lease_token='33333333-3333-4333-8333-333333333333',lease_until=now()+interval '1 hour' where epoch=1 and kind='library_sync' and state='queued';
+do $$ declare r app.sync_runs; j app.jobs; row_data jsonb; original_liked uuid; filter jsonb:='{"membership":"active","search":"","untagged":false,"newOnly":false,"latestSyncOnly":true}'; begin
+ select latest_completed_run_id into original_liked from app.sources where epoch=1 and id='liked';
+ select jsonb_build_array(jsonb_build_object('trackKey',m.track_key,'spotifyId',m.spotify_id,'title',m.title,'artists',m.artists,'album',m.album,'durationMs',1000,'explicit',false,'likedAt','2026-04-04T00:00:00Z')) into row_data from app.track_metadata m where m.track_key=repeat('2',64);
+ select * into r from app.sync_runs where id=(select latest_run_id from app.library_state where singleton);
+ select * into j from app.jobs where id=r.job_id;
+ perform public.app_library_page_commit(1,j.id,j.lease_token,r.pass,0,2,1,1,row_data,0,'{}');
+ perform pg_temp.assert((select acknowledged_at is not null and added_run_id='99999999-9999-4999-8999-999999999999' from app.track_metadata where track_key=repeat('2',64)),'incomplete liked pass preserves acknowledged verified playlist arrival');
+ if to_regprocedure('app.song_group_key(text)') is not null then
+  perform pg_temp.assert(exists(select 1 from app.filter_keys(filter) where track_key=repeat('2',64)),'verified playlist arrival remains latest during provisional liked pass');
+ end if;
+ perform public.app_library_page_commit(1,j.id,j.lease_token,r.pass,1,2,1,null,'[]',1,'{}');
+ perform pg_temp.assert((select latest_completed_run_id is not distinct from original_liked from app.sources where epoch=1 and id='liked') and (select added_run_id='99999999-9999-4999-8999-999999999999' from app.track_metadata where track_key=repeat('2',64)),'invalid liked walk cannot erase prior verified source cohort');
+ if to_regprocedure('app.song_group_key(text)') is not null then
+  perform pg_temp.assert(exists(select 1 from app.filter_keys(filter) where track_key=repeat('2',64)),'verified playlist arrival remains latest after failed liked pass');
+ end if;
+ for n in 1..2 loop
+  select * into r from app.sync_runs where job_id=j.id;
+  perform public.app_library_page_commit(1,j.id,j.lease_token,r.pass,0,1,1,null,row_data,0,'{}');
+ end loop;
+ perform pg_temp.assert((select latest_completed_run_id=r.id from app.sources where epoch=1 and id='liked') and (select acknowledged_at is not null and added_run_id='99999999-9999-4999-8999-999999999999' from app.track_metadata where track_key=repeat('2',64)),'verified liked membership preserves existing shared-pool arrival identity');
+ if to_regprocedure('app.song_group_key(text)') is not null then
+  perform pg_temp.assert(exists(select 1 from app.filter_keys(filter) where track_key=repeat('2',64)),'completed liked pass keeps source-A verified arrival while A remains enabled');
+ end if;
+end $$;
+rollback to cross_source_liked_arrival;
+
 -- A rescan whose playlist date differs from the preserved liked date does not
 -- turn an acknowledged overlapping song into a false arrival.
 insert into app.source_memberships values(1,'liked',repeat('1',64),'2026-01-01'),(1,repeat('p',22),repeat('1',64),'2026-02-02') on conflict(epoch,source_id,track_key) do update set added_at=excluded.added_at;
