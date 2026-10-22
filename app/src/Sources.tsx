@@ -325,11 +325,7 @@ export function Sources({
                     type="checkbox"
                     role="switch"
                     checked={source.enabled}
-                    disabled={
-                      busy ||
-                      search !== query ||
-                      (!source.available && !source.enabled)
-                    }
+                    disabled={busy || search !== query}
                     aria-label={`Include ${source.name}`}
                     onChange={(e) => void select(e.target.checked, source.id)}
                   />

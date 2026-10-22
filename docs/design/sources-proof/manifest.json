@@ -4,7 +4,7 @@
   "realSpotifyMetadata": false,
   "comparison": "Historical navigation baseline and new Sources capability; different scenes and fictional datasets, not matched same-view comparisons.",
   "afterSourceHead": null,
-  "afterAppTree": "ddaeacaf78802ca6065abdc2ed50f4ec26d22fe2",
+  "afterAppTree": "bd1f3d81e4b6675bfe583d9f51037214dddf7acb",
   "before": [
     {
       "file": "before-desktop-light.png",
@@ -81,7 +81,7 @@
       },
       "sha256": "01806c1ca606711c5a59eed067c056394404b8c93e6b38e1efafa662a1904cca",
       "fullPage": true,
-      "capturedAt": "2026-10-21T23:58:17.673122+00:00"
+      "capturedAt": "2026-10-22T00:10:45.907688+00:00"
     },
     {
       "file": "after-mobile-light.png",
@@ -96,7 +96,7 @@
       },
       "sha256": "c2a1bf254db8de8b64b804404fd454b7c0793970f7718b16d8f045669c868b28",
       "fullPage": true,
-      "capturedAt": "2026-10-21T23:58:19.761409+00:00"
+      "capturedAt": "2026-10-22T00:10:50.733509+00:00"
     },
     {
       "file": "after-desktop-dark.png",
@@ -111,7 +111,7 @@
       },
       "sha256": "914903acb107facb33e2abc373a60e1480359fd8237c7558cac4d700f5c95cb8",
       "fullPage": true,
-      "capturedAt": "2026-10-21T23:58:17.673067+00:00"
+      "capturedAt": "2026-10-22T00:10:46.712812+00:00"
     },
     {
       "file": "after-mobile-dark.png",
@@ -126,14 +126,14 @@
       },
       "sha256": "d13fb465fa3a4e03472f2e2573c7b90b1e71e7e3609b0e92ccd708236474723d",
       "fullPage": true,
-      "capturedAt": "2026-10-21T23:58:19.708680+00:00"
+      "capturedAt": "2026-10-22T00:10:52.269247+00:00"
     }
   ],
   "captureHarness": "tests/browser/sources.spec.ts",
-  "captureHarnessSha256": "a96e479444baceb92a47b52f62cbd42d9eefc8c4d2393c25913e2d8f342407bf",
-  "recordedAt": "2026-10-21T23:58:31.324339+00:00",
+  "captureHarnessSha256": "da79650a4fc1982aa0ac6e1618b389c35b5f695b9ce43258e4f0e19165554a05",
+  "recordedAt": "2026-10-22T00:11:13.278070+00:00",
   "afterSourceBaseHead": "c91ac94dd026c479c55aa2ccab972195ed9ed92d",
-  "afterSourceState": "Stable worktree app snapshot including deduplicated count display and annotation-only playback preservation; identified by afterAppTree.",
+  "afterSourceState": "Stable worktree app snapshot including deduplicated counts, annotation-only playback preservation and explicit unavailable-source recovery; identified by afterAppTree.",
   "afterAppFilesSha256": {
     "app/index.html": "8a0a82ede368956ad080e352456ee0387abd81694884ff73be28ffe008c2ae06",
     "app/public/_headers": "3a7a2ede6c62d147e7aaa6b66299a877c31685df6de65f3609c9b20726c486c8",
@@ -149,7 +149,7 @@
     "app/src/Playlists.tsx": "733dedcd32a3dde6db5c6ac0f9d1b4dbca0e1efc81c4860c121a90b87c4b0aa7",
     "app/src/Queue.tsx": "c6abddab942ba4552b27e06220572e1052937c5aef2bfbb5ee20b10ca0b28ef5",
     "app/src/QueuePlayback.tsx": "d2c6e96733130cb2784d209fe33fbc05207e1b8d163a59e4a62d8f346c30c795",
-    "app/src/Sources.tsx": "0b53d892c1752b6e955327dc81110d7833fea4c651e9048fca339609535ccf82",
+    "app/src/Sources.tsx": "76bc5444cd44d168045b4cb524708bf0e6ca1c316c074234bfe3a25d0eb6d10e",
     "app/src/TagPicker.tsx": "3229bf6f07244898c85c9c33cc5dd2f769d307e2040318c440024f66109f17d8",
     "app/src/Theme.tsx": "7b804a9fdfecb98b75ffd4515cc6c193c1d37bf4516735f0569be9cce0e935cc",
     "app/src/Vocabulary.tsx": "623e0d9eea734d4d4ce54902db85be4b8d235667fa8ac91f6dcaf570b92f6c44",
