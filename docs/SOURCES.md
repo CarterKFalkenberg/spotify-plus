@@ -10,13 +10,13 @@ The sidebar and mobile navigation open a searchable bounded Sources list with id
 
 A song stays active while it belongs to any enabled source. Removing it from one playlist or unliking it removes only that membership after a verified sync. Losing the last enabled membership removes it from active browsing, tagging and future query results while retaining tags. Re-enabling or rediscovering it restores assignments. Incomplete scans and transient access failures cannot prove removal. Metadata retention and disconnect purge still apply.
 
-Newest added uses the latest known Spotify addition date among enabled memberships, with first discovery as the fallback when Spotify omits dates. Source selection changes invalidate affected selections, queries and current-song state; an ineligible song cannot continue queue playback or start stale generation.
+Newest added uses the latest known Spotify addition date among enabled memberships, with first discovery as the fallback when Spotify omits dates. The latest-sync queue mode uses arrivals in each enabled source’s most recent verified pass, excluding in-flight passes; an unchanged successful pass advances its checkpoint. Source selection changes invalidate affected selections, queries and current-song state; an ineligible song cannot continue queue playback or start stale generation.
 
 ## Song identity
 
 The same Spotify track ID appears once even if repeated within/across sources. Different IDs group into one song when NFC/case/whitespace-normalized titles and complete artist identity match. Artist IDs take precedence when available, normalized names provide fallback. Meaningful qualifiers such as Live, Acoustic and Remix remain part of identity. No fuzzy or audio-derived matching.
 
-Grouping is a heuristic, not proof of recording equivalence. Preserve underlying identities and original annotations. Union existing tags for the logical song; subsequent edits and changed-only Undo act consistently on it. Keep the representative while eligible/playable, otherwise choose a deterministic eligible replacement. Generated playlists contain one representative per matching song. Representative changes cannot lose tags or revive disabled memberships.
+Grouping is a heuristic, not proof of recording equivalence. Preserve underlying identities and original annotations. Union existing tags for the logical song; subsequent edits and changed-only Undo act consistently on it. Keep the representative while eligible/playable, otherwise choose a deterministic eligible replacement. Generated playlists contain one representative per matching song. Representative changes cannot lose tags or revive disabled memberships. When known title/artist metadata later diverges, split the known identities without losing existing tags; missing metadata alone is not evidence to split retained opaque links. Undo must preserve later component changes rather than recreate stale groups.
 
 ## Sync and interfaces
 
@@ -27,8 +27,11 @@ Authenticated source endpoints:
 - `GET /api/sources?search=&offset=&limit=`: bounded source page plus aggregate enabled count, unique track count, importing state and revision.
 - `POST /api/sources/selection`: explicit source IDs and enabled boolean; atomic changes, unknown-ID validation and revision invalidation.
 - `POST /api/sources/sync`: enqueue background work, never fetch all content in the request handler.
+- `POST /api/sources/enable`: begin the optional collaborative-read consent upgrade.
 
-Spotify currently documents playlist-content access only for owned/collaborative playlists. Discovered followed playlists may be unavailable; show this honestly. Documentation is not proof of actual account access. Ordinary profile scopes and optional playback consent remain separately scoped. Preserve the saved-library write guard.
+Source selection accepts at most 10,000 explicit IDs in one transaction. Only this route permits a 256 KiB JSON body; the other existing routes retain their 16 KiB bound. Library status includes a source-selection revision so other clients invalidate affected frozen selections without treating normal song arrivals as a preference change.
+
+Spotify currently documents playlist-content access only for owned/collaborative playlists. Persist discovered followed playlists and show actual access failures honestly; documentation is not proof of account access. Unavailable sources with no confirmed cache contribute no songs and do not permanently block generation. A failed read never deletes previously confirmed membership. Optional Sources consent adds playlist-read-collaborative through an explicit authenticated Enable action, preserving ordinary login/bootstrap and any verified optional playback permissions. Preserve the saved-library write guard.
 
 ## Verification and delivery
 

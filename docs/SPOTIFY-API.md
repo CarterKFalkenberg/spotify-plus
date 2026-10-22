@@ -24,9 +24,13 @@ support unchanged-source skipping and before/after scan checks, not a universal
 atomic pagination guarantee. Rate limits and shared pacing remain authoritative.
 
 Source ingestion is read-only and introduces no saved-library write capability.
-The ordinary scope set already includes playlist-read-private. Do not silently
-expand consent for collaborative discovery: any actual additional-scope need
-requires documenting the gap and appropriate explicit consent. Live assertions
+The ordinary scope set already includes playlist-read-private. Optional Sources
+consent adds `playlist-read-collaborative` through an authenticated explicit Enable
+action, retaining previously verified playback permissions. Ordinary login and
+bootstrap keep their original scope set; denying or incompletely granting the
+upgrade leaves the old grant and tagging intact. Later playback consent likewise
+retains verified Sources permission. An upgraded SDK access token can consequently
+also carry this read capability; refresh credentials still stay server-side. Live assertions
 must emit only counts, statuses and schema booleans, never names, IDs or content.
 
 All API paths below are relative to `https://api.spotify.com/v1`.

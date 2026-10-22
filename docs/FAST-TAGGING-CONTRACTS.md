@@ -7,6 +7,8 @@ origin, epoch, body-size, immutable track identity and playlist-only Spotify wri
 boundaries remain authoritative. Every operation below uses only local cached
 metadata and annotations, with zero Spotify calls.
 
+The October 21 [Sources extension](SOURCES.md) applies the same enabled-source song pool to every operation below. Counts and selections represent logical songs, tags apply across retained aliases, and source-selection revisions invalidate affected client state.
+
 ## Library and queue
 
 `POST /api/library/search` keeps `{filter,groupBy,cursor,limit}` and optionally adds
@@ -22,7 +24,7 @@ The existing filter extends with optional fields:
 | --- | --- |
 | `album` | null/absent means unrestricted; otherwise an opaque `album:` prefix plus 64 lowercase hexadecimal characters, returned by album groups/facets. It is SHA-256 of the complete cached name under NFC, whitespace collapse and case normalization. There is no synthetic Spotify album ID. |
 | `decade` | null/absent means unrestricted; integer multiple of ten (0–9990) selects that decade; `"unknown"` explicitly selects unavailable release years. |
-| `latestSyncOnly` | false/absent is unrestricted; true selects active tracks whose addition run is the last completed stable sync. Unlike `newOnly`, acknowledging arrivals does not remove them from this mode. It is invalid with removed membership. |
+| `latestSyncOnly` | false/absent is unrestricted; true selects active logical songs with an alias admitted in the latest verified pass of an enabled source. Each source has its own completion checkpoint; in-flight imports are excluded. Unlike `newOnly`, acknowledging arrivals does not remove them from this mode. It is invalid with removed membership. |
 
 `library_state.completed_run_id` is independent of the current import's
 `latest_run_id`. A new stable completion advances the library revision even if its
