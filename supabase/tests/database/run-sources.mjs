@@ -114,6 +114,7 @@ try {
       "20261021000100_sources.sql",
       "20261021000200_song_groups.sql",
       "20261022000100_source_discovery_identity.sql",
+      "20261022000200_singleton_vocabulary_undo.sql",
     ]
   ) {
     await sql(
@@ -127,6 +128,12 @@ try {
   await sql(
     await readFile(
       new URL("./source-discovery-identity.sql", import.meta.url),
+      "utf8",
+    ),
+  );
+  await sql(
+    await readFile(
+      new URL("./singleton-vocabulary-undo.sql", import.meta.url),
       "utf8",
     ),
   );

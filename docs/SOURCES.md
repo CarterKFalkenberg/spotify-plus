@@ -20,6 +20,8 @@ The same Spotify track ID appears once even if repeated within/across sources. D
 
 Grouping is a heuristic, not proof of recording equivalence. Preserve underlying identities and original annotations. Union existing tags for the logical song; subsequent edits and changed-only Undo act consistently on it. Keep the representative while eligible/playable, otherwise choose a deterministic eligible replacement. Generated playlists contain one representative per matching song. Representative changes cannot lose tags or revive disabled memberships. When known title/artist metadata later diverges, split the known identities without losing existing tags; missing metadata alone is not evidence to split retained opaque links. Undo must preserve later component changes rather than recreate stale groups.
 
+An annotation without an explicit song-group row is a singleton for both vocabulary-action snapshots and Undo comparisons. Creating its unchanged singleton row does not count as a component change; a new alias still fences Undo for the whole affected song.
+
 ## Sync and interfaces
 
 Add source records and independent memberships, migrating the existing Liked Songs cache/annotations safely. Load cached data immediately. Durable leased jobs discover playlists and scan enabled sources in bounded pages with batched persistence and shared pacing/cooldown. Snapshot markers allow unchanged-source skips and before/after validation; they do not make offset pagination a snapshot. Disabled sources stop content scanning. Browsing/tagging remain available during import; generation waits for enabled sources' initial complete imports.
