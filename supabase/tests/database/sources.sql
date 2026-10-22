@@ -101,6 +101,16 @@ delete from app.source_seen where job_id='11111111-1111-4111-8111-111111111111';
 select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,2,2,null,'duplicates-snapshot',jsonb_set(pg_temp.source_row('5'),'{0,likedAt}','"2026-03-03T00:00:00Z"')||pg_temp.source_row('5'),0,0);
 select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','duplicates-snapshot');
 select pg_temp.assert((select added_at='2026-03-03' from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('5',64)),'reverse-order duplicate retains latest date within verified walk');
+-- The opposite order across separate pages cannot temporarily clear a previous
+-- acknowledgment or replace its arrival cohort before the later duplicate arrives.
+update app.track_metadata set acknowledged_at=now(),added_run_id='10101010-1010-4010-8010-101010101010' where track_key=repeat('5',64);
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,2,1,1,'older-first-snapshot',jsonb_set(pg_temp.source_row('5'),'{0,likedAt}','"2026-01-01T00:00:00Z"'),0,0);
+select pg_temp.assert((select acknowledged_at is not null and added_run_id='10101010-1010-4010-8010-101010101010' from app.track_metadata where track_key=repeat('5',64)),'older first page preserves active song acknowledgment and arrival cohort');
+select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',1,2,1,null,'older-first-snapshot',jsonb_set(pg_temp.source_row('5'),'{0,likedAt}','"2026-03-03T00:00:00Z"'),0,0);
+select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','older-first-snapshot');
+select pg_temp.assert((select acknowledged_at is not null and added_run_id='10101010-1010-4010-8010-101010101010' from app.track_metadata where track_key=repeat('5',64)) and (select added_at='2026-03-03' from app.source_memberships where source_id=repeat('p',22) and track_key=repeat('5',64)),'verified unchanged duplicate rescan preserves acknowledgment and restores latest ordering date');
+
 update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='11111111-1111-4111-8111-111111111111';
 select public.app_source_page_commit(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0,1,1,null,'older-only-snapshot',pg_temp.source_row('5'),0,0);
 select public.app_source_finish(1,'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','older-only-snapshot');
@@ -134,9 +144,18 @@ update app.jobs set state='done' where id is not null and kind='source_sync';
 insert into app.jobs(id,epoch,kind,state,lease_token,lease_until) values('66666666-6666-4666-8666-666666666666',1,'source_sync','running','77777777-7777-4777-8777-777777777777',now()+interval '1 hour');
 insert into app.source_scans(job_id,epoch,source_id) values('66666666-6666-4666-8666-666666666666',1,repeat('f',22));
 select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'unknown access first import gates generation');
+select public.app_source_page_commit(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',0,2,1,1,'partial-first-import',pg_temp.source_row('4'),0,0);
+select pg_temp.assert((select removed_at is null from app.track_metadata where track_key=repeat('4',64)) and not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'pending first-import rows browse while generation remains gated');
+
 select public.app_source_finish(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',null,'forbidden');
 select pg_temp.assert(exists(select 1 from app.sources where id=repeat('f',22) and enabled and not available and error_code='forbidden'),'confirmed inaccessible followed source remains visible with preference intact');
 select pg_temp.assert((public.app_library_status(1)->>'initialSyncComplete')::boolean,'confirmed unavailable first source no longer blocks completed accessible pool');
+select pg_temp.assert((select removed_at is not null from app.track_metadata where track_key=repeat('4',64)) and not exists(select 1 from app.query_targets('{"version":1,"root":{"op":"and","children":[]}}') where track_key=repeat('4',64)),'failed never-confirmed source cannot leak provisional rows into generation');
+select pg_temp.assert(not app.source_contributes(1,repeat('f',22)) and app.source_contributes(1,repeat('p',22)),'contribution predicate excludes failed first import while retaining confirmed cached source');
+-- Simulate the successor job after access returns, retaining its opaque rows.
+update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='66666666-6666-4666-8666-666666666666';
+delete from app.source_seen where job_id='66666666-6666-4666-8666-666666666666';
+
 select public.app_source_page_commit(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',0,2,1,1,'recovered-snapshot',pg_temp.source_row('4'),0,0);
 select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'recovered access gates generation during incomplete first walk');
 select public.app_disconnect(1);
