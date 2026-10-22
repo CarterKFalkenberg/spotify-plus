@@ -81,11 +81,12 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
    end if;
   end loop;
   -- Acknowledgement belongs to the logical song too: another source/release
-  -- must not turn an already seen song into a new-arrivals notification again.
+  -- must not turn a still-active seen song into a new-arrivals notification again.
+  -- Removed aliases cannot suppress the first genuine return of a departed group.
   with acknowledged as (
    select sm.group_key,min(m.acknowledged_at) seen_at from app.song_group_members sm
    join app.track_metadata m using(track_key) join app.song_groups g using(group_key)
-   where g.epoch=p_epoch and m.acknowledged_at is not null group by sm.group_key
+   where g.epoch=p_epoch and m.removed_at is null and m.acknowledged_at is not null group by sm.group_key
   ) update app.track_metadata m set acknowledged_at=a.seen_at from app.song_group_members sm
    join acknowledged a using(group_key) where sm.track_key=m.track_key and m.acknowledged_at is null;
   -- Union preexisting conflicting annotations without deleting original identities.

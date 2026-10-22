@@ -63,6 +63,32 @@ select app.refresh_song_groups(1);
 select pg_temp.assert(app.song_representative(lpad('2',64,'0'))=lpad('1',64,'0'),'unplayable representative replaced by playable alias');
 rollback to savepoint group_acknowledgement;
 
+-- A group that fully leaves the pool must become new on its first real return.
+savepoint acknowledged_group_reentry;
+select app.ensure_sources(1);
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values
+ (1,'liked',lpad('1',64,'0'),now()),(1,'liked',lpad('2',64,'0'),now());
+select app.refresh_source_pool(1);
+select public.app_library_acknowledge(1,jsonb_build_array(lpad('1',64,'0')));
+select pg_temp.assert((select count(*)=2 from app.track_metadata where track_key in (lpad('1',64,'0'),lpad('2',64,'0')) and acknowledged_at is not null),'both active aliases begin acknowledged');
+delete from app.source_memberships where epoch=1 and source_id='liked';
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=2 from app.track_metadata where track_key in (lpad('1',64,'0'),lpad('2',64,'0')) and removed_at is not null and acknowledged_at is not null),'full departure keeps historical alias acknowledgements');
+-- The page writer clears acknowledgement only on the returning recording.
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values(1,'liked',lpad('1',64,'0'),now());
+update app.track_metadata set removed_at=null,acknowledged_at=null,added_run_id='66666666-6666-4666-8666-666666666666' where track_key=lpad('1',64,'0');
+select app.refresh_source_pool(1);
+select pg_temp.assert((select acknowledged_at is null from app.track_metadata where track_key=lpad('1',64,'0')),'removed alias acknowledgement does not overwrite returning recording state');
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter')||'{"newOnly":true}')),'first alias returning after full departure is one new logical song');
+select pg_temp.assert((select count(*)=4 from app.track_tags where track_key in (lpad('1',64,'0'),lpad('2',64,'0')) and present),'full departure and return preserve both shared tag assignments');
+select public.app_library_acknowledge(1,jsonb_build_array(lpad('1',64,'0')));
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values(1,'liked',lpad('2',64,'0'),now());
+update app.track_metadata set removed_at=null,acknowledged_at=null,added_run_id='77777777-7777-4777-8777-777777777777' where track_key=lpad('2',64,'0');
+select app.refresh_source_pool(1);
+select pg_temp.assert((select acknowledged_at is not null from app.track_metadata where track_key=lpad('2',64,'0')),'later alias inherits acknowledgement from still-active returned song');
+select pg_temp.assert((select count(*)=0 from app.filter_keys((select v from results where k='filter')||'{"newOnly":true}')),'second alias return does not repeat the acknowledged group arrival');
+rollback to savepoint acknowledged_group_reentry;
+
 -- Enabled source membership controls the whole logical pool and provenance.
 savepoint source_memberships;
 select app.ensure_sources(1);
