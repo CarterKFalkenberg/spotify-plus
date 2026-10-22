@@ -125,7 +125,12 @@ create function app.song_added_at(p_key text) returns timestamptz language sql s
 $$;
 
 create or replace function app.filter_keys(p_filter jsonb) returns table(track_key text,liked_at timestamptz)
- language sql stable set search_path='' as $$
+ language plpgsql stable set search_path='' as $$
+ begin
+ -- A cached generic plan cannot estimate JSON filter selectivity and can choose
+ -- quadratic component scans. Replan this fixed SQL for each bound filter; USING
+ -- supplies data parameters only, without interpolating any caller input.
+ return query execute $filter$
  -- Build one row per logical song before applying parameterized filters.
  -- Separate materialized date joins led PostgreSQL's generic JSON-filter plan
  -- to underestimate survivors and repeatedly scan each date aggregate per song.
@@ -144,16 +149,18 @@ create or replace function app.filter_keys(p_filter jsonb) returns table(track_k
  )
  select m.track_key,coalesce(c.added_at,c.fallback_date) from components c
  join app.track_metadata m on m.track_key=c.representative_key
- where true and ((p_filter->>'membership'='active' and m.removed_at is null) or (p_filter->>'membership'='removed' and m.removed_at is not null))
- and (not (p_filter->>'untagged')::boolean or not exists(select 1 from app.track_tags t where t.track_key=m.track_key and t.present))
- and (not (p_filter->>'newOnly')::boolean or (m.removed_at is null and m.acknowledged_at is null))
- and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and coalesce(c.latest_arrival,false)))
- and (p_filter->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=p_filter->>'artistId'))
- and (p_filter->>'album' is null or app.album_identity(m.album)=p_filter->>'album')
- and (p_filter->>'decade' is null or app.track_decade(m.release_date)=p_filter->>'decade')
- and (coalesce(p_filter->>'search','')='' or position(lower(normalize(p_filter->>'search',NFC)) in
+ where true and (($1->>'membership'='active' and m.removed_at is null) or ($1->>'membership'='removed' and m.removed_at is not null))
+ and (not ($1->>'untagged')::boolean or not exists(select 1 from app.track_tags t where t.track_key=m.track_key and t.present))
+ and (not ($1->>'newOnly')::boolean or (m.removed_at is null and m.acknowledged_at is null))
+ and (not coalesce(($1->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and coalesce(c.latest_arrival,false)))
+ and ($1->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=$1->>'artistId'))
+ and ($1->>'album' is null or app.album_identity(m.album)=$1->>'album')
+ and ($1->>'decade' is null or app.track_decade(m.release_date)=$1->>'decade')
+ and (coalesce($1->>'search','')='' or position(lower(normalize($1->>'search',NFC)) in
   lower(normalize(m.title||' '||m.album||' '||coalesce((select string_agg(ar->>'name',' ') from jsonb_array_elements(m.artists) ar),''),NFC)))>0)
- order by coalesce(c.added_at,c.fallback_date) desc,m.track_key;
+ order by coalesce(c.added_at,c.fallback_date) desc,m.track_key
+ $filter$ using p_filter;
+ end;
 $$;
 
 -- Status needs counts, not source dates or sorted result sets. Aggregate the
