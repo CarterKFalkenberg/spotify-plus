@@ -136,6 +136,19 @@ update app.track_metadata set added_run_id='55555555-5555-4555-8555-555555555555
 select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'confirmed cached source still supplies its latest verified arrivals');
 rollback to savepoint failed_partial_alias_source;
 
+-- Journals created before component snapshots retain changed-only behavior.
+savepoint legacy_group_undo;
+insert into results values('legacyRemove',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
+delete from app.song_action_groups where action_id=(select (v->>'actionId')::uuid from results where k='legacyRemove');
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='legacyRemove'))->>'restoredCount'='1','legacy journal without component snapshot restores complete matching group');
+insert into results values('legacyRemoveAgain',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
+delete from app.song_action_groups where action_id=(select (v->>'actionId')::uuid from results where k='legacyRemoveAgain');
+update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('4',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(public.app_tag_undo(1,repeat('b',64),(select (v->>'actionId')::uuid from results where k='legacyRemoveAgain'))->>'skippedCount'='1','legacy journal skips group when later member has no changed-only edge');
+select pg_temp.assert(not exists(select 1 from app.track_tags where tag_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and present),'legacy undo never restores only older aliases');
+rollback to savepoint legacy_group_undo;
+
 -- A new exact duplicate makes earlier group undo stale and receives annotations.
 insert into results values('remove3',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
 update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('4',64,'0');
