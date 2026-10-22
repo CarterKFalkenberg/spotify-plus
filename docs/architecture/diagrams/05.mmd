@@ -1,10 +1,10 @@
 flowchart LR
- L[Track is liked] --> C[Metadata cached + HMAC annotation key]
+ L[Song enters an enabled source] --> C[Metadata cached + HMAC annotation key]
  C --> T[Tags attach to annotation key]
- C --> R[Verified sync sees removal]
+ C --> R[Last enabled membership removed]
  R --> A[Soft-removed archive / tags retained]
  A -->|90 days| M[Cached metadata purged]
- M -->|same track re-liked| C
- A -->|re-liked earlier| C
+ M -->|source membership returns| C
+ A -->|membership returns earlier| C
  T -->|disconnect confirmed| X[Annotations and account key deleted]
  M --> X

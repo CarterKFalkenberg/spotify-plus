@@ -1,15 +1,15 @@
 # Architecture guide
 
-A source-based map of Spotify Plus, preserved from the October 14, 2026 guide at
-commit [`7cfd663a3766ae694041d1c170705820f49c4ff6`](https://github.com/CarterKFalkenberg/spotify-plus/tree/7cfd663a3766ae694041d1c170705820f49c4ff6).
-This documents that implementation snapshot; it is not a new production health,
-billing, deployment or product-acceptance report. Examples are synthetic.
+A source-based map updated October 21, 2026 for the Sources implementation at
+`21cfc9194792bde7eebc7c12929328eb4d1c497a`. This includes selected playlist inputs, logical song
+groups and optional queue SDK listening. It is not a new production health,
+billing, deployment or human-acceptance report. Examples are synthetic.
 
 - [Architecture handbook](handbook.html): 16 chapters covering runtime boundaries,
   source ownership, OAuth, data, import, tagging, queries, playlist lifecycle,
   recovery, UI, backups, integrations, tests, delivery and operations. Includes all
   17 rendered diagrams, their editable source, enlargement and SVG download.
-- [Interactive request walkthrough](walkthrough.html): eight flows with Previous,
+- [Interactive request walkthrough](walkthrough.html): ten flows with Previous,
   Next and flow selection: login, import, bulk tagging/undo, preview, creation,
   lost response, expiry and disconnect.
 
@@ -64,7 +64,7 @@ reference. When intentionally updating it to describe newer code:
    or responsibility changes. Keep walkthrough state browser-local and preserve
    the absence of runtime network dependencies and account data.
 4. Open both HTML files offline at desktop and phone widths. Check all 17 figures,
-   source disclosures, enlargement/SVG downloads, internal links, and all eight
+   source disclosures, enlargement/SVG downloads, internal links, and all ten
    walkthrough flows in both directions. Verify diagram sources match the embedded
    source and that exported SVGs match the embedded figures.
 

@@ -1,48 +1,52 @@
 erDiagram
+ sources ||--o{ source_memberships : contributes
+ annotations ||--o{ source_memberships : belongs_to
  annotations ||--o| track_metadata : caches
- annotations ||--o{ track_tags : has
+ annotations ||--o| song_group_members : groups
+ song_groups ||--|{ song_group_members : contains
+ annotations ||--o{ track_tags : retains
  tags ||--o{ track_tags : assigned
- tags ||--o{ tag_actions : changed_by
  tag_actions ||--o{ tag_action_edges : records
- annotations ||--o{ tag_action_edges : affected
- sync_runs ||--o{ sync_seen : observes
+ sources ||--o{ source_scans : verifies
  playlists ||--o{ playlist_operations : executes
- playlists ||--o{ playlist_requests : deduplicates
+ sources {
+  bigint epoch PK
+  text id PK
+  boolean enabled
+  boolean available
+  text snapshot_id
+ }
+ source_memberships {
+  bigint epoch PK
+  text source_id PK
+  text track_key PK
+  timestamptz added_at
+ }
  annotations {
   text track_key PK
   bigint epoch
  }
+ song_groups {
+  text group_key PK
+  text representative_key
+ }
+ song_group_members {
+  text track_key PK
+  text group_key FK
+ }
  track_metadata {
-  text track_key PK,FK
+  text track_key PK
   text spotify_id UK
-  timestamptz liked_at
   timestamptz removed_at
-  timestamptz acknowledged_at
  }
  track_tags {
-  text track_key PK,FK
-  uuid tag_id PK,FK
+  text track_key PK
+  uuid tag_id PK
   boolean present
   bigint version
  }
- tags {
-  uuid id PK
-  text normalized_name
-  text name
-  timestamptz deleted_at
- }
  playlists {
   uuid id PK
-  text spotify_id UK
   jsonb query
   date expires_on
-  text status
- }
- playlist_operations {
-  uuid id PK
-  uuid playlist_id FK
-  uuid job_id UK
-  text_array target
-  boolean create_attempted
-  jsonb scan
  }

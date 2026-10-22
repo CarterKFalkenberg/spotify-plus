@@ -1,14 +1,16 @@
 flowchart TB
- MAIN[main.tsx / router + session + disconnect] --> W[Workspace.tsx / revisions + tabs + status]
- W --> L[Library / search + sort + groups]
- W --> Q[Queue / desktop shortcuts + mobile sheet]
- W --> B[Builder / query buckets + preview]
- W --> P[Playlists / lifecycle actions]
- W --> V[Vocabulary / rename + merge + delete]
- L --> F[Facets + BulkTags]
- Q --> T[TagPicker / autocomplete + slots]
- F --> T
- B --> T
- W --> POLL[useVisiblePolling + polling.ts]
- P --> POLL
- W --> REV[Library and annotation revision invalidation]
+ MAIN[Router / owner session] --> W[Workspace / revisions and shared song pool]
+ W --> S[Sources / bounded search and switches]
+ W --> L[Library / songs, artists, albums, decades]
+ W --> Q[Queue / desktop shortcuts and mobile sheet]
+ W --> B[Builder / choose tags, review, name and keep]
+ W --> P[Generated playlists / contextual maintenance]
+ W --> T[Tags / vocabulary management]
+ S --> INVALIDATE[Source change / invalidate selections and previews]
+ INVALIDATE --> W
+ Q --> AUDIO[One document SDK Player / exclusive queue lease]
+ INVALIDATE --> STOP[Stop ineligible owned playback]
+ STOP --> AUDIO
+ L --> BULK[Bulk tags / frozen selection / undo]
+ Q --> INPUT[Tag input / shortcuts / IME safety]
+ W --> POLL[Visibility-aware polling / cached results]

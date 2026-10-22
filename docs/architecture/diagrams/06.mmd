@@ -1,13 +1,20 @@
 flowchart TB
- E[OAuth / manual sync / daily maintenance] --> W[Create or resume sync run]
- W --> P[Read saved tracks / at most 50 per page]
- P --> TX[One SQL transaction: metadata + seen set + next offset]
- TX --> MORE{More pages?}
- MORE -->|yes| P
- MORE -->|no| VALID{Consistent total and unique coverage?}
- VALID -->|no| RESTART[Start another full pass]
- VALID -->|yes| MATCH{Same ID + liked-at set as consecutive valid pass?}
- MATCH -->|no prior or different| RESTART
- RESTART --> P
- MATCH -->|yes| COMMIT[Mark complete + soft-remove unseen + revision]
- COMMIT --> GATE[Initial generation gate opens]
+ E[Open / manual sync / maintenance] --> D[Discover source pages with shared pacing]
+ D --> S[Preserve choices: inputs ON, generated OFF by default]
+ S --> EN{Source enabled and accessible?}
+ EN -->|no| KEEP[Keep confirmed membership / show status]
+ EN -->|yes| KIND{Liked Songs or playlist?}
+ KIND -->|Liked| L[Resume bounded saved-track passes]
+ KIND -->|Playlist| V[Read snapshot / skip unchanged complete source]
+ L --> P[Read at most 50 items / batch persistence]
+ V --> P
+ P --> M{More pages?}
+ M -->|yes| P
+ M -->|no| CHECK{Complete consistent membership?}
+ CHECK -->|no| RETRY[Keep prior membership / bounded retry]
+ RETRY --> KIND
+ CHECK -->|yes| COMMIT[Replace this source membership only]
+ COMMIT --> POOL[Enabled membership union / preserve tags]
+ POOL --> GROUP[Exact title and artist grouping / eligible representative]
+ GROUP --> CACHE[Invalidate library, queue and query revision]
+ CACHE --> GATE[Generation waits for complete enabled imports]
