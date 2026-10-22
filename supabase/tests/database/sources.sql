@@ -147,10 +147,11 @@ select pg_temp.assert(not (public.app_library_status(1)->>'initialSyncComplete')
 select public.app_source_page_commit(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',0,2,1,1,'partial-first-import',pg_temp.source_row('4'),0,0);
 select pg_temp.assert((select removed_at is null from app.track_metadata where track_key=repeat('4',64)) and not (public.app_library_status(1)->>'initialSyncComplete')::boolean,'pending first-import rows browse while generation remains gated');
 
+insert into app.track_tags(track_key,tag_id,present) values(repeat('4',64),'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
 select public.app_source_finish(1,'66666666-6666-4666-8666-666666666666','77777777-7777-4777-8777-777777777777',null,'forbidden');
 select pg_temp.assert(exists(select 1 from app.sources where id=repeat('f',22) and enabled and not available and error_code='forbidden'),'confirmed inaccessible followed source remains visible with preference intact');
 select pg_temp.assert((public.app_library_status(1)->>'initialSyncComplete')::boolean,'confirmed unavailable first source no longer blocks completed accessible pool');
-select pg_temp.assert((select removed_at is not null from app.track_metadata where track_key=repeat('4',64)) and not exists(select 1 from app.query_targets('{"version":1,"root":{"op":"and","children":[]}}') where track_key=repeat('4',64)),'failed never-confirmed source cannot leak provisional rows into generation');
+select pg_temp.assert((select removed_at is not null from app.track_metadata where track_key=repeat('4',64)) and not exists(select 1 from app.query_targets('{"version":1,"root":{"op":"tag","tagId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}}') where track_key=repeat('4',64)),'failed never-confirmed source cannot leak tagged provisional rows into generation');
 select pg_temp.assert(not app.source_contributes(1,repeat('f',22)) and app.source_contributes(1,repeat('p',22)),'contribution predicate excludes failed first import while retaining confirmed cached source');
 -- Simulate the successor job after access returns, retaining its opaque rows.
 update app.source_scans set next_offset=0,snapshot_id=null,total=null,received=0,invalid=false where job_id='66666666-6666-4666-8666-666666666666';
