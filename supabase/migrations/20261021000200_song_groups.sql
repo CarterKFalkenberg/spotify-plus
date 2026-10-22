@@ -164,6 +164,28 @@ create or replace function app.filter_keys(p_filter jsonb) returns table(track_k
  order by coalesce(d.added_at,f.liked_at) desc,m.track_key;
 $$;
 
+-- Status needs counts, not source dates or sorted result sets. Aggregate the
+-- three fixed active filters together and evaluate the original status once.
+create or replace function app.library_status() returns jsonb language sql stable set search_path='' as $$
+ with base as materialized (select app.liked_library_status() value), counts as (
+  select count(*) active_count,count(*) filter(where m.acknowledged_at is null) new_count,
+   count(*) filter(where tagged.track_key is null) untagged_count
+  from app.track_metadata m join app.annotations a using(track_key)
+   left join app.song_group_members sm using(track_key)
+   left join app.song_groups g on g.group_key=sm.group_key
+   left join (select distinct track_key from app.track_tags where present) tagged using(track_key)
+  where a.epoch=(select epoch from app.library_state where singleton)
+   and m.removed_at is null and m.track_key=coalesce(g.representative_key,m.track_key)
+ )
+ select base.value||jsonb_build_object('sourcesRevision',(select sources_revision::text from app.library_state where singleton),
+  'syncPhase',case when exists(select 1 from app.sources where enabled and available and last_synced_at is null) then 'importing'
+   when exists(select 1 from app.sources where id='liked' and enabled) then base.value->>'syncPhase' else 'idle' end,
+  'importedCount',(select coalesce(sum(imported_count),0) from app.sources where enabled),
+  'reportedTotal',(select coalesce(sum(track_count),0) from app.sources where enabled),
+  'activeCount',counts.active_count,'newCount',counts.new_count,'untaggedCount',counts.untagged_count)
+ from base cross join counts;
+$$;
+
 create or replace function app.query_targets(p_query jsonb)
  returns table(track_key text,playable_uri text,liked_at timestamptz,duration_ms bigint)
  language plpgsql stable set search_path='' as $$
