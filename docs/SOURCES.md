@@ -35,6 +35,8 @@ Source selection accepts at most 10,000 explicit IDs in one transaction. Only th
 
 Spotify currently documents playlist-content access only for owned/collaborative playlists. Persist discovered followed playlists and show actual access failures honestly; documentation is not proof of account access. Unavailable sources with no confirmed cache contribute no songs and do not permanently block generation. A failed read never deletes previously confirmed membership. Optional Sources consent adds playlist-read-collaborative through an explicit authenticated Enable action, preserving ordinary login/bootstrap and any verified optional playback permissions. Preserve the saved-library write guard.
 
+If strict playlist metadata validation fails, the source worker rechecks selection and its lease before one bounded contents-access probe. Only an actual contents 403/404 establishes unavailable status; a successful or malformed probe retains the original response failure, while retry/reconnect failures keep their normal handling. The probe imports nothing and never proves a completed sync. Managed-playlist transport validation remains strict.
+
 ## Verification and delivery
 
 Test overlap, repeated entries, different-ID grouping, meaningful suffixes, existing tag union/edit/Undo, representative replacement, removal/return, switches and stale workers, interrupted/changing scans, rate/access failures, partial-import generation gates, retention, backups and disconnect. Large synthetic fixtures establish bounded requests/writes/browser payloads. Verify light/dark desktop/mobile, keyboard and IME behavior.

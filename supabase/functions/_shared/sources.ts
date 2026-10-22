@@ -191,11 +191,43 @@ export function createSourcesRunner(input: {
       }
       return { done: false, retryMs: 1000 };
     } catch (error) {
+      let failure = error;
       if (
         checkpoint?.sourceId && error instanceof SpotifyError &&
-        ["forbidden", "not_found", "response"].includes(error.kind)
-      ) return await finish(null, error.kind);
-      throw error;
+        error.kind === "response"
+      ) {
+        // Partial metadata can hide a real contents-access denial. Keep strict
+        // metadata validation, but establish access before leaving initial import
+        // pending forever. This probe never commits content or proves a sync.
+        await wait(550);
+        checkpoint = await state();
+        if (!checkpoint) return null;
+        if (!checkpoint.enabled) return { done: true };
+        if (
+          !await input.db.rpc<boolean>("app_job_renew", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+          })
+        ) return null;
+        try {
+          await client.getPlaylistItemsPage(checkpoint.sourceId!, {
+            offset: 0,
+            limit: 1,
+          });
+        } catch (probeError) {
+          // A second malformed response supplies no access evidence. All other
+          // errors retain normal unavailable, retry or reconnect semantics.
+          if (
+            !(probeError instanceof SpotifyError) ||
+            probeError.kind !== "response"
+          ) failure = probeError;
+        }
+      }
+      if (
+        checkpoint?.sourceId && failure instanceof SpotifyError &&
+        ["forbidden", "not_found", "response"].includes(failure.kind)
+      ) return await finish(null, failure.kind);
+      throw failure;
     }
   };
 }

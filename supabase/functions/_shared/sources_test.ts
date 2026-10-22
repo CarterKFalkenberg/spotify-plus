@@ -6,7 +6,7 @@ import {
 } from "./sources-contracts.ts";
 import { SecretBox } from "./crypto.ts";
 import type { SpotifyPlaylist, SpotifyTrack } from "./spotify.ts";
-import { SpotifyError } from "./spotify.ts";
+import { SpotifyClient, SpotifyError } from "./spotify.ts";
 import { assert, database, equal, rejects, TEST_KEY } from "./testing.ts";
 const sourceId = "p".repeat(22);
 const box = new SecretBox(TEST_KEY);
@@ -264,6 +264,226 @@ Deno.test("selection and lease are rechecked before content; access failure reco
     equal(content, ["disabled", "lease"].includes(reason) ? 0 : 1);
     equal(finishes, reason === "forbidden" ? 1 : 0);
   }
+});
+Deno.test("partial200metadata followed by403or404contents finishes unavailable without weakening transport", async () => {
+  for (const status of [403, 404]) {
+    const state = await fixture();
+    const events: string[] = [];
+    const client = new SpotifyClient({
+      tokens: {
+        getAccessToken: () => Promise.resolve("synthetic-token"),
+        refreshAccessToken: () => Promise.resolve("synthetic-token"),
+      },
+      pacing: {
+        acquire: () => Promise.resolve({ granted: true, retryAfterMs: 0 }),
+        defer: () => Promise.resolve(),
+      },
+      isManagedPlaylist: () => Promise.resolve(false),
+      fetch: (request) => {
+        const url = new URL(String(request));
+        events.push(url.pathname);
+        if (url.pathname.endsWith("/items")) {
+          equal(url.searchParams.get("limit"), "1");
+          equal(url.searchParams.get("offset"), "0");
+          return Promise.resolve(new Response(null, { status }));
+        }
+        return Promise.resolve(Response.json({
+          id: sourceId,
+          name: "Synthetic partial playlist",
+          description: null,
+          public: false,
+          collaborative: false,
+          owner: { id: "synthetic-owner" },
+          snapshot_id: "snapshot",
+          // Missing collection total is an actual strict adapter failure.
+        }));
+      },
+    });
+    const runner = createSourcesRunner({
+      annotationBox: box,
+      spotify: () => client,
+      wait: (ms) => {
+        equal(ms, 550);
+        events.push("spacing");
+        return Promise.resolve();
+      },
+      db: database((name, args) => {
+        events.push(name);
+        if (name === "app_source_job_state") return state;
+        if (name === "app_job_renew") return true;
+        if (name === "app_source_finish") {
+          equal(args.p_error, status === 403 ? "forbidden" : "not_found");
+          equal(args.p_snapshot, null);
+          return { done: true };
+        }
+        throw Error("unexpected RPC");
+      }),
+    });
+    equal(await runner(job, Date.now() + 80000), { done: true });
+    equal(events, [
+      "app_source_job_state",
+      `/v1/playlists/${sourceId}`,
+      "spacing",
+      "app_source_job_state",
+      "app_job_renew",
+      `/v1/playlists/${sourceId}/items`,
+      "app_source_finish",
+    ]);
+  }
+});
+Deno.test("response access probe retains strict failures and propagates retry and reconnect errors", async () => {
+  for (
+    const outcome of [
+      "success",
+      "response",
+      "authentication",
+      "quota",
+      "rate_limit",
+      "cooldown",
+      "network",
+      "control_unavailable",
+      "http",
+    ] as const
+  ) {
+    const state = await fixture();
+    const original = new SpotifyError("response");
+    const probeError = outcome === "success" ? null : new SpotifyError(outcome);
+    let probes = 0;
+    let finishes = 0;
+    const runner = createSourcesRunner({
+      annotationBox: box,
+      wait: async () => {},
+      db: database((name, args) => {
+        if (name === "app_source_job_state") return state;
+        if (name === "app_job_renew") return true;
+        if (name === "app_source_finish") {
+          finishes++;
+          equal(args.p_error, "response");
+          equal(args.p_snapshot, null);
+          return { done: true };
+        }
+        throw Error("unexpected RPC");
+      }),
+      spotify: () => ({
+        getPlaylist: () => Promise.reject(original),
+        getPlaylistItemsPage: (_id, query) => {
+          probes++;
+          equal(query, { offset: 0, limit: 1 });
+          return probeError ? Promise.reject(probeError) : Promise.resolve({
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 1,
+            nextOffset: null,
+          });
+        },
+        getCurrentUserPlaylistsPage: () => {
+          throw Error("unexpected discovery");
+        },
+      }),
+    });
+    if (["success", "response"].includes(outcome)) {
+      equal(await runner(job, Date.now() + 80000), { done: true });
+      equal(finishes, 1);
+    } else {
+      await rejects(
+        () => runner(job, Date.now() + 80000),
+        (e) => e === probeError,
+      );
+      equal(finishes, 0);
+    }
+    equal(probes, 1);
+  }
+});
+Deno.test("response access probe fences late selection changes and stale leases", async () => {
+  for (const reason of ["disabled", "stale", "renewal"] as const) {
+    const state = await fixture();
+    let states = 0;
+    let renewals = 0;
+    const runner = createSourcesRunner({
+      annotationBox: box,
+      wait: async () => {},
+      db: database((name) => {
+        if (name === "app_source_job_state") {
+          states++;
+          return states === 1 ? state : reason === "stale" ? null : {
+            ...state,
+            enabled: reason !== "disabled",
+          };
+        }
+        if (name === "app_job_renew") {
+          renewals++;
+          return false;
+        }
+        throw Error("unexpected RPC");
+      }),
+      spotify: () => ({
+        getPlaylist: () => Promise.reject(new SpotifyError("response")),
+        getPlaylistItemsPage: () => {
+          throw Error("stale content probe");
+        },
+        getCurrentUserPlaylistsPage: () => {
+          throw Error("unexpected discovery");
+        },
+      }),
+    });
+    equal(
+      await runner(job, Date.now() + 80000),
+      reason === "disabled" ? { done: true } : null,
+    );
+    equal(states, 2);
+    equal(renewals, reason === "renewal" ? 1 : 0);
+  }
+});
+Deno.test("postwalk metadata response failure probes access without confirming scanned content", async () => {
+  const state = await fixture();
+  let metadataReads = 0;
+  let contentReads = 0;
+  let commits = 0;
+  const runner = createSourcesRunner({
+    annotationBox: box,
+    wait: async () => {},
+    db: database((name, args) => {
+      if (name === "app_source_job_state") return state;
+      if (name === "app_job_renew") return true;
+      if (name === "app_source_page_commit") {
+        commits++;
+        return { done: false, terminal: true };
+      }
+      if (name === "app_source_finish") {
+        equal(args.p_snapshot, null);
+        equal(args.p_error, "not_found");
+        return { done: true };
+      }
+      throw Error("unexpected RPC");
+    }),
+    spotify: () => ({
+      getPlaylist: () =>
+        ++metadataReads === 1
+          ? Promise.resolve(metadata)
+          : Promise.reject(new SpotifyError("response")),
+      getPlaylistItemsPage: (_id, query) => {
+        contentReads++;
+        equal(query, { offset: 0, limit: contentReads === 1 ? 50 : 1 });
+        return contentReads === 1
+          ? Promise.resolve({
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 50,
+            nextOffset: null,
+          })
+          : Promise.reject(new SpotifyError("not_found", 404));
+      },
+      getCurrentUserPlaylistsPage: () => {
+        throw Error("unexpected discovery");
+      },
+    }),
+  });
+  equal(await runner(job, Date.now() + 80000), { done: true });
+  equal(metadataReads, 2);
+  equal(contentReads, 2);
+  equal(commits, 1);
 });
 Deno.test("large source imports checkpoint at50items and five pages per invocation then resume exact offset", async () => {
   const state = { ...await fixture(), snapshotId: null as string | null };
