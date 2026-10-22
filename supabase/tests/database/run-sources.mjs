@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 const container = `spotify-plus-sources-test-${process.pid}`;
 const network = container + "-network";
+const rest = container + "-rest";
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 async function command(args, input = "", executable = "docker") {
   const child = spawn(executable, args, {
@@ -128,10 +129,110 @@ try {
   await sql(
     await readFile(new URL("./song-groups-scale.sql", import.meta.url), "utf8"),
   );
+  // Exercise installed RPCs through actual PostgREST as well as administrative
+  // SQL. All identities and assignments in this disposable fixture are synthetic.
+  await sql(
+    `select public.app_connect(1,'synthetic-account',repeat('a',64),true,'synthetic',now()+interval '1 hour',now(),repeat('b',64),true);
+    select app.ensure_sources(1);
+    update app.library_state set sources_discovered_at=now() where singleton;
+    update app.sources set last_synced_at=now(),latest_completed_run_id='11111111-1111-4111-8111-111111111111' where epoch=1 and id='liked';
+    insert into app.annotations(track_key,epoch) values(repeat('1',64),1),(repeat('2',64),1);
+    insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,duration_ms,playable_uri)
+      values(repeat('1',64),repeat('1',22),'Synthetic REST song','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic artist"}]','Synthetic release',now(),180000,'spotify:track:'||repeat('1',22)),
+      (repeat('2',64),repeat('2',22),'Synthetic REST song','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic artist"}]','Synthetic release',now(),180000,'spotify:track:'||repeat('2',22));
+    insert into app.source_memberships values(1,'liked',repeat('1',64),now()),(1,'liked',repeat('2',64),now());
+    select app.refresh_source_pool(1);`,
+  );
+  await command([
+    "run",
+    "--detach",
+    "--name",
+    rest,
+    "--network",
+    network,
+    "--env",
+    `PGRST_DB_URI=postgres://postgres@${container}:5432/postgres`,
+    "--env",
+    "PGRST_DB_ANON_ROLE=service_role",
+    "--env",
+    "PGRST_DB_SCHEMAS=public",
+    "ghcr.io/supabase/postgrest:v16.4@sha256:d155c6718ed9a9f990d159a2ab7c0a3f16944dbb6d0a0344557421042acfe0df",
+  ]);
+  const rpc = async (name, args) =>
+    JSON.parse(
+      await command([
+        "exec",
+        container,
+        "wget",
+        "-q",
+        "-O",
+        "-",
+        "--header=Content-Type: application/json",
+        "--post-data=" + JSON.stringify(args),
+        `http://${rest}:3000/rpc/${name}`,
+      ]),
+    );
+  let sources;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    try {
+      sources = await rpc("app_sources_list", { p_epoch: 1 });
+      break;
+    } catch {
+      if (attempt === 59) {
+        throw new Error("Synthetic Sources PostgREST startup failed");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  if (sources.uniqueTrackCount !== 1 || sources.items[0].uniqueCount !== 1) {
+    throw new Error("Sources PostgREST did not deduplicate the pool");
+  }
+  const tag = await rpc("app_tag_create", {
+    p_epoch: 1,
+    p_name: "Synthetic REST tag",
+  });
+  const action = await rpc("app_tag_action", {
+    p_epoch: 1,
+    p_session_hash: "b".repeat(64),
+    p_request: {
+      action: "add",
+      tagId: tag.tag.id,
+      selection: { kind: "tracks", trackKeys: ["1".repeat(64)] },
+    },
+  });
+  if (action.selectedCount !== 1 || action.changedCount !== 1) {
+    throw new Error("Sources PostgREST logical tagging failed");
+  }
+  const undone = await rpc("app_tag_undo", {
+    p_epoch: 1,
+    p_session_hash: "b".repeat(64),
+    p_action_id: action.actionId,
+  });
+  if (undone.restoredCount !== 1) {
+    throw new Error("Sources PostgREST logical undo failed");
+  }
+  await rpc("app_sources_selection", {
+    p_epoch: 1,
+    p_ids: ["liked"],
+    p_enabled: false,
+  });
+  const empty = await rpc("app_sources_list", { p_epoch: 1 });
+  if (empty.uniqueTrackCount !== 0) {
+    throw new Error("Sources PostgREST selection did not update eligibility");
+  }
+  if (
+    await rpc("app_playback_track", {
+      p_epoch: 1,
+      p_track_key: "1".repeat(64),
+    }) !== null
+  ) {
+    throw new Error("Disabled source remained eligible for playback");
+  }
   console.log(
-    "Synthetic source membership, recovery, selection, lease, retention, song identity, undo, restore and 10,000-track batch invariants passed.",
+    "Synthetic source membership, recovery, selection, lease, retention, song identity, undo, restore, 10,000-track batches and actual PostgREST RPC invariants passed.",
   );
 } finally {
+  await command(["rm", "--force", "--volumes", rest]).catch(() => {});
   await command(["rm", "--force", "--volumes", container]).catch(() => {});
   await command(["network", "rm", network]).catch(() => {});
 }

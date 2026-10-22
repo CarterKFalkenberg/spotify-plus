@@ -1,7 +1,7 @@
 # Architecture guide
 
 A source-based map updated October 21, 2026 for the Sources implementation at
-`21cfc9194792bde7eebc7c12929328eb4d1c497a`. This includes selected playlist inputs, logical song
+`30ace8a4ee27379824d447c6265f186813a6b0a3`. This includes selected playlist inputs, logical song
 groups and optional queue SDK listening. It is not a new production health,
 billing, deployment or human-acceptance report. Examples are synthetic.
 
