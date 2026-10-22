@@ -116,6 +116,22 @@ select app.refresh_source_pool(1);
 select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter'))),'source reenable restores logical song with tags');
 rollback to savepoint source_memberships;
 
+-- Retained source dates survive metadata expiry and immediate source reenable.
+savepoint retained_alias_date;
+select app.ensure_sources(1);
+insert into app.sources(epoch,id,kind,name,enabled,last_synced_at)
+ values(1,repeat('r',22),'playlist','Synthetic retained source',false,now());
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values
+ (1,'liked',lpad('1',64,'0'),timestamptz '2026-01-01'),
+ (1,repeat('r',22),lpad('2',64,'0'),timestamptz '2026-02-01');
+select app.refresh_source_pool(1);
+delete from app.track_metadata where track_key=lpad('2',64,'0');
+select public.app_sources_selection(1,jsonb_build_array(repeat('r',22)),true);
+select pg_temp.assert(app.song_added_at(lpad('1',64,'0'))=timestamptz '2026-02-01','reenabled opaque alias retains later known source date');
+select pg_temp.assert((select liked_at=app.song_added_at(track_key) from app.filter_keys((select v from results where k='filter')) where track_key=lpad('1',64,'0')),'filter date includes reenabled metadata-free alias membership');
+select pg_temp.assert((select liked_at=app.song_added_at(track_key) from app.query_targets('{"version":1,"root":{"op":"tag","tagId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}}') where track_key=lpad('1',64,'0')),'query date agrees with DTO helper after alias metadata expiry');
+rollback to savepoint retained_alias_date;
+
 -- Latest arrivals use verified per-source checkpoints with Liked Songs disabled.
 savepoint latest_source_sync;
 select app.ensure_sources(1);

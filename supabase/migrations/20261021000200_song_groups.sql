@@ -130,11 +130,16 @@ create or replace function app.filter_keys(p_filter jsonb) returns table(track_k
    left join app.song_groups g on g.group_key=sm.group_key
   where a.epoch=(select epoch from app.library_state where singleton)
  ), dates as materialized (
-  select member.logical_key,max(sm.added_at) added_at,
-   bool_or(member.added_run_id=s.latest_completed_run_id) latest_arrival
-  from members member join app.source_memberships sm on sm.track_key=member.track_key and sm.epoch=member.epoch
+  -- Opaque memberships outlive metadata retention. Their known addition dates
+  -- still contribute when a source is reenabled before metadata is rehydrated.
+  select coalesce(gm.group_key,sm.track_key) logical_key,max(sm.added_at) added_at,
+   bool_or(metadata.added_run_id=s.latest_completed_run_id) latest_arrival
+  from app.source_memberships sm join app.annotations a on a.track_key=sm.track_key and a.epoch=sm.epoch
    join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
-  where app.source_contributes(s) group by member.logical_key
+   left join app.song_group_members gm on gm.track_key=sm.track_key
+   left join app.track_metadata metadata on metadata.track_key=sm.track_key
+  where sm.epoch=(select epoch from app.library_state where singleton) and app.source_contributes(s)
+  group by coalesce(gm.group_key,sm.track_key)
  ), fallback_dates as materialized (
   select logical_key,max(liked_at) liked_at from members group by logical_key
  )
