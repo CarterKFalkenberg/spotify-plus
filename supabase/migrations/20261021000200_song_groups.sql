@@ -126,42 +126,34 @@ $$;
 
 create or replace function app.filter_keys(p_filter jsonb) returns table(track_key text,liked_at timestamptz)
  language sql stable set search_path='' as $$
- -- Aggregate source dates once per component, rather than calling scalar lookup
- -- functions for every candidate and again for the final sort.
- with members as materialized (
-  select m.*,a.epoch,coalesce(sm.group_key,m.track_key) logical_key,
-   coalesce(g.representative_key,m.track_key) representative_key
-  from app.track_metadata m join app.annotations a using(track_key)
-   left join app.song_group_members sm using(track_key)
-   left join app.song_groups g on g.group_key=sm.group_key
+ -- Build one row per logical song before applying parameterized filters.
+ -- Separate materialized date joins led PostgreSQL's generic JSON-filter plan
+ -- to underestimate survivors and repeatedly scan each date aggregate per song.
+ with components as materialized (
+  select coalesce(g.representative_key,a.track_key) representative_key,
+   max(metadata.liked_at) fallback_date,
+   max(sm.added_at) filter(where app.source_contributes(s)) added_at,
+   bool_or(metadata.added_run_id=s.latest_completed_run_id) filter(where app.source_contributes(s)) latest_arrival
+  from app.annotations a left join app.song_group_members gm using(track_key)
+   left join app.song_groups g on g.group_key=gm.group_key
+   left join app.track_metadata metadata on metadata.track_key=a.track_key
+   left join app.source_memberships sm on sm.track_key=a.track_key and sm.epoch=a.epoch
+   left join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
   where a.epoch=(select epoch from app.library_state where singleton)
- ), dates as materialized (
-  -- Opaque memberships outlive metadata retention. Their known addition dates
-  -- still contribute when a source is reenabled before metadata is rehydrated.
-  select coalesce(gm.group_key,sm.track_key) logical_key,max(sm.added_at) added_at,
-   bool_or(metadata.added_run_id=s.latest_completed_run_id) latest_arrival
-  from app.source_memberships sm join app.annotations a on a.track_key=sm.track_key and a.epoch=sm.epoch
-   join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
-   left join app.song_group_members gm on gm.track_key=sm.track_key
-   left join app.track_metadata metadata on metadata.track_key=sm.track_key
-  where sm.epoch=(select epoch from app.library_state where singleton) and app.source_contributes(s)
-  group by coalesce(gm.group_key,sm.track_key)
- ), fallback_dates as materialized (
-  select logical_key,max(liked_at) liked_at from members group by logical_key
+  group by coalesce(gm.group_key,a.track_key),coalesce(g.representative_key,a.track_key)
  )
- select m.track_key,coalesce(d.added_at,f.liked_at) from members m
- left join dates d using(logical_key) join fallback_dates f using(logical_key)
- where m.track_key=m.representative_key
- and ((p_filter->>'membership'='active' and m.removed_at is null) or (p_filter->>'membership'='removed' and m.removed_at is not null))
+ select m.track_key,coalesce(c.added_at,c.fallback_date) from components c
+ join app.track_metadata m on m.track_key=c.representative_key
+ where true and ((p_filter->>'membership'='active' and m.removed_at is null) or (p_filter->>'membership'='removed' and m.removed_at is not null))
  and (not (p_filter->>'untagged')::boolean or not exists(select 1 from app.track_tags t where t.track_key=m.track_key and t.present))
  and (not (p_filter->>'newOnly')::boolean or (m.removed_at is null and m.acknowledged_at is null))
- and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and coalesce(d.latest_arrival,false)))
+ and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and coalesce(c.latest_arrival,false)))
  and (p_filter->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=p_filter->>'artistId'))
  and (p_filter->>'album' is null or app.album_identity(m.album)=p_filter->>'album')
  and (p_filter->>'decade' is null or app.track_decade(m.release_date)=p_filter->>'decade')
  and (coalesce(p_filter->>'search','')='' or position(lower(normalize(p_filter->>'search',NFC)) in
   lower(normalize(m.title||' '||m.album||' '||coalesce((select string_agg(ar->>'name',' ') from jsonb_array_elements(m.artists) ar),''),NFC)))>0)
- order by coalesce(d.added_at,f.liked_at) desc,m.track_key;
+ order by coalesce(c.added_at,c.fallback_date) desc,m.track_key;
 $$;
 
 -- Status needs counts, not source dates or sorted result sets. Aggregate the
