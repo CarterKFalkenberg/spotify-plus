@@ -113,7 +113,24 @@ async function mock(
       };
     else if (path === "/api/library/status" || path === "/api/library/sync")
       json = { ...status, revision: responseRevision };
-    else if (path === "/api/library/search") {
+    else if (
+      path === "/api/library/queue" ||
+      path === "/api/library/queue-tracks"
+    ) {
+      const body = route.request().postDataJSON();
+      const selected = responseTracks.filter((t) =>
+        path.endsWith("queue-tracks")
+          ? body.trackKeys.includes(t.trackKey)
+          : !body.filter.untagged || !t.tagIds.length,
+      );
+      json = {
+        revision: responseRevision,
+        entries: selected.map((track) => ({ key: track.trackKey, track })),
+        ...(path.endsWith("queue")
+          ? { trackKeys: selected.map((t) => t.trackKey) }
+          : {}),
+      };
+    } else if (path === "/api/library/search") {
       const body = route.request().postDataJSON();
       json = body.groupBy
         ? {
@@ -617,7 +634,7 @@ test("import browsing stays available while create is gated; manual sync and new
   await expect
     .poll(
       () =>
-        calls.filter((call) => call.path === "/api/library/search").at(-1)!.body
+        calls.filter((call) => call.path === "/api/library/queue").at(-1)!.body
           .filter.newOnly,
     )
     .toBe(true);

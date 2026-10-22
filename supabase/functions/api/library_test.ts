@@ -21,6 +21,18 @@ const filter = {
   artistId: null,
 };
 const routes: [string, string, unknown, string][] = [
+  [
+    "/api/library/queue",
+    "POST",
+    { filter, sort: "newest", seed: null },
+    "app_queue_snapshot",
+  ],
+  [
+    "/api/library/queue-tracks",
+    "POST",
+    { trackKeys: ["a".repeat(64)] },
+    "app_queue_tracks",
+  ],
   ["/api/library/status", "GET", null, "app_library_status"],
   ["/api/library/sync", "POST", { reason: "manual" }, "app_library_sync"],
   ["/api/library/search", "POST", {

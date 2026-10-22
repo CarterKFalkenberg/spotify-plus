@@ -3,6 +3,8 @@ import {
   parseLibraryFacets,
   parseLibraryFilter,
   parseLibrarySearch,
+  parseQueueSnapshot,
+  parseQueueTracks,
   parseTagAction,
   parseTagManage,
   parseTagSelection,
@@ -235,5 +237,43 @@ Deno.test("all fast routes send only parsed authenticated RPC inputs and never c
       db,
     );
     check(called && response?.status === 200);
+  }
+});
+
+Deno.test("queue capture validates ordering/selection and hydration is a bounded key request", () => {
+  const filter = {
+    membership: "active",
+    search: "",
+    untagged: true,
+    newOnly: false,
+    artistId: null,
+  };
+  const request = {
+    filter,
+    sort: "random",
+    seed: id,
+    selection: {
+      kind: "filter",
+      filter,
+      expectedRevision: { library: "1", annotations: "2" },
+    },
+  };
+  check(parseQueueSnapshot(request).selection?.kind === "filter");
+  rejects(() => parseQueueSnapshot({ ...request, seed: null }));
+  rejects(() => parseQueueSnapshot({ ...request, cursor: "x" }));
+  rejects(() =>
+    parseQueueSnapshot({ ...request, selection: { kind: "filter", filter } })
+  );
+  const keys = Array.from(
+    { length: 100 },
+    (_, n) => n.toString(16).padStart(64, "0"),
+  );
+  check(parseQueueTracks({ trackKeys: keys }).trackKeys.length === 100);
+  for (
+    const trackKeys of [[], [...keys, "f".repeat(64)], [keys[0], keys[0]], [
+      "invalid",
+    ]]
+  ) {
+    rejects(() => parseQueueTracks({ trackKeys }));
   }
 });

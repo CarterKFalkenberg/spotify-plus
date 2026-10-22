@@ -140,6 +140,13 @@ select pg_temp.assert((select v->>'uniqueTrackCount'='5000' and jsonb_array_leng
 insert into scale_results values('search',public.app_library_search(1,jsonb_build_object(
  'filter','{"membership":"active","untagged":true,"newOnly":false}'::jsonb,'sort','newest','limit',50)));
 select pg_temp.assert((select v->>'totalTracks'='5000' and jsonb_array_length(v->'tracks')=50 from scale_results where k='search'),'large search counts logical songs with a bounded page');
+-- Capturing a 5000-song queue over 10000 synthetic aliases serializes only forty
+-- DTOs; following batches use keys and remain valid after annotation changes.
+insert into scale_results values('queue',public.app_queue_snapshot(1,jsonb_build_object(
+ 'filter','{"membership":"active","untagged":true,"newOnly":false}'::jsonb,'sort','newest','seed',null)));
+select pg_temp.assert((select jsonb_array_length(v->'trackKeys')=5000 and jsonb_array_length(v->'entries')=40 from scale_results where k='queue'),'large queue freezes opaque keys with forty metadata rows');
+insert into scale_results values('queue-hydrate',public.app_queue_tracks(1,jsonb_build_object('trackKeys',(select jsonb_agg(value order by ord) from scale_results,jsonb_array_elements(v->'trackKeys') with ordinality e(value,ord) where k='queue' and ord between 41 and 140))));
+select pg_temp.assert((select jsonb_array_length(v->'entries')=100 from scale_results where k='queue-hydrate'),'large key hydration is bounded to one hundred songs');
 insert into scale_results values('tag',public.app_tag_create(1,'Synthetic scale tag'));
 insert into scale_results values('action',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','add','tagId',(select v#>>'{tag,id}' from scale_results where k='tag'),
  'selection',jsonb_build_object('kind','filter','filter','{"membership":"active","untagged":true,"newOnly":false}'::jsonb,'expectedRevision',app.library_revision()))));

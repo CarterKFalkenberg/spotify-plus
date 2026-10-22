@@ -15,7 +15,8 @@ import {
   trackAddedAt,
 } from "./api";
 import {
-  search,
+  queueSnapshot,
+  queueTracks,
   vocabulary,
   sameRevision,
   acknowledged,
@@ -30,7 +31,6 @@ import {
   skipToTail,
   quickSlots,
   refreshQuickRank,
-  preserveCurrent,
   ownedPatchRevision,
   restoredQueueTags,
 } from "./tagging";
@@ -58,6 +58,10 @@ export function Queue({
   const [mode, setMode] = useState("newest");
   const [rows, setRows] = useState<TrackDTO[]>([]),
     [index, setIndex] = useState(0);
+  const [order, setOrder] = useState<string[]>([]);
+  const identities = useRef(new Map<string, string>());
+  const hydrated = useRef(new Map<string, LibraryStatusDTO["revision"]>());
+  const initialized = useRef(false);
   const [frequent, setFrequent] = useState<readonly (TagDTO | undefined)[]>([]),
     [pinned, setPinned] = useState<Record<number, TagDTO>>({});
   const [known, setKnown] = useState<readonly TagDTO[]>([]),
@@ -81,7 +85,10 @@ export function Queue({
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-  const hasCurrent = !!rows[index];
+  const current = rows.find(
+    (t) => t.trackKey === identities.current.get(order[index] ?? ""),
+  );
+  const hasCurrent = !!current;
   const [actions, setActions] = useState<
     {
       id: string;
@@ -122,14 +129,12 @@ export function Queue({
     if (!hasCurrent) setSheet(false);
   }, [hasCurrent]);
   const syncedRevision = useRef<LibraryStatusDTO["revision"] | null>(null);
-  const queueKeys = useRef(new Set<string>());
   const [retry, setRetry] = useState(0);
   const helpDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (help) helpDialog.current?.showModal();
     else helpDialog.current?.close();
   }, [help]);
-  const current = rows[index];
   const lastAction = actions.at(-1);
   const feedbackTarget =
     lastAction?.key === current?.trackKey
@@ -142,9 +147,11 @@ export function Queue({
     : "";
 
   const rowsRef = useRef(rows),
+    orderRef = useRef(order),
     indexRef = useRef(index),
     generation = useRef(0);
   rowsRef.current = rows;
+  orderRef.current = order;
   indexRef.current = index;
   const slots = quickSlots(frequent, pinned);
   useEffect(() => {
@@ -216,15 +223,25 @@ export function Queue({
     });
     return () => c.abort();
   }, [refresh]);
+  // Session order is a lightweight opaque manifest. Only a nearby metadata
+  // window is requested; tag writes cannot invalidate a frozen search cursor.
   useEffect(() => {
-    const c = new AbortController();
-    const ownGeneration = ++generation.current;
-    setLoading(true);
-    setCheckingEligibility(false);
-    setError("");
-    setIndex(0);
+    generation.current++;
+    initialized.current = false;
+    identities.current.clear();
+    hydrated.current.clear();
+    syncedRevision.current = null;
+    setOrder([]);
     setRows([]);
-    queueKeys.current = new Set();
+    setIndex(0);
+    setError("");
+    setCheckingEligibility(false);
+  }, [mode, source, retry, poolVersion]);
+  useEffect(() => {
+    if (!active || initialized.current) return;
+    const c = new AbortController();
+    const ownGeneration = generation.current;
+    setLoading(true);
     const filter: FastFilter = (source && !("kind" in source)
       ? source
       : source?.kind === "filter"
@@ -239,117 +256,165 @@ export function Queue({
     };
     const sort: Sort =
       mode === "oldest" ? "oldest" : mode === "random" ? "random" : "newest";
-    async function load() {
-      let cursor: string | null = null;
-      const all: TrackDTO[] = [];
-      let revision: LibraryStatusDTO["revision"] | null = null;
-      do {
-        const v: ReturnType<typeof search> = await api(
-          "/library/search",
-          search,
-          {
-            filter,
-            groupBy: null,
-            sort,
-            seed: sort === "random" ? seed.current : null,
-            cursor,
-            limit: 100,
-          },
-          c.signal,
-        );
-        if (v.groupBy !== null) throw Error();
-        if (
-          source &&
-          "kind" in source &&
-          source.kind === "filter" &&
-          !sameRevision(source.expectedRevision, v.revision)
-        )
-          throw new ApiError("stale_revision", 409);
-        revision = v.revision;
-        all.push(
-          ...v.tracks.filter(
-            (t) =>
-              !source ||
-              !("kind" in source) ||
-              source.kind !== "tracks" ||
-              source.trackKeys.includes(t.trackKey),
-          ),
-        );
-        cursor = v.nextCursor;
-      } while (cursor && !c.signal.aborted);
-      if (!c.signal.aborted && ownGeneration === generation.current) {
-        syncedRevision.current = revision;
-        setRows(all);
-        queueKeys.current = new Set(all.map((t) => t.trackKey));
-        setLoading(false);
-      }
-    }
-    void load().catch((e) => {
-      if (!c.signal.aborted) {
-        setError(errorMessage(e));
-        setLoading(false);
-      }
-    });
-    return () => c.abort();
-  }, [mode, source, retry, poolVersion]);
-  // Membership refresh does not reorder the session snapshot or pull in new songs.
-  useEffect(() => {
-    if (
-      !active ||
-      !queueKeys.current.size ||
-      (status &&
-        syncedRevision.current &&
-        sameRevision(status.revision, syncedRevision.current))
+    void api(
+      "/library/queue",
+      queueSnapshot,
+      {
+        filter,
+        sort,
+        seed: sort === "random" ? seed.current : null,
+        ...(source && "kind" in source ? { selection: source } : {}),
+      },
+      c.signal,
     )
-      return;
-    const c = new AbortController();
-    const ownGeneration = generation.current,
-      keys = new Set(queueKeys.current);
-    // Annotation refreshes update tags without revoking the current song.
-    // Membership revisions remain fail-closed while eligibility is rechecked.
-    setCheckingEligibility(
-      !status ||
-        !syncedRevision.current ||
-        status.revision.library !== syncedRevision.current.library,
-    );
-    async function update() {
-      let cursor: string | null = null;
-      const live = new Map<string, TrackDTO>();
-      do {
-        const v: ReturnType<typeof search> = await api(
-          "/library/search",
-          search,
-          { filter: emptyFilter, groupBy: null, cursor, limit: 100 },
-          c.signal,
+      .then((v) => {
+        if (c.signal.aborted || ownGeneration !== generation.current) return;
+        initialized.current = true;
+        syncedRevision.current = v.revision;
+        identities.current = new Map(
+          v.entries.map((e) => [e.key, e.track.trackKey]),
         );
-        if (v.groupBy !== null) throw Error();
-        for (const t of v.tracks)
-          if (keys.has(t.trackKey)) live.set(t.trackKey, t);
-        cursor = v.nextCursor;
-      } while (cursor && !c.signal.aborted);
-      if (!c.signal.aborted && ownGeneration === generation.current) {
-        if (status) syncedRevision.current = status.revision;
-        const next = preserveCurrent(rowsRef.current, indexRef.current, live);
-        setRows(next.rows);
-        setIndex(next.index);
-      }
-    }
-    void update()
-      .catch((e) => {
-        if (!c.signal.aborted) setError(errorMessage(e));
+        hydrated.current = new Map(v.entries.map((e) => [e.key, v.revision]));
+        setOrder(v.trackKeys);
+        setRows(v.entries.map((e) => e.track));
+        setLoading(false);
       })
-      .finally(() => {
-        if (!c.signal.aborted) setCheckingEligibility(false);
+      .catch((e) => {
+        if (!c.signal.aborted && ownGeneration === generation.current) {
+          setError(errorMessage(e));
+          setLoading(false);
+        }
+      });
+    return () => c.abort();
+  }, [mode, source, retry, poolVersion, active]);
+  const currentRevision = hydrated.current.get(order[index] ?? "");
+  const eligibilityPending =
+    checkingEligibility ||
+    (!!current &&
+      (!status ||
+        !currentRevision ||
+        BigInt(currentRevision.library) < BigInt(status.revision.library)));
+  useEffect(() => {
+    if (!active || !initialized.current || busy || !order.length) return;
+    const nearby = order.slice(Math.max(0, index - 10), index + 41);
+    const stale = nearby.filter((key) => {
+      const revision = hydrated.current.get(key);
+      return (
+        revision &&
+        (!status ||
+          BigInt(revision.library) < BigInt(status.revision.library) ||
+          BigInt(revision.annotations) < BigInt(status.revision.annotations))
+      );
+    });
+    // Fetch one complete batch ahead, then stop until the user approaches its
+    // end. This avoids both one request per arrow press and eager library walks.
+    const needsAhead = order
+      .slice(index, index + 60)
+      .some((key) => !hydrated.current.has(key));
+    const missing = needsAhead
+      ? order
+          .slice(index)
+          .filter((key) => !hydrated.current.has(key))
+          .slice(0, 40)
+      : [];
+    const wanted = [...new Set([...stale, ...missing])].slice(0, 100);
+    if (!wanted.length) {
+      setCheckingEligibility(false);
+      return;
+    }
+    const c = new AbortController();
+    const ownGeneration = generation.current;
+    setCheckingEligibility(
+      !!current &&
+        wanted.includes(order[index] ?? "") &&
+        (!status ||
+          !currentRevision ||
+          BigInt(currentRevision.library) < BigInt(status.revision.library)),
+    );
+    void api(
+      "/library/queue-tracks",
+      queueTracks,
+      { trackKeys: wanted },
+      c.signal,
+    )
+      .then((v) => {
+        if (c.signal.aborted || ownGeneration !== generation.current) return;
+        const returned = new Map(v.entries.map((e) => [e.key, e.track]));
+        for (const key of wanted) {
+          const t = returned.get(key);
+          if (t) {
+            identities.current.set(key, t.trackKey);
+            hydrated.current.set(key, v.revision);
+          } else {
+            identities.current.delete(key);
+            hydrated.current.delete(key);
+          }
+        }
+        // Components can merge while a queue is open. Keep the earliest captured
+        // slot for each resolved representative and never insert a new identity.
+        const seen = new Set<string>();
+        const next = orderRef.current.filter((key) => {
+          if (wanted.includes(key) && !returned.has(key)) return false;
+          const representative = identities.current.get(key);
+          if (!representative) return true;
+          if (seen.has(representative)) return false;
+          seen.add(representative);
+          return true;
+        });
+        const selected = orderRef.current[indexRef.current];
+        const retained = next.indexOf(selected ?? "");
+        setOrder(next);
+        setIndex(
+          retained >= 0
+            ? retained
+            : Math.min(indexRef.current, Math.max(0, next.length - 1)),
+        );
+        setRows((old) => {
+          const fresh = new Map(old.map((t) => [t.trackKey, t]));
+          for (const entry of v.entries)
+            fresh.set(entry.track.trackKey, entry.track);
+          const retainedKeys = new Set(
+            next.map((key) => identities.current.get(key)),
+          );
+          return [...fresh.values()].filter((t) =>
+            retainedKeys.has(t.trackKey),
+          );
+        });
+        syncedRevision.current = v.revision;
+        setCheckingEligibility(false);
+      })
+      .catch((e) => {
+        if (!c.signal.aborted && ownGeneration === generation.current) {
+          setError(errorMessage(e));
+          // An unsuccessful eligibility check must never re-enable stale playback.
+        }
       });
     return () => c.abort();
   }, [
+    active,
+    busy,
+    index,
+    order,
     status?.revision.library,
     status?.revision.annotations,
-    active,
+    refresh,
     mode,
     source,
     retry,
+    poolVersion,
   ]);
+  function coverOwnedRevision(
+    before: LibraryStatusDTO["revision"] | null,
+    revision: LibraryStatusDTO["revision"],
+    changed: boolean,
+  ) {
+    const covered = ownedPatchRevision(before, revision, changed);
+    if (covered !== revision) return;
+    for (const [key, previous] of hydrated.current)
+      if (before && sameRevision(previous, before))
+        hydrated.current.set(key, revision);
+    syncedRevision.current = revision;
+  }
   useEffect(() => {
     const c = new AbortController();
     setKnown([]);
@@ -368,27 +433,28 @@ export function Queue({
         ?.focus();
   }, [active, index, current?.trackKey, mobile, editingSlots, pinSlot]);
   useEffect(() => {
-    if (index >= rows.length) setIndex(Math.max(0, rows.length - 1));
-  }, [index, rows.length]);
+    if (index >= order.length) setIndex(Math.max(0, order.length - 1));
+  }, [index, order.length]);
   async function mutate(tag: TagDTO | string, kind: "add" | "remove" = "add") {
-    if (!current || busy) return;
+    if (!active || !current || busy || eligibilityPending) return;
     setBusy(true);
     setError("");
     const key = current.trackKey,
       before = current.tagIds;
     const coveredBefore = syncedRevision.current;
+    const ownGeneration = generation.current;
     try {
       const v = await api("/tag-actions", tagAction, {
         selection: { kind: "tracks", trackKeys: [key] } satisfies Selection,
         ...(typeof tag === "string" ? { tagName: tag } : { tagId: tag.id }),
         action: kind,
       });
+      if (ownGeneration !== generation.current) {
+        onChanged();
+        return;
+      }
       if (typeof tag !== "string" && syncedRevision.current === coveredBefore)
-        syncedRevision.current = ownedPatchRevision(
-          coveredBefore,
-          v.revision,
-          v.changedCount > 0,
-        );
+        coverOwnedRevision(coveredBefore, v.revision, v.changedCount > 0);
       setRows((old) =>
         old.map((t) =>
           t.trackKey === key
@@ -417,7 +483,7 @@ export function Queue({
       ]);
       onChanged();
     } catch (e) {
-      setError(errorMessage(e));
+      if (ownGeneration === generation.current) setError(errorMessage(e));
       throw e;
     } finally {
       setBusy(false);
@@ -427,8 +493,13 @@ export function Queue({
     const a = actions.at(-1);
     if (!a || busy) return;
     setBusy(true);
+    const ownGeneration = generation.current;
     try {
       const v = await api(`/tag-actions/${a.id}/undo`, undoAction, {});
+      if (ownGeneration !== generation.current) {
+        onChanged();
+        return;
+      }
       setActions((old) => old.slice(0, -1));
       setError(
         v.skippedCount
@@ -452,27 +523,28 @@ export function Queue({
       }
       onChanged();
     } catch (e) {
-      setError(errorMessage(e));
+      if (ownGeneration === generation.current) setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
   }
   async function markReviewed() {
-    if (!current || busy) return;
+    if (!active || !current || busy || eligibilityPending) return;
     setBusy(true);
     setError("");
     const key = current.trackKey;
     const coveredBefore = syncedRevision.current;
+    const ownGeneration = generation.current;
     try {
       const v = await api("/library/acknowledge", acknowledged, {
         trackKeys: [key],
       });
+      if (ownGeneration !== generation.current) {
+        onChanged();
+        return;
+      }
       if (syncedRevision.current === coveredBefore)
-        syncedRevision.current = ownedPatchRevision(
-          coveredBefore,
-          v.revision,
-          v.changedCount > 0,
-        );
+        coverOwnedRevision(coveredBefore, v.revision, v.changedCount > 0);
       setRows((old) =>
         old.map((t) =>
           t.trackKey === key && t.metadata
@@ -488,17 +560,21 @@ export function Queue({
       );
       onChanged();
     } catch (e) {
-      setError(errorMessage(e));
+      if (ownGeneration === generation.current) setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
   }
   function advance(delta: number) {
-    setIndex((i) => Math.min(Math.max(0, i + delta), rows.length - 1));
+    if (!active || busy) return;
+    setIndex((i) =>
+      Math.min(Math.max(0, i + delta), Math.max(0, order.length - 1)),
+    );
   }
   function skip() {
-    setRows((old) => skipToTail(old, index));
-    setIndex((i) => Math.min(i, Math.max(0, rows.length - 1)));
+    if (!active || busy || !current) return;
+    setOrder((old) => skipToTail(old, index));
+    setIndex((i) => Math.min(i, Math.max(0, order.length - 1)));
   }
   async function removeLast() {
     const a = [...actions]
@@ -583,6 +659,9 @@ export function Queue({
                 )}
               </select>
             </label>
+            <button onClick={() => setRetry((v) => v + 1)}>
+              Refresh queue
+            </button>
             <p className="muted">
               Quick tags use your frequent tags. Pin a session’s shortcuts from
               Edit quick tags beside the slots.
@@ -602,8 +681,10 @@ export function Queue({
           </button>
         </p>
       )}
-      {loading && <p role="status">Preparing your queue…</p>}
-      {!loading && !current && (
+      {(loading || (!!order.length && !current)) && (
+        <p role="status">Preparing your queue…</p>
+      )}
+      {!loading && !order.length && (
         <div className="empty-state">
           <h3>No songs waiting in this queue</h3>
           <p>
@@ -614,20 +695,27 @@ export function Queue({
         </div>
       )}
       <div className="mobile-only mobile-cards">
-        {rows.map((t, i) => (
-          <button
-            key={t.trackKey}
-            className="mobile-track"
-            onClick={(event) => {
-              originatingCard.current = event.currentTarget;
-              setIndex(i);
-              setSheet(true);
-            }}
-          >
-            <TrackSummary track={t} link={false} />
-            <span>{t.tagIds.length} tags · Tap to tag</span>
-          </button>
-        ))}
+        {order.slice(Math.max(0, index - 10), index + 31).map((key, offset) => {
+          const t = rows.find(
+            (row) => row.trackKey === identities.current.get(key),
+          );
+          if (!t) return null;
+          const i = Math.max(0, index - 10) + offset;
+          return (
+            <button
+              key={key}
+              className="mobile-track"
+              onClick={(event) => {
+                originatingCard.current = event.currentTarget;
+                setIndex(i);
+                setSheet(true);
+              }}
+            >
+              <TrackSummary track={t} link={false} />
+              <span>{t.tagIds.length} tags · Tap to tag</span>
+            </button>
+          );
+        })}
       </div>
       {current && (
         <dialog
@@ -692,7 +780,7 @@ export function Queue({
               active={
                 active &&
                 playbackAllowed &&
-                !checkingEligibility &&
+                !eligibilityPending &&
                 (!mobile || sheet)
               }
             />
@@ -717,7 +805,7 @@ export function Queue({
                 <button
                   className="chip"
                   key={t.id}
-                  disabled={busy}
+                  disabled={busy || eligibilityPending}
                   onClick={() => void mutate(t, "remove").catch(() => {})}
                   aria-label={`Remove ${t.name} from current song`}
                 >
@@ -730,7 +818,7 @@ export function Queue({
               showEmptySuggestions={false}
               autoFocus={active && !matchMedia("(max-width:640px)").matches}
               refresh={refresh}
-              disabled={busy}
+              disabled={busy || eligibilityPending}
               onCreate={mutate}
               onChoose={mutate}
             />
@@ -757,7 +845,7 @@ export function Queue({
                 <div key={i} className={!t ? "empty-slot" : undefined}>
                   <button
                     className="chip"
-                    disabled={!t || busy}
+                    disabled={!t || busy || eligibilityPending}
                     onClick={() => t && void mutate(t).catch(() => {})}
                   >
                     <kbd>{i + 1}</kbd> {t?.name ?? "Empty slot"}
@@ -810,12 +898,16 @@ export function Queue({
             </button>
             <button
               className="primary queue-next"
-              disabled={busy || index === rows.length - 1}
+              disabled={busy || index === order.length - 1}
               onClick={() => advance(1)}
             >
               Next →
             </button>
-            <button className="queue-skip" disabled={busy} onClick={skip}>
+            <button
+              className="queue-skip"
+              disabled={busy || eligibilityPending}
+              onClick={skip}
+            >
               Skip · requeue
             </button>
           </div>
@@ -823,7 +915,10 @@ export function Queue({
             <summary>Song actions &amp; shortcuts</summary>
             <div className="queue-tools">
               {current.metadata?.acknowledgedAt === null && (
-                <button disabled={busy} onClick={() => void markReviewed()}>
+                <button
+                  disabled={busy || eligibilityPending}
+                  onClick={() => void markReviewed()}
+                >
                   Mark arrival reviewed
                 </button>
               )}
@@ -840,7 +935,7 @@ export function Queue({
               </button>
               <button
                 className="desktop-bulk"
-                disabled={busy}
+                disabled={busy || eligibilityPending}
                 onClick={() => void removeLast().catch(() => {})}
               >
                 Remove last-applied tag
@@ -853,7 +948,10 @@ export function Queue({
           {!!actions.length && (
             <div role="status" className="queue-feedback">
               {savedFeedback}
-              <button disabled={busy} onClick={() => void undo()}>
+              <button
+                disabled={busy || eligibilityPending}
+                onClick={() => void undo()}
+              >
                 Undo last action
               </button>
             </div>

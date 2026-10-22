@@ -114,6 +114,11 @@ async function mock(
       json = { changedCount: body.ids.length, revision: rev() };
     } else if (path === "/api/sources/sync")
       json = { queued: true, revision: rev() };
+    else if (
+      path === "/api/library/queue" ||
+      path === "/api/library/queue-tracks"
+    )
+      json = { revision: rev(), trackKeys: [], entries: [] };
     else if (path === "/api/library/search")
       json = body.groupBy
         ? {
@@ -426,7 +431,23 @@ test("an unavailable source can be turned off and explicitly enabled again for v
           lastCompletedAt: "2026-10-21T12:00:00Z",
           blockedBy: null,
         };
-      else if (path === "/api/library/search")
+      else if (
+        path === "/api/library/queue" ||
+        path === "/api/library/queue-tracks"
+      ) {
+        const selected = (
+          poolCount() === 2 ? [likedTrack, recoveredTrack] : [likedTrack]
+        ).filter((t) =>
+          path.endsWith("queue-tracks")
+            ? body.trackKeys.includes(t.trackKey)
+            : true,
+        );
+        json = {
+          revision: rev(),
+          trackKeys: selected.map((t) => t.trackKey),
+          entries: selected.map((track) => ({ key: track.trackKey, track })),
+        };
+      } else if (path === "/api/library/search")
         json = body.groupBy
           ? {
               groupBy: body.groupBy,

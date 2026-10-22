@@ -12,6 +12,8 @@ import {
   parseLibrarySearch,
   parseLibrarySync,
   parseQueryPreview,
+  parseQueueSnapshot,
+  parseQueueTracks,
   parseTagAction,
   parseTagLookup,
   parseTagManage,
@@ -127,6 +129,22 @@ export async function libraryApi(
         p_epoch: epoch,
         p_reason: request.reason,
       }),
+    );
+  }
+  if (path === "/api/library/queue" || path === "/api/library/queue-tracks") {
+    const request = path === "/api/library/queue"
+      ? parseQueueSnapshot(await readJson(req))
+      : parseQueueTracks(await readJson(req));
+    return json(
+      await db.rpc(
+        path === "/api/library/queue"
+          ? "app_queue_snapshot"
+          : "app_queue_tracks",
+        {
+          p_epoch: epoch,
+          p_request: request,
+        },
+      ),
     );
   }
   if (path === "/api/library/search") {

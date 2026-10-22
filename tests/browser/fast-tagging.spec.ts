@@ -93,7 +93,27 @@ async function mock(
         lastCompletedAt: "2026-10-11T12:00:00Z",
         blockedBy: null,
       };
-    else if (path === "/api/library/search")
+    else if (
+      path === "/api/library/queue" ||
+      path === "/api/library/queue-tracks"
+    ) {
+      const selected = tracks.filter((t) =>
+        path.endsWith("queue-tracks")
+          ? body.trackKeys.includes(t.trackKey)
+          : (!body.filter.untagged || !t.tagIds.length) &&
+            (body.selection?.kind !== "tracks" ||
+              body.selection.trackKeys.includes(t.trackKey)),
+      );
+      json = {
+        revision: revision(),
+        entries: selected
+          .slice(0, 40)
+          .map((track) => ({ key: track.trackKey, track })),
+        ...(path.endsWith("queue")
+          ? { trackKeys: selected.map((t) => t.trackKey) }
+          : {}),
+      };
+    } else if (path === "/api/library/search")
       json = body.groupBy
         ? {
             revision: revision(),
@@ -402,7 +422,7 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
   await expect
     .poll(() =>
       calls.some(
-        (c) => c.path === "/api/library/search" && c.body.filter.latestSyncOnly,
+        (c) => c.path === "/api/library/queue" && c.body.filter.latestSyncOnly,
       ),
     )
     .toBe(true);
@@ -416,12 +436,12 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
   await expect
     .poll(() =>
       calls.some(
-        (c) => c.path === "/api/library/search" && c.body.sort === "random",
+        (c) => c.path === "/api/library/queue" && c.body.sort === "random",
       ),
     )
     .toBe(true);
   const r = calls.find(
-    (c) => c.path === "/api/library/search" && c.body.sort === "random",
+    (c) => c.path === "/api/library/queue" && c.body.sort === "random",
   )!;
   expect(r.body.seed).toMatch(/^[0-9a-f-]{36}$/);
 });
@@ -627,12 +647,7 @@ test("failed first queue traversal retries the same default order and pinning pr
   let recovered = false;
   const calls = await mock(page, {
     intercept: async (route, path, body) => {
-      if (
-        path === "/api/library/search" &&
-        body.groupBy === null &&
-        body.filter.untagged &&
-        !recovered
-      ) {
+      if (path === "/api/library/queue" && body.filter.untagged && !recovered) {
         await route.fulfill({ status: 503, json: { error: "unavailable" } });
         return true;
       }
@@ -656,7 +671,7 @@ test("failed first queue traversal retries the same default order and pinning pr
   ).toBeVisible();
   expect(
     calls
-      .filter((c) => c.path === "/api/library/search" && c.body.filter.untagged)
+      .filter((c) => c.path === "/api/library/queue" && c.body.filter.untagged)
       .at(-1)!.body.sort,
   ).toBe("newest");
   await page
@@ -706,12 +721,7 @@ test("membership removals before the focused row keep that song current; delayed
         });
         return true;
       }
-      if (
-        changed &&
-        path === "/api/library/search" &&
-        body.groupBy === null &&
-        body.sort === undefined
-      ) {
+      if (changed && path === "/api/library/queue-tracks") {
         if (delayed)
           await new Promise<void>((resolve) => {
             deferred.release = resolve;
@@ -720,10 +730,9 @@ test("membership removals before the focused row keep that song current; delayed
           await route.fulfill({
             json: {
               revision: { library: String(syncCount + 1), annotations: "1" },
-              groupBy: null,
-              totalTracks: 2,
-              nextCursor: null,
-              tracks: [makeTrack(2), makeTrack(3)],
+              entries: [makeTrack(2), makeTrack(3)]
+                .filter((track) => body.trackKeys.includes(track.trackKey))
+                .map((track) => ({ key: track.trackKey, track })),
             },
           });
         } catch {
@@ -898,11 +907,7 @@ for (const action of ["tag", "acknowledge"])
           });
           return true;
         }
-        if (
-          changed &&
-          path === "/api/library/search" &&
-          body.groupBy === null
-        ) {
+        if (changed && path === "/api/library/queue-tracks") {
           const a = makeTrack(1),
             b = makeTrack(3);
           a.tagIds = [id(1)];
@@ -910,10 +915,9 @@ for (const action of ["tag", "acknowledge"])
           await route.fulfill({
             json: {
               revision: { library: "2", annotations: "3" },
-              groupBy: null,
-              totalTracks: 2,
-              nextCursor: null,
-              tracks: [a, b],
+              entries: [a, b]
+                .filter((track) => body.trackKeys.includes(track.trackKey))
+                .map((track) => ({ key: track.trackKey, track })),
             },
           });
           return true;
@@ -1074,20 +1078,15 @@ for (const scenario of ["restored", "empty", "skipped", "noop"] as const)
           });
           return true;
         }
-        if (
-          concurrent &&
-          path === "/api/library/search" &&
-          body.groupBy === null
-        ) {
+        if (concurrent && path === "/api/library/queue-tracks") {
           const track = makeTrack(1);
           track.tagIds = hasLaterTag ? [id(1), id(3)] : [id(1)];
           await route.fulfill({
             json: {
               revision: { library: "1", annotations: "3" },
-              groupBy: null,
-              totalTracks: 3,
-              nextCursor: null,
-              tracks: [track, makeTrack(2), makeTrack(3)],
+              entries: [track, makeTrack(2), makeTrack(3)]
+                .filter((t) => body.trackKeys.includes(t.trackKey))
+                .map((track) => ({ key: track.trackKey, track })),
             },
           });
           return true;
@@ -1375,14 +1374,14 @@ test("quick-tag failures stay reachable inside the mobile modal and removing its
   await mock(page, {
     failAction: true,
     intercept: async (route, path, body) => {
-      if (path !== "/api/library/search" || body.groupBy) return false;
+      if (path !== "/api/library/queue") return false;
       await route.fulfill({
         json: {
           revision: { library: "1", annotations: "1" },
-          groupBy: null,
-          totalTracks: emptied ? 0 : 1,
-          nextCursor: null,
-          tracks: emptied ? [] : [makeTrack(1)],
+          trackKeys: emptied ? [] : [makeTrack(1).trackKey],
+          entries: emptied
+            ? []
+            : [{ key: makeTrack(1).trackKey, track: makeTrack(1) }],
         },
       });
       return true;
@@ -2536,6 +2535,15 @@ test("changing a source clears bulk selection and rebuilds queue membership with
         });
         return true;
       }
+      if (
+        selected &&
+        (path === "/api/library/queue" || path === "/api/library/queue-tracks")
+      ) {
+        await route.fulfill({
+          json: { revision: rev(), trackKeys: [], entries: [] },
+        });
+        return true;
+      }
       if (selected && path === "/api/library/search") {
         await route.fulfill({
           json: body.groupBy
@@ -2620,6 +2628,19 @@ test("another client's source selection stops the current browser player and inv
             newCount: 0,
             lastCompletedAt: "2026-10-21T12:00:00Z",
             blockedBy: null,
+          },
+        });
+        return true;
+      }
+      if (
+        changed &&
+        (path === "/api/library/queue" || path === "/api/library/queue-tracks")
+      ) {
+        await route.fulfill({
+          json: {
+            revision: { library: "2", annotations: "1" },
+            trackKeys: [],
+            entries: [],
           },
         });
         return true;
@@ -2782,12 +2803,11 @@ for (const action of ["create a free-form tag", "undo a changed tag"] as const)
       ).toHaveCount(0);
     }
     const before = calls.filter(
-      (call) => call.path === "/api/library/search",
+      (call) => call.path === "/api/library/queue-tracks",
     ).length;
     const refreshed = page.waitForResponse(
       (response) =>
-        new URL(response.url()).pathname === "/api/library/search" &&
-        response.request().postDataJSON().sort === undefined,
+        new URL(response.url()).pathname === "/api/library/queue-tracks",
     );
     await page.clock.fastForward(1500);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -2795,7 +2815,8 @@ for (const action of ["create a free-form tag", "undo a changed tag"] as const)
     await expect
       .poll(
         () =>
-          calls.filter((call) => call.path === "/api/library/search").length,
+          calls.filter((call) => call.path === "/api/library/queue-tracks")
+            .length,
       )
       .toBeGreaterThan(before);
     await page.clock.fastForward(200);
@@ -2811,3 +2832,312 @@ for (const action of ["create a free-form tag", "undo a changed tag"] as const)
       paused: false,
     });
   });
+
+test("a ten-thousand-song queue exposes its first batch before delayed prefetch and keeps metadata work bounded", async ({
+  page,
+  isMobile,
+}) => {
+  const keys = Array.from(
+    { length: 10000 },
+    (_, n) => makeTrack(n + 1).trackKey,
+  );
+  let release: (() => void) | undefined;
+  let hydrated = false;
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/queue") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations: "1" },
+            trackKeys: keys,
+            entries: keys
+              .slice(0, 40)
+              .map((key, n) => ({ key, track: makeTrack(n + 1) })),
+          },
+        });
+        return true;
+      }
+      if (path === "/api/library/queue-tracks") {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        try {
+          await route.fulfill({
+            json: {
+              revision: { library: "1", annotations: "1" },
+              entries: body.trackKeys.map((key: string) => ({
+                key,
+                track: makeTrack(Number(key)),
+              })),
+            },
+          });
+        } catch {
+          /* aborted by navigation/tagging */
+        }
+        hydrated = true;
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  if (isMobile)
+    await page
+      .getByRole("button", { name: "New arrivals 2", exact: true })
+      .click();
+  else await queue(page);
+  await expect.poll(() => !!release).toBe(true);
+  if (isMobile) {
+    await expect(page.locator(".mobile-track")).toHaveCount(31);
+    await page.locator(".mobile-track").first().click();
+  }
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 1");
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await expect(input).toBeEnabled();
+  await input.fill("unfinished");
+  expect(hydrated).toBe(false);
+  expect(
+    calls.filter((c) => c.path === "/api/library/queue").length,
+  ).toBeLessThanOrEqual(2);
+  expect(
+    calls.filter((c) => c.path === "/api/library/queue-tracks"),
+  ).toHaveLength(1);
+  expect(
+    calls.find((c) => c.path === "/api/library/queue-tracks")!.body.trackKeys,
+  ).toHaveLength(40);
+  release?.();
+  await expect.poll(() => hydrated).toBe(true);
+  await expect(input).toHaveValue("unfinished");
+  // A completed prefetch must stop; it must not walk the other 9920 songs.
+  await page.waitForTimeout(100);
+  expect(
+    calls.filter((c) => c.path === "/api/library/queue-tracks"),
+  ).toHaveLength(1);
+  expect(await page.locator(".mobile-track").count()).toBeLessThanOrEqual(41);
+});
+
+test("skipping a loaded song places it after unloaded songs; early saves and Previous keep the frozen queue", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop focused navigation");
+  const tracks = Array.from({ length: 45 }, (_, n) => makeTrack(n + 1));
+  let annotations = "1";
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/queue") {
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations },
+            trackKeys: tracks.map((t) => t.trackKey),
+            entries: tracks
+              .slice(0, 2)
+              .map((track) => ({ key: track.trackKey, track })),
+          },
+        });
+        return true;
+      }
+      if (path === "/api/tag-actions") {
+        tracks[0]!.tagIds = [id(1)];
+        annotations = "2";
+        await route.fulfill({
+          json: {
+            actionId: id(90),
+            selectedCount: 1,
+            changedCount: 1,
+            tag: tags[0],
+            revision: { library: "1", annotations },
+          },
+        });
+        return true;
+      }
+      if (path === "/api/library/queue-tracks") {
+        const selected = tracks.filter((track) =>
+          body.trackKeys.includes(track.trackKey),
+        );
+        await route.fulfill({
+          json: {
+            revision: { library: "1", annotations },
+            entries: selected.map((track) => ({ key: track.trackKey, track })),
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await input.press("1");
+  await expect(page.locator(".queue-feedback")).toContainText("Saved");
+  await input.press("Alt+s");
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
+  await input.press("ArrowRight");
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 3");
+  await input.press("ArrowLeft");
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
+  for (let n = 3; n <= 45; n++) {
+    await input.press("ArrowRight");
+    await expect(page.locator(".queue-card")).toContainText(
+      `Synthetic song ${n}`,
+    );
+  }
+  await input.press("ArrowRight");
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 1");
+  await expect(
+    page.getByRole("button", { name: "Remove Chill from current song" }),
+  ).toBeVisible();
+  expect(
+    calls.filter((c) => c.path === "/api/library/queue").length,
+  ).toBeLessThanOrEqual(2);
+  expect(
+    calls.filter(
+      (c) => c.path === "/api/library/search" && c.body.groupBy === null,
+    ),
+  ).toHaveLength(0);
+});
+
+test("key hydration follows a replacement representative, deduplicates merges and excludes new arrivals", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop representative identity");
+  let changed = false;
+  const revision = () => ({ library: changed ? "2" : "1", annotations: "1" });
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/sync" && body.reason === "manual")
+        changed = true;
+      if (path === "/api/library/status" || path === "/api/library/sync") {
+        await route.fulfill({
+          json: {
+            revision: revision(),
+            initialSyncComplete: true,
+            syncPhase: "idle",
+            importedCount: 4,
+            reportedTotal: 4,
+            activeCount: 4,
+            untaggedCount: 4,
+            newCount: 1,
+            lastCompletedAt: "2026-10-22T12:00:00Z",
+            blockedBy: null,
+          },
+        });
+        return true;
+      }
+      if (path === "/api/library/queue") {
+        await route.fulfill({
+          json: {
+            revision: revision(),
+            trackKeys: [1, 2, 3].map((n) => makeTrack(n).trackKey),
+            entries: [1, 2, 3].map((n) => ({
+              key: makeTrack(n).trackKey,
+              track: makeTrack(n),
+            })),
+          },
+        });
+        return true;
+      }
+      if (changed && path === "/api/library/queue-tracks") {
+        await route.fulfill({
+          json: {
+            revision: revision(),
+            entries: body.trackKeys.map((key: string) => ({
+              key,
+              track: makeTrack(Number(key) < 3 ? 99 : Number(key)),
+            })),
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await syncControls(page);
+  await page.getByRole("button", { name: "Sync now", exact: true }).click();
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 99");
+  await expect(page.locator(".mobile-track")).toHaveCount(2);
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await input.press("1");
+  await expect(page.locator(".queue-feedback")).toContainText("Saved");
+  expect(
+    calls.filter((c) => c.path === "/api/tag-actions").at(-1)!.body.selection
+      .trackKeys,
+  ).toEqual([makeTrack(99).trackKey]);
+  await input.press("ArrowRight");
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 3");
+  await expect(page.locator(".queue-actions .queue-next")).toBeDisabled();
+  expect(
+    calls
+      .filter((c) => c.path === "/api/library/queue-tracks")
+      .every((c) => !c.body.trackKeys.includes(makeTrack(4).trackKey)),
+  ).toBe(true);
+});
+
+test("a failed membership refresh keeps the current song fail-closed until queue refresh succeeds", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop fail-closed eligibility");
+  let changed = false;
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/sync" && body.reason === "manual")
+        changed = true;
+      if (
+        changed &&
+        (path === "/api/library/status" || path === "/api/library/sync")
+      ) {
+        await route.fulfill({
+          json: {
+            revision: { library: "2", annotations: "1" },
+            initialSyncComplete: true,
+            syncPhase: "idle",
+            importedCount: 3,
+            reportedTotal: 3,
+            activeCount: 3,
+            untaggedCount: 3,
+            newCount: 0,
+            lastCompletedAt: "2026-10-22T12:00:00Z",
+            blockedBy: null,
+          },
+        });
+        return true;
+      }
+      if (changed && path === "/api/library/queue-tracks") {
+        await route.fulfill({ status: 503, json: { error: "unavailable" } });
+        return true;
+      }
+      if (changed && path === "/api/library/queue") {
+        const track = makeTrack(2);
+        await route.fulfill({
+          json: {
+            revision: { library: "2", annotations: "1" },
+            trackKeys: [track.trackKey],
+            entries: [{ key: track.trackKey, track }],
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await syncControls(page);
+  await page.getByRole("button", { name: "Sync now", exact: true }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  const input = page.getByLabel("Tag current song", { exact: true });
+  await expect(input).toBeDisabled();
+  await expect(page.locator(".listen-play")).toBeDisabled();
+  expect(calls.filter((c) => c.path === "/api/tag-actions")).toHaveLength(0);
+  await page
+    .getByRole("alert")
+    .getByRole("button", { name: "Refresh queue", exact: true })
+    .click();
+  await expect(input).toBeEnabled();
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 2");
+});

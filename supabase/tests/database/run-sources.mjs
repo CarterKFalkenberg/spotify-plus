@@ -115,6 +115,7 @@ try {
       "20261021000200_song_groups.sql",
       "20261022000100_source_discovery_identity.sql",
       "20261022000200_singleton_vocabulary_undo.sql",
+      "20261022000300_queue_loading.sql",
     ]
   ) {
     await sql(
@@ -140,6 +141,7 @@ try {
   await sql(
     await readFile(new URL("./song-groups.sql", import.meta.url), "utf8"),
   );
+  await sql(await readFile(new URL("./queue-loading.sql", import.meta.url), "utf8"));
   await sql(
     await readFile(new URL("./song-groups-scale.sql", import.meta.url), "utf8"),
   );
