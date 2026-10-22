@@ -112,6 +112,30 @@ update app.sources set error_code=null,latest_completed_run_id='44444444-4444-44
 select pg_temp.assert((select count(*)=0 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'unchanged next verified pass clears previous source arrivals');
 rollback to savepoint latest_source_sync;
 
+-- A failed first import cannot influence a surviving confirmed duplicate group.
+savepoint failed_partial_alias_source;
+select app.ensure_sources(1);
+update app.sources set enabled=false where epoch=1 and id='liked';
+insert into app.sources(epoch,id,kind,name,available,last_synced_at,latest_completed_run_id) values
+ (1,repeat('r',22),'playlist','Synthetic confirmed cached source',false,null,'55555555-5555-4555-8555-555555555555'),
+ (1,repeat('s',22),'playlist','Synthetic failed partial source',false,null,null);
+insert into app.source_memberships(epoch,source_id,track_key,added_at) values
+ (1,repeat('r',22),lpad('1',64,'0'),timestamptz '2026-01-01'),
+ (1,repeat('s',22),lpad('2',64,'0'),timestamptz '2026-02-01');
+-- The partial alias even has the same opaque run ID as the confirmed checkpoint;
+-- only the membership's own contributing source may establish an arrival.
+update app.track_metadata set added_run_id='55555555-5555-4555-8555-555555555555' where track_key=lpad('2',64,'0');
+select app.refresh_source_pool(1);
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter'))),'confirmed cached source remains active after access loss and metadata sync reset');
+select pg_temp.assert(app.song_added_at(lpad('1',64,'0'))=timestamptz '2026-01-01','never-confirmed failed alias cannot advance logical arrival date');
+select pg_temp.assert(app.track_dto(lpad('1',64,'0'))#>>'{metadata,addedAt}'=(to_jsonb(timestamptz '2026-01-01')#>>'{}'),'DTO added date ignores failed partial source');
+select pg_temp.assert(jsonb_array_length(app.track_dto(lpad('1',64,'0'))->'sources')=1 and app.track_dto(lpad('1',64,'0'))->'sources'->0->>'id'=repeat('r',22),'provenance excludes failed partial source and retains confirmed inaccessible source');
+select pg_temp.assert((select count(*)=0 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'partial alias cannot establish a latest verified source arrival');
+select pg_temp.assert((select removed_at is not null from app.track_metadata where track_key=lpad('2',64,'0')),'failed first-import alias is ineligible while logical group survives');
+update app.track_metadata set added_run_id='55555555-5555-4555-8555-555555555555' where track_key=lpad('1',64,'0');
+select pg_temp.assert((select count(*)=1 from app.filter_keys((select v from results where k='filter')||'{"latestSyncOnly":true}')),'confirmed cached source still supplies its latest verified arrivals');
+rollback to savepoint failed_partial_alias_source;
+
 -- A new exact duplicate makes earlier group undo stale and receives annotations.
 insert into results values('remove3',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','remove','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
 update app.track_metadata set title='Synthetic Café',artists='[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic"},{"id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Secondary"}]' where track_key=lpad('4',64,'0');

@@ -113,7 +113,7 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
 $$;
 create function app.song_added_at(p_key text) returns timestamptz language sql stable set search_path='' as $$
  select coalesce((select max(sm.added_at) from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
- where sm.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key) and s.enabled),
+ where sm.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key) and app.source_contributes(s)),
  (select max(m.liked_at) from app.track_metadata m where m.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key)));
 $$;
 
@@ -130,7 +130,7 @@ create or replace function app.filter_keys(p_filter jsonb) returns table(track_k
  and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and exists(
   select 1 from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
    join app.track_metadata member on member.track_key=sm.track_key
-  where sm.epoch=a.epoch and s.enabled and member.added_run_id=s.latest_completed_run_id
+  where sm.epoch=a.epoch and app.source_contributes(s) and member.added_run_id=s.latest_completed_run_id
    and member.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(m.track_key) union select m.track_key)
  )))
  and (p_filter->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=p_filter->>'artistId'))
@@ -362,7 +362,7 @@ notify pgrst,'reload schema';
 -- Source provenance and source counts describe logical songs across all aliases.
 create or replace function app.track_dto(p_key text) returns jsonb language sql stable set search_path='' as $$
  select jsonb_set(app.track_dto_before_sources(app.song_representative(p_key)),'{metadata,addedAt}',to_jsonb(app.song_added_at(p_key)))||jsonb_build_object('sources',coalesce((select jsonb_agg(jsonb_build_object('id',s.id,'kind',s.kind,'name',s.name) order by s.kind,s.id)
- from app.sources s where s.enabled and exists(select 1 from app.source_memberships sm
+ from app.sources s where app.source_contributes(s) and exists(select 1 from app.source_memberships sm
  where sm.epoch=s.epoch and sm.source_id=s.id and sm.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(p_key) union select p_key))),'[]'::jsonb));
 $$;
 alter function public.app_sources_list(bigint,text,integer,integer) rename to app_sources_list_before_song_groups;
