@@ -137,9 +137,9 @@ try {
     update app.library_state set sources_discovered_at=now() where singleton;
     update app.sources set last_synced_at=now(),latest_completed_run_id='11111111-1111-4111-8111-111111111111' where epoch=1 and id='liked';
     insert into app.annotations(track_key,epoch) values(repeat('1',64),1),(repeat('2',64),1);
-    insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,duration_ms,playable_uri)
-      values(repeat('1',64),repeat('1',22),'Synthetic REST song','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic artist"}]','Synthetic release',now(),180000,'spotify:track:'||repeat('1',22)),
-      (repeat('2',64),repeat('2',22),'Synthetic REST song','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic artist"}]','Synthetic release',now(),180000,'spotify:track:'||repeat('2',22));
+    insert into app.track_metadata(track_key,spotify_id,title,artists,album,liked_at,added_run_id,duration_ms,explicit,playable_uri)
+      values(repeat('1',64),repeat('1',22),'Synthetic REST song','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic artist"}]','Synthetic release',now(),'11111111-1111-4111-8111-111111111111',180000,false,'spotify:track:'||repeat('1',22)),
+      (repeat('2',64),repeat('2',22),'Synthetic REST song','[{"id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Synthetic artist"}]','Synthetic release',now(),'11111111-1111-4111-8111-111111111111',180000,false,'spotify:track:'||repeat('2',22));
     insert into app.source_memberships values(1,'liked',repeat('1',64),now()),(1,'liked',repeat('2',64),now());
     select app.refresh_source_pool(1);`,
   );
