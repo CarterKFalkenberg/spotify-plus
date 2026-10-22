@@ -268,6 +268,8 @@ describe("core product proxy boundary", () => {
   it.each([
     "/api/library/sync",
     "/api/library/search",
+    "/api/library/queue",
+    "/api/library/queue-tracks",
     "/api/library/acknowledge",
     "/api/tags",
     "/api/tags/lookup",

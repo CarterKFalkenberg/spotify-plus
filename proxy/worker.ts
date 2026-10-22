@@ -20,6 +20,8 @@ const routes: Readonly<Record<string, string>> = {
   "/api/library/status": "GET",
   "/api/library/sync": "POST",
   "/api/library/search": "POST",
+  "/api/library/queue": "POST",
+  "/api/library/queue-tracks": "POST",
   "/api/library/facets": "POST",
   "/api/library/acknowledge": "POST",
   "/api/tags": "GET POST",

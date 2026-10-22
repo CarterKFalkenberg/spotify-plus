@@ -164,3 +164,46 @@ Synthetic checks are `deno test .../fast-tagging_test.ts` and
 named PostgreSQL/PostgREST containers on a private Docker network, no host ports,
 and finally cleanup. Integrated stage10 UI, common gates, hosted deployment/live
 assertions, and actual phone/tagging-speed acceptance remain separate work.
+
+## Bounded queue loading
+
+Issue [#74](https://github.com/CarterKFalkenberg/spotify-plus/issues/74) replaces
+serial full-library DTO traversal with `POST /api/library/queue` capture. Its body
+is `{filter,sort,seed,selection?}` using existing filter/sort/selection validation.
+The capture intersects active songs and any explicit selection; filter selections
+require their expected revision. In one owner-locked transaction it returns
+`{revision,trackKeys,entries}`: ordered opaque captured identities (at most 100,000,
+otherwise explicit conflict) and only the first forty `{key,track}` metadata
+entries. Random uses the same deterministic seed/key ordering as library search.
+
+`POST /api/library/queue-tracks` accepts one to one hundred distinct captured
+`trackKeys` and returns `{revision,entries:[{key,track}]}` for currently active
+songs. Both routes retain the normal 16 KiB body bound and authenticated epoch;
+neither calls Spotify. Hydration resolves a captured key's current representative;
+the entry key remains the queue slot while the DTO identity is used for tagging
+and playback. Absent/ineligible identities are omitted. Splits follow only the
+captured identity's current component, and the client removes duplicate resolved
+representatives after merges.
+
+The manifest freezes membership, filter and order until Refresh queue, mode/filter
+replacement or source selection change. Hydration deliberately does not reevaluate
+mutable tag/arrival filters, so early tagging, acknowledgment and Undo cannot
+invalidate later batches or admit new arrivals. Skip moves the captured identity
+behind every remaining identity, including unloaded songs. Previous retains
+visited metadata and order. The client hydrates forty at a time near the current
+position, stops prefetch once enough are ready, and renders at most forty-one
+mobile cards around the current position. Status changes refresh at most the
+nearby loaded window; membership uncertainty or failed eligibility revalidation
+keeps current playback and tagging disabled until verified. Unknown status pauses
+revalidation rather than repeatedly fetching successful batches. On mobile, a
+missing next DTO keeps an accessible loading sheet open; explicit Close while
+loading stays closed when metadata arrives. Cancellation and
+queue generation checks prevent obsolete requests from modifying a replacement
+queue or restarting work while inactive.
+
+This uses a lightweight in-memory identity manifest, not a persisted queue table:
+only identities must be frozen to preserve the session; retaining all library
+metadata or using annotation-bound search cursors would respectively delay the
+first card or break traversal on the user's own tag writes. Migration
+`20261022000300_queue_loading.sql` adds the two owner-only RPCs without altering
+existing search or write guards.

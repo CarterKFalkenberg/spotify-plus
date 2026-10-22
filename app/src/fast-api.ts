@@ -1,6 +1,7 @@
 import {
   parseLibraryRevision,
   parseId,
+  parseTrackKey,
   type LibrarySort,
   parseSelection,
   type LibraryFilter,
@@ -189,4 +190,34 @@ export function acknowledged(value: unknown) {
     revision: parseLibraryRevision(v.revision),
     changedCount: count(v.changedCount),
   };
+}
+
+export type QueueEntry = { key: string; track: TrackDTO };
+export function queueTracks(value: unknown) {
+  const v = object(value);
+  const entries = array(v.entries, (item): QueueEntry => {
+    const entry = object(item);
+    return { key: parseTrackKey(entry.key), track: track(entry.track) };
+  });
+  if (
+    entries.length > 100 ||
+    new Set(entries.map((e) => e.key)).size !== entries.length ||
+    entries.some(
+      (e) => !e.track.metadata || e.track.metadata.removedAt !== null,
+    )
+  )
+    throw new ApiError("invalid_response");
+  return { revision: parseLibraryRevision(v.revision), entries };
+}
+export function queueSnapshot(value: unknown) {
+  const v = object(value);
+  if (!Array.isArray(v.trackKeys) || v.trackKeys.length > 100000)
+    throw new ApiError("invalid_response");
+  const trackKeys = v.trackKeys.map(parseTrackKey);
+  if (new Set(trackKeys).size !== trackKeys.length)
+    throw new ApiError("invalid_response");
+  const result = queueTracks(value);
+  if (result.entries.some((entry) => !trackKeys.includes(entry.key)))
+    throw new ApiError("invalid_response");
+  return { ...result, trackKeys };
 }

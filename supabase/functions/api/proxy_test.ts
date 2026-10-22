@@ -9,6 +9,22 @@ const session = "s".repeat(43);
 const tag = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const revision = { library: "1", annotations: "2" };
 const routes: [string, Record<string, unknown>, string][] = [
+  ["/api/library/queue", {
+    filter: {
+      membership: "active",
+      search: "",
+      untagged: true,
+      newOnly: false,
+      artistId: null,
+    },
+    sort: "newest",
+    seed: null,
+  }, "app_queue_snapshot"],
+  [
+    "/api/library/queue-tracks",
+    { trackKeys: ["1".repeat(64)] },
+    "app_queue_tracks",
+  ],
   ["/api/library/facets", {
     filter: {
       membership: "active",

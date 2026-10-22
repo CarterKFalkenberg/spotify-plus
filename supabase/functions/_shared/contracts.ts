@@ -614,6 +614,33 @@ export function parseLibrarySearch(value: unknown): LibrarySearchRequest {
     ...(Object.hasOwn(request, "seed") ? { seed } : {}),
   };
 }
+/** Queue capture freezes only opaque identities; metadata is hydrated in bounded batches. */
+export function parseQueueSnapshot(value: unknown) {
+  const request = record(value, "queue");
+  fields(request, ["filter", "sort", "seed"], ["selection"], "queue");
+  const parsed = parseLibrarySearch({
+    filter: request.filter,
+    sort: request.sort,
+    seed: request.seed,
+    groupBy: null,
+    cursor: null,
+    limit: 40,
+  });
+  return {
+    filter: parsed.filter,
+    sort: parsed.sort,
+    seed: parsed.seed,
+    ...(request.selection === undefined
+      ? {}
+      : { selection: parseSelection(request.selection) }),
+  };
+}
+export function parseQueueTracks(value: unknown) {
+  const request = shape(value, ["trackKeys"], "queueTracks");
+  const keys = trackKeys(request.trackKeys);
+  if (keys.length > 100) invalid("trackKeys");
+  return { trackKeys: keys };
+}
 export function parseLibrarySync(value: unknown): LibrarySyncRequest {
   const request = shape(value, ["reason"], "librarySync");
   return { reason: choice(request.reason, ["app-open", "manual"], "reason") };
