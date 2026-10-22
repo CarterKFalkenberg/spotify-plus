@@ -113,6 +113,7 @@ try {
       "20261011001000_queue_playback.sql",
       "20261021000100_sources.sql",
       "20261021000200_song_groups.sql",
+      "20261022000100_source_discovery_identity.sql",
     ]
   ) {
     await sql(
@@ -123,6 +124,12 @@ try {
     );
   }
   await sql(await readFile(new URL("./sources.sql", import.meta.url), "utf8"));
+  await sql(
+    await readFile(
+      new URL("./source-discovery-identity.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   await sql(
     await readFile(new URL("./song-groups.sql", import.meta.url), "utf8"),
   );

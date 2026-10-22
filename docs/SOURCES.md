@@ -24,6 +24,8 @@ Grouping is a heuristic, not proof of recording equivalence. Preserve underlying
 
 Add source records and independent memberships, migrating the existing Liked Songs cache/annotations safely. Load cached data immediately. Durable leased jobs discover playlists and scan enabled sources in bounded pages with batched persistence and shared pacing/cooldown. Snapshot markers allow unchanged-source skips and before/after validation; they do not make offset pagination a snapshot. Disabled sources stop content scanning. Browsing/tagging remain available during import; generation waits for enabled sources' initial complete imports.
 
+Discovery verifies two complete passes using ordered playlist IDs, per-playlist item counts and ownership/collaboration eligibility, plus page offsets, received counts and the overall playlist count. Names and artwork URLs refresh for display on every page but do not participate in that comparison: expiring artwork URLs and renames cannot keep an otherwise stable discovery pending indefinitely. In-flight pages from the older full-metadata signature require another matching pass after the additive migration.
+
 Authenticated source endpoints:
 
 - `GET /api/sources?search=&offset=&limit=`: bounded source page plus aggregate enabled count, unique track count, importing state and revision.
