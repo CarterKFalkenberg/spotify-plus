@@ -75,17 +75,29 @@ create function app.refresh_song_groups(p_epoch bigint) returns void language pl
   end loop;
   -- Existing links survive metadata retention and returning tracks. Newly discovered exact
   -- identities union complete components, preserving every original annotation assignment.
-  for bucket in select m.normalized_song_identity identity,array_agg(m.track_key) keys
-   from app.track_metadata m join app.annotations a using(track_key) join app.song_group_members sm using(track_key) where a.epoch=p_epoch
-   group by m.normalized_song_identity having count(distinct sm.group_key)>1 and m.normalized_song_identity is not null loop
-   select array_agg(distinct group_key order by group_key) into roots from app.song_group_members where track_key=any(bucket.keys);
-   if cardinality(roots)>1 then
-    select group_key into target from app.song_groups where group_key=any(roots) order by created_at,group_key limit 1;
-    update app.song_group_members set group_key=target where group_key=any(roots) and group_key<>target;
-    delete from app.song_groups where group_key=any(roots) and group_key<>target;
-    changed:=true;
-   end if;
-  end loop;
+  -- The split pass leaves at most one known identity per component. Choose
+  -- every identity's oldest root once, then move whole components together,
+  -- including aliases whose metadata has expired, rather than issuing SQL per song.
+  with identified as materialized (
+   select distinct m.normalized_song_identity identity,sm.group_key,g.created_at
+    from app.track_metadata m join app.annotations a using(track_key)
+    join app.song_group_members sm using(track_key) join app.song_groups g using(group_key)
+    where a.epoch=p_epoch and m.normalized_song_identity is not null
+  ), mappings as materialized (
+   select group_key,first_value(group_key) over(partition by identity order by created_at,group_key) target_key
+    from identified
+  ), moved as (
+   update app.song_group_members sm set group_key=mapping.target_key from mappings mapping
+    where sm.group_key=mapping.group_key and sm.group_key<>mapping.target_key
+    returning mapping.group_key prior_root
+  ) select coalesce(array_agg(distinct prior_root),'{}'::text[]) into roots from moved;
+  if cardinality(roots)>0 then
+   -- A separate statement sees the completed member moves. Delete only emptied
+   -- roots; metadata-free aliases must never be left behind or cascaded away.
+   delete from app.song_groups g where g.group_key=any(roots)
+    and not exists(select 1 from app.song_group_members sm where sm.group_key=g.group_key);
+   changed:=true;
+  end if;
   -- Acknowledgement belongs to the logical song too: another source/release
   -- must not turn a still-active seen song into a new-arrivals notification again.
   -- Removed aliases cannot suppress the first genuine return of a departed group.

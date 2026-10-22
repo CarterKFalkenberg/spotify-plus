@@ -216,6 +216,16 @@ select pg_temp.assert((select count(*)=4 from app.track_tags where tag_id='aaaaa
 select pg_temp.assert(not exists(select 1 from app.track_tags where tag_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and present),'merge undo avoids restoring source to only original aliases');
 rollback to savepoint merge_alias_race;
 
+-- Merging components moves opaque aliases along with their known identity.
+savepoint opaque_component_merge;
+update app.track_metadata set title='Other 5' where track_key=lpad('6',64,'0');
+select app.refresh_song_groups(1);
+delete from app.track_metadata where track_key=lpad('6',64,'0');
+update app.track_metadata set title='Synthetic Café' where track_key=lpad('5',64,'0');
+select app.refresh_song_groups(1);
+select pg_temp.assert(app.song_group_key(lpad('5',64,'0'))=app.song_group_key(lpad('1',64,'0')) and app.song_group_key(lpad('6',64,'0'))=app.song_group_key(lpad('1',64,'0')),'known component merge carries every metadata-free alias to the oldest matching component');
+rollback to savepoint opaque_component_merge;
+
 -- Exact identity follows later complete metadata corrections, without losing tags.
 savepoint metadata_identity_correction;
 insert into results values('beforeSplitAction',public.app_tag_action(1,repeat('b',64),jsonb_build_object('action','add','tagId','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','selection',jsonb_build_object('kind','tracks','trackKeys',jsonb_build_array(lpad('1',64,'0'))))));
