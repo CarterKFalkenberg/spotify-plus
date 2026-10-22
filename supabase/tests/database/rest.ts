@@ -14,6 +14,7 @@ import { SPOTIFY_SCOPES } from "../../functions/_shared/spotify.ts";
 import { SESSION_COOKIE } from "../../functions/_shared/http.ts";
 import { TEST_KEY } from "../../functions/_shared/testing.ts";
 import { createLibraryRunner } from "../../functions/_shared/library.ts";
+import { createSourcesRunner } from "../../functions/_shared/sources.ts";
 import type {
   CreateTagResponse,
   LibrarySearchResponse,
@@ -342,6 +343,25 @@ try {
     db,
     sha: config.sha,
     cronSecret,
+    sources: createSourcesRunner({
+      db,
+      annotationBox: new SecretBox(TEST_KEY),
+      wait: () => Promise.resolve(),
+      spotify: () => ({
+        getCurrentUserPlaylistsPage: () =>
+          Promise.resolve({
+            offset: 0,
+            limit: 50,
+            nextOffset: null,
+            total: 0,
+            items: [],
+          }),
+        getPlaylist: () =>
+          Promise.reject(new Error("unexpected_playlist_read")),
+        getPlaylistItemsPage: () =>
+          Promise.reject(new Error("unexpected_playlist_read")),
+      }),
+    }),
     library: createLibraryRunner({
       db,
       annotationBox: new SecretBox(TEST_KEY),
