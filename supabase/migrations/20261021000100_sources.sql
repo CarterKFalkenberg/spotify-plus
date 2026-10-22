@@ -20,6 +20,18 @@ create table app.sources (
  error_code text,
  primary key(epoch,id)
 );
+-- Pending available imports may be browsed while generation remains gated.
+-- Once a never-confirmed source becomes unavailable, provisional members cannot
+-- enter a generated playlist. A previously confirmed cache remains usable.
+create function app.source_contributes(p_source app.sources) returns boolean
+ language sql stable set search_path='' as $$
+ select coalesce((p_source).enabled and ((p_source).available or (p_source).latest_completed_run_id is not null),false);
+$$;
+create function app.source_contributes(p_epoch bigint,p_source_id text) returns boolean
+ language sql stable set search_path='' as $$
+ select coalesce((select app.source_contributes(s) from app.sources s where s.epoch=p_epoch and s.id=p_source_id),false);
+$$;
+revoke all on function app.source_contributes(app.sources),app.source_contributes(bigint,text) from public,anon,authenticated;
 create table app.source_memberships (
  epoch bigint not null,
  source_id text not null,
@@ -74,12 +86,12 @@ create function app.refresh_source_pool(p_epoch bigint) returns void language pl
  begin
   update app.track_metadata m set removed_at=case when exists(
    select 1 from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
-   where sm.epoch=p_epoch and sm.track_key=m.track_key and s.enabled
+   where sm.epoch=p_epoch and sm.track_key=m.track_key and app.source_contributes(s)
   ) then null else coalesce(m.removed_at,now()) end
   where exists(select 1 from app.annotations a where a.track_key=m.track_key and a.epoch=p_epoch)
    and (m.removed_at is null) is distinct from exists(
     select 1 from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
-    where sm.epoch=p_epoch and sm.track_key=m.track_key and s.enabled);
+    where sm.epoch=p_epoch and sm.track_key=m.track_key and app.source_contributes(s));
   get diagnostics changed=row_count;
   update app.library_state set library_revision=library_revision+case when changed>0 then 1 else 0 end,
    initial_sync_complete=sources_discovered_at is not null and not exists(select 1 from app.sources where epoch=p_epoch and enabled and available and last_synced_at is null)
@@ -308,7 +320,7 @@ $$;
 
 create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease uuid,p_offset integer,p_total integer,p_received integer,p_next_offset integer,p_snapshot text,p_rows jsonb,p_skipped integer,p_unresolved integer) returns jsonb
  language plpgsql security definer set search_path='' as $$
- declare r app.source_scans; row jsonb; key text; liked timestamptz; old_effective timestamptz; new_effective timestamptz;
+ declare r app.source_scans; row jsonb; key text; liked timestamptz;
  begin
   perform app.require_owner(p_epoch,true);
   perform 1 from app.jobs where id=p_id and epoch=p_epoch and kind='source_sync' and state='running' and lease_token=p_lease and lease_until>now() for update;
@@ -326,8 +338,6 @@ create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease u
     coalesce((select added_at from app.source_memberships where epoch=p_epoch and source_id=r.source_id and track_key=key),now())
     else (row->>'likedAt')::timestamptz end;
    liked:=greatest(liked,(select added_at from app.source_seen where job_id=p_id and track_key=key));
-   select max(sm.added_at) into old_effective from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.epoch=p_epoch and sm.track_key=key and s.enabled;
-   select greatest(liked,max(sm.added_at)) into new_effective from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.epoch=p_epoch and sm.track_key=key and sm.source_id<>r.source_id and s.enabled;
    if key is null or key !~ '^[0-9a-f]{64}$' or liked is null then raise exception 'invalid_input'; end if;
    insert into app.annotations(track_key,epoch) values(key,p_epoch) on conflict(track_key) do nothing;
    if not exists(select 1 from app.annotations where track_key=key and epoch=p_epoch) then raise exception 'unknown_track'; end if;
@@ -337,8 +347,10 @@ create function public.app_source_page_commit(p_epoch bigint,p_id uuid,p_lease u
     on conflict(track_key) do update set spotify_id=excluded.spotify_id,title=excluded.title,artists=excluded.artists,album=excluded.album,
      release_date=excluded.release_date,duration_ms=excluded.duration_ms,explicit=excluded.explicit,artwork_url=excluded.artwork_url,spotify_url=excluded.spotify_url,
      playable_uri=excluded.playable_uri,liked_at=case when exists(select 1 from app.source_memberships sm where sm.epoch=p_epoch and sm.source_id='liked' and sm.track_key=excluded.track_key) then app.track_metadata.liked_at else greatest(app.track_metadata.liked_at,excluded.liked_at) end,removed_at=null,
-     acknowledged_at=case when app.track_metadata.removed_at is not null or old_effective is distinct from new_effective then null else app.track_metadata.acknowledged_at end,
-     added_run_id=case when app.track_metadata.removed_at is not null or old_effective is distinct from new_effective then p_id else app.track_metadata.added_run_id end
+     -- Page order and duplicate dates do not create new arrivals for a song
+     -- already in the active pool. Only first insertion or actual reentry does.
+     acknowledged_at=case when app.track_metadata.removed_at is not null then null else app.track_metadata.acknowledged_at end,
+     added_run_id=case when app.track_metadata.removed_at is not null then p_id else app.track_metadata.added_run_id end
     where (app.track_metadata.spotify_id,app.track_metadata.title,app.track_metadata.artists,app.track_metadata.album,app.track_metadata.release_date,
      app.track_metadata.duration_ms,app.track_metadata.explicit,app.track_metadata.artwork_url,app.track_metadata.spotify_url,app.track_metadata.playable_uri,app.track_metadata.liked_at,app.track_metadata.removed_at)
      is distinct from (excluded.spotify_id,excluded.title,excluded.artists,excluded.album,excluded.release_date,excluded.duration_ms,excluded.explicit,excluded.artwork_url,excluded.spotify_url,excluded.playable_uri,excluded.liked_at,null::timestamptz);
@@ -451,8 +463,8 @@ create function app.library_status() returns jsonb language sql stable set searc
 $$;
 alter function app.track_dto(text) rename to track_dto_before_sources;
 create function app.track_dto(p_key text) returns jsonb language sql stable set search_path='' as $$
- select jsonb_set(app.track_dto_before_sources(p_key),'{metadata,addedAt}',coalesce(to_jsonb(coalesce((select max(sm.added_at) from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.track_key=p_key and s.enabled),(select liked_at from app.track_metadata where track_key=p_key))), 'null'::jsonb))||jsonb_build_object('sources',coalesce((select jsonb_agg(jsonb_build_object('id',s.id,'kind',s.kind,'name',s.name) order by s.kind,s.id)
- from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.track_key=p_key and s.enabled),'[]'::jsonb));
+ select jsonb_set(app.track_dto_before_sources(p_key),'{metadata,addedAt}',coalesce(to_jsonb(coalesce((select max(sm.added_at) from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.track_key=p_key and app.source_contributes(s)),(select liked_at from app.track_metadata where track_key=p_key))), 'null'::jsonb))||jsonb_build_object('sources',coalesce((select jsonb_agg(jsonb_build_object('id',s.id,'kind',s.kind,'name',s.name) order by s.kind,s.id)
+ from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id where sm.track_key=p_key and app.source_contributes(s)),'[]'::jsonb));
 $$;
 -- All state and credentials remain accessible only through fenced service RPCs.
 revoke all on app.sources,app.source_memberships,app.source_scans,app.source_seen,app.source_discovery_pages,app.source_discovery_ids from public,anon,authenticated;
