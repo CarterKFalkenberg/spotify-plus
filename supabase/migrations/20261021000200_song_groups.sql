@@ -214,31 +214,42 @@ $$;
 -- complete song, so stale undo cannot leave aliases with conflicting annotations.
 create or replace function app.app_tag_assignment_undo(p_epoch bigint,p_session_hash text,p_action_id uuid) returns jsonb
  language plpgsql set search_path='' as $$
- declare action app.tag_actions; entry record; current_keys text[]; total integer:=0; restored integer:=0;
+ declare action app.tag_actions; total integer:=0; restored integer:=0;
  begin
   perform app.require_owner(p_epoch);
   if not exists(select 1 from app.sessions where token_hash=p_session_hash and epoch=p_epoch and expires_at>now()) then raise exception 'inactive_epoch'; end if;
   select * into action from app.tag_actions where id=p_action_id and epoch=p_epoch and session_hash=p_session_hash for update;
   if not found then raise exception 'unknown_action'; end if;
   if action.undone_at is not null then return jsonb_build_object('actionId',p_action_id,'restoredCount',0,'skippedCount',0,'revision',app.library_revision()); end if;
-  -- Existing pre-migration journals remain valid and are checked as a group too.
-  for entry in select app.song_group_key(e.track_key) group_key,array_agg(e.track_key) keys
-   from app.tag_action_edges e where e.action_id=p_action_id group by app.song_group_key(e.track_key) loop
-   total:=total+1;
-   select array_agg(member.track_key order by member.track_key) into current_keys from (
-    select sm.track_key from app.song_group_members sm where sm.group_key=entry.group_key
-    union select entry.group_key where not exists(select 1 from app.song_group_members where track_key=entry.group_key)
-   ) member;
-   if exists(select 1 from app.song_action_groups g where g.action_id=p_action_id
-    and g.member_keys && current_keys and g.member_keys is distinct from current_keys)
-    or exists(select 1 from app.tag_action_edges e left join app.track_tags t on t.track_key=e.track_key and t.tag_id=action.tag_id
-     where e.action_id=p_action_id and e.track_key=any(current_keys) and t.version is distinct from e.after_version)
-    or exists(select 1 from unnest(current_keys) k where not exists(select 1 from app.tag_action_edges e where e.action_id=p_action_id and e.track_key=k))
-    then continue; end if;
-   update app.track_tags t set present=e.before_present,version=t.version+1 from app.tag_action_edges e
-    where e.action_id=p_action_id and e.track_key=any(current_keys) and t.track_key=e.track_key and t.tag_id=action.tag_id;
-   restored:=restored+1;
-  end loop;
+  -- Materialize the complete affected components once. Per-song correlated journal
+  -- scans turn a large bulk undo into quadratic work even with membership indexes.
+  with edges as materialized (
+   select e.track_key,e.before_present,e.after_version,coalesce(sm.group_key,e.track_key) group_key
+    from app.tag_action_edges e left join app.song_group_members sm using(track_key) where e.action_id=p_action_id
+  ), affected as materialized (select distinct group_key from edges), members as materialized (
+   select sm.group_key,sm.track_key from app.song_group_members sm join affected using(group_key)
+   union all select a.group_key,a.group_key from affected a
+    where not exists(select 1 from app.song_group_members sm where sm.group_key=a.group_key)
+  ), states as materialized (
+   select m.group_key,array_agg(m.track_key order by m.track_key) member_keys,
+    bool_or(e.track_key is null or t.version is distinct from e.after_version) version_conflict
+   from members m left join edges e using(track_key)
+    left join app.track_tags t on t.track_key=m.track_key and t.tag_id=action.tag_id group by m.group_key
+  ), snapshot_members as materialized (
+   select member.track_key,g.member_keys from app.song_action_groups g
+    cross join lateral unnest(g.member_keys) member(track_key) where g.action_id=p_action_id
+  ), component_conflicts as materialized (
+   select distinct m.group_key from members m join snapshot_members old using(track_key) join states s using(group_key)
+    where old.member_keys is distinct from s.member_keys
+  ), eligible as materialized (
+   select s.group_key from states s left join component_conflicts c using(group_key)
+    where not s.version_conflict and c.group_key is null
+  ), changed as (
+   update app.track_tags t set present=e.before_present,version=t.version+1 from edges e join eligible using(group_key)
+    where t.track_key=e.track_key and t.tag_id=action.tag_id and t.version=e.after_version returning t.track_key
+  ) select (select count(*) from states),(select count(distinct e.group_key) from changed c join edges e using(track_key)) into total,restored;
+  -- Journals from before grouping have no membership snapshots. The states check
+  -- still requires every current member to have a matching changed-only edge.
   update app.tag_actions set undone_at=now() where id=p_action_id and epoch=p_epoch;
   if restored>0 then update app.library_state set annotation_revision=annotation_revision+1 where singleton and epoch=p_epoch; end if;
   return jsonb_build_object('actionId',p_action_id,'restoredCount',restored,'skippedCount',total-restored,'revision',app.library_revision());
