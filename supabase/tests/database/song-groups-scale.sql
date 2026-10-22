@@ -123,6 +123,11 @@ select pg_temp.import_scale_page(96);
 select pg_temp.import_scale_page(97);
 select pg_temp.import_scale_page(98);
 select pg_temp.import_scale_page(99);
+-- Steady-state statistics matter: freshly inserted, unanalyzed tables can hide
+-- a generic JSON-filter plan that becomes quadratic after autovacuum analyzes
+-- a real library. Exercise interactive RPC deadlines with accurate row counts.
+analyze app.annotations,app.track_metadata,app.song_group_members,app.song_groups,
+ app.source_memberships,app.sources,app.track_tags;
 select pg_temp.assert((select count(*)=10000 from app.song_group_members),'all original opaque recording identities retained');
 select pg_temp.assert((select count(*)=5000 from app.song_groups),'ten thousand aliases form five thousand exact groups');
 select pg_temp.assert((select count(*)=5000 from app.filter_keys('{"membership":"active","untagged":true,"newOnly":false}')),'large library browser counts logical songs once');
