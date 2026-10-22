@@ -120,26 +120,37 @@ $$;
 
 create or replace function app.filter_keys(p_filter jsonb) returns table(track_key text,liked_at timestamptz)
  language sql stable set search_path='' as $$
- select m.track_key,app.song_added_at(m.track_key) from app.track_metadata m join app.annotations a using(track_key)
- where m.track_key=app.song_representative(m.track_key)
- and a.epoch=(select epoch from app.library_state where singleton)
+ -- Aggregate source dates once per component, rather than calling scalar lookup
+ -- functions for every candidate and again for the final sort.
+ with members as materialized (
+  select m.*,a.epoch,coalesce(sm.group_key,m.track_key) logical_key,
+   coalesce(g.representative_key,m.track_key) representative_key
+  from app.track_metadata m join app.annotations a using(track_key)
+   left join app.song_group_members sm using(track_key)
+   left join app.song_groups g on g.group_key=sm.group_key
+  where a.epoch=(select epoch from app.library_state where singleton)
+ ), dates as materialized (
+  select member.logical_key,max(sm.added_at) added_at,
+   bool_or(member.added_run_id=s.latest_completed_run_id) latest_arrival
+  from members member join app.source_memberships sm on sm.track_key=member.track_key and sm.epoch=member.epoch
+   join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
+  where app.source_contributes(s) group by member.logical_key
+ ), fallback_dates as materialized (
+  select logical_key,max(liked_at) liked_at from members group by logical_key
+ )
+ select m.track_key,coalesce(d.added_at,f.liked_at) from members m
+ left join dates d using(logical_key) join fallback_dates f using(logical_key)
+ where m.track_key=m.representative_key
  and ((p_filter->>'membership'='active' and m.removed_at is null) or (p_filter->>'membership'='removed' and m.removed_at is not null))
  and (not (p_filter->>'untagged')::boolean or not exists(select 1 from app.track_tags t where t.track_key=m.track_key and t.present))
  and (not (p_filter->>'newOnly')::boolean or (m.removed_at is null and m.acknowledged_at is null))
- -- New pool arrivals from the latest verified pass of each enabled source.
- -- In-flight jobs never advance the source checkpoint; aliases share one result.
- and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and exists(
-  select 1 from app.source_memberships sm join app.sources s on s.epoch=sm.epoch and s.id=sm.source_id
-   join app.track_metadata member on member.track_key=sm.track_key
-  where sm.epoch=a.epoch and app.source_contributes(s) and member.added_run_id=s.latest_completed_run_id
-   and member.track_key in (select track_key from app.song_group_members where group_key=app.song_group_key(m.track_key) union select m.track_key)
- )))
+ and (not coalesce((p_filter->>'latestSyncOnly')::boolean,false) or (m.removed_at is null and coalesce(d.latest_arrival,false)))
  and (p_filter->>'artistId' is null or exists(select 1 from jsonb_array_elements(m.artists) ar where ar->>'id'=p_filter->>'artistId'))
  and (p_filter->>'album' is null or app.album_identity(m.album)=p_filter->>'album')
  and (p_filter->>'decade' is null or app.track_decade(m.release_date)=p_filter->>'decade')
  and (coalesce(p_filter->>'search','')='' or position(lower(normalize(p_filter->>'search',NFC)) in
   lower(normalize(m.title||' '||m.album||' '||coalesce((select string_agg(ar->>'name',' ') from jsonb_array_elements(m.artists) ar),''),NFC)))>0)
- order by app.song_added_at(m.track_key) desc,m.track_key;
+ order by coalesce(d.added_at,f.liked_at) desc,m.track_key;
 $$;
 
 create or replace function app.query_targets(p_query jsonb)
@@ -147,11 +158,11 @@ create or replace function app.query_targets(p_query jsonb)
  language plpgsql stable set search_path='' as $$
  begin
   perform app.validate_query(p_query);
-  return query select m.track_key,m.playable_uri,app.song_added_at(m.track_key),m.duration_ms
-   from app.track_metadata m join app.annotations a using(track_key)
-   where m.track_key=app.song_representative(m.track_key) and a.epoch=(select epoch from app.library_state where singleton) and m.removed_at is null
-    and app.query_matches(p_query->'root',m.track_key)
-   order by app.song_added_at(m.track_key) desc,m.track_key;
+  return query select m.track_key,m.playable_uri,k.liked_at,m.duration_ms
+   from app.filter_keys('{"membership":"active","untagged":false,"newOnly":false}'::jsonb) k
+    join app.track_metadata m using(track_key)
+   where app.query_matches(p_query->'root',m.track_key)
+   order by k.liked_at desc,m.track_key;
  end;
 $$;
 create or replace function app.selection_keys(p_epoch bigint,p_selection jsonb) returns text[] language plpgsql set search_path='' as $$
@@ -165,13 +176,14 @@ create or replace function app.selection_keys(p_epoch bigint,p_selection jsonb) 
    if cardinality(keys) not between 1 and 200 or cardinality(keys)<>(select count(distinct k) from unnest(keys) k) then raise exception 'invalid_input'; end if;
   else raise exception 'invalid_input'; end if;
   if exists(select 1 from unnest(keys) k where not exists(select 1 from app.annotations a where a.track_key=k and a.epoch=p_epoch)) then raise exception 'unknown_track'; end if;
-  select coalesce(array_agg(distinct app.song_representative(k)), '{}'::text[]) into keys from unnest(keys) k;
+  select coalesce(array_agg(distinct coalesce(g.representative_key,k)), '{}'::text[]) into keys from unnest(keys) k
+   left join app.song_group_members sm on sm.track_key=k left join app.song_groups g using(group_key);
   return keys;
  end;
 $$;
 create or replace function public.app_tag_action(p_epoch bigint,p_session_hash text,p_request jsonb) returns jsonb
  language plpgsql security definer set search_path='' as $$
- declare keys text[]; logical_keys text[];  v_tag_id uuid; resolved jsonb; desired boolean; v_action_id uuid; changed integer:=0; key text; old_edge app.track_tags; next_version bigint;
+ declare keys text[]; logical_keys text[];  v_tag_id uuid; resolved jsonb; desired boolean; v_action_id uuid; changed integer:=0;
  begin
   perform app.require_owner(p_epoch);
   if not exists(select 1 from app.sessions where token_hash=p_session_hash and epoch=p_epoch and expires_at>now()) then raise exception 'inactive_epoch'; end if;
@@ -183,7 +195,10 @@ create or replace function public.app_tag_action(p_epoch bigint,p_session_hash t
   keys:=app.selection_keys(p_epoch,p_request->'selection');
   logical_keys:=keys;
   select coalesce(array_agg(a.track_key order by a.track_key),'{}'::text[]) into keys from app.annotations a
-   where a.epoch=p_epoch and app.song_group_key(a.track_key)=any(array(select app.song_group_key(k) from unnest(logical_keys) k));
+   left join app.song_group_members sm using(track_key)
+   join (select distinct coalesce(selected.group_key,k) group_key from unnest(logical_keys) k
+    left join app.song_group_members selected on selected.track_key=k) selected
+    on selected.group_key=coalesce(sm.group_key,a.track_key) where a.epoch=p_epoch;
   if p_request ? 'tagName' then
    if cardinality(keys)=0 then raise exception 'unknown_track'; end if;
    resolved:=public.app_tag_create(p_epoch,p_request->>'tagName');
@@ -194,21 +209,29 @@ create or replace function public.app_tag_action(p_epoch bigint,p_session_hash t
   end if;
   insert into app.tag_actions(epoch,session_hash,tag_id) values(p_epoch,p_session_hash,v_tag_id) returning id into v_action_id;
   insert into app.song_action_groups(action_id,group_key,member_keys)
-   select v_action_id,app.song_group_key(k),array_agg(k order by k) from unnest(keys) k group by app.song_group_key(k);
-  foreach key in array keys loop
-   select * into old_edge from app.track_tags where track_key=key and app.track_tags.tag_id=v_tag_id;
-   if coalesce(old_edge.present,false)=desired then continue; end if;
-   next_version:=coalesce(old_edge.version,0)+1;
-   insert into app.track_tags(track_key,tag_id,present,version) values(key,v_tag_id,desired,next_version)
-    on conflict(track_key,tag_id) do update set present=excluded.present,version=excluded.version;
-   insert into app.tag_action_edges values(v_action_id,key,coalesce(old_edge.present,false),next_version);
-   changed:=changed+1;
-  end loop;
+   select v_action_id,coalesce(sm.group_key,k),array_agg(k order by k) from unnest(keys) k
+    left join app.song_group_members sm on sm.track_key=k group by coalesce(sm.group_key,k);
+  -- Freeze before-state and write only changed assignments in the same statement.
+  -- The owner lock serializes mutations; journals retain the exact resulting version.
+  with changes as materialized (
+   select k track_key,coalesce(t.present,false) before_present,coalesce(t.version,0)+1 next_version
+    from unnest(keys) k left join app.track_tags t on t.track_key=k and t.tag_id=v_tag_id
+    where coalesce(t.present,false)<>desired
+  ), written as (
+   insert into app.track_tags(track_key,tag_id,present,version)
+    select c.track_key,v_tag_id,desired,c.next_version from changes c
+    on conflict(track_key,tag_id) do update set present=excluded.present,version=excluded.version
+    returning track_key
+  ), journal as (
+   insert into app.tag_action_edges(action_id,track_key,before_present,after_version)
+    select v_action_id,c.track_key,c.before_present,c.next_version from changes c join written w using(track_key)
+    returning track_key
+  ) select count(*) into changed from journal;
   if changed>0 then
    update app.library_state set annotation_revision=annotation_revision+1 where singleton and epoch=p_epoch;
    if desired then update app.tags set last_used_at=now() where id=v_tag_id and epoch=p_epoch; end if;
   end if;
-  return jsonb_build_object('actionId',v_action_id,'tag',app.tag_dto(v_tag_id),'selectedCount',cardinality(logical_keys),'changedCount',(select count(distinct app.song_group_key(e.track_key)) from app.tag_action_edges e where e.action_id=v_action_id),'revision',app.library_revision());
+  return jsonb_build_object('actionId',v_action_id,'tag',app.tag_dto(v_tag_id),'selectedCount',cardinality(logical_keys),'changedCount',(select count(distinct coalesce(sm.group_key,e.track_key)) from app.tag_action_edges e left join app.song_group_members sm using(track_key) where e.action_id=v_action_id),'revision',app.library_revision());
  end;
 $$;
 -- Undo each logical song atomically. A later edit or changed component skips that
@@ -259,7 +282,7 @@ $$;
 
 create or replace function app.tag_dto(p_id uuid) returns jsonb language sql stable set search_path='' as $$
  select jsonb_build_object('id',t.id,'name',t.name,'lastUsedAt',t.last_used_at,
- 'activeTrackCount',(select count(distinct app.song_group_key(e.track_key)) from app.track_tags e join app.track_metadata m using(track_key)
+ 'activeTrackCount',(select count(distinct coalesce(sm.group_key,e.track_key)) from app.track_tags e join app.track_metadata m using(track_key) left join app.song_group_members sm using(track_key)
  where e.tag_id=t.id and e.present and m.removed_at is null)) from app.tags t where t.id=p_id;
 $$;
 
@@ -283,12 +306,17 @@ create or replace function public.app_library_acknowledge(p_epoch bigint,p_track
  begin
   perform app.require_owner(p_epoch);
   keys:=app.selection_keys(p_epoch,jsonb_build_object('kind','tracks','trackKeys',p_track_keys));
-  select count(distinct app.song_group_key(m.track_key)) into changed from app.track_metadata m
-   where app.song_group_key(m.track_key)=any(array(select app.song_group_key(k) from unnest(keys) k))
-   and m.removed_at is null and m.acknowledged_at is null;
-  update app.track_metadata set acknowledged_at=now()
-   where app.song_group_key(track_key)=any(array(select app.song_group_key(k) from unnest(keys) k))
-   and removed_at is null and acknowledged_at is null;
+  with selected as materialized (
+   select distinct coalesce(sm.group_key,k) group_key from unnest(keys) k
+    left join app.song_group_members sm on sm.track_key=k
+  ), changed_members as (
+   update app.track_metadata m set acknowledged_at=now() from (
+    select a.track_key,coalesce(sm.group_key,a.track_key) group_key from app.annotations a
+     left join app.song_group_members sm using(track_key) join selected s on s.group_key=coalesce(sm.group_key,a.track_key)
+     where a.epoch=p_epoch
+   ) member where member.track_key=m.track_key and m.removed_at is null and m.acknowledged_at is null
+   returning member.group_key
+  ) select count(distinct group_key) into changed from changed_members;
   if changed>0 then update app.library_state set annotation_revision=annotation_revision+1 where singleton and epoch=p_epoch; end if;
   return jsonb_build_object('changedCount',changed,'revision',app.library_revision());
  end;
@@ -383,7 +411,7 @@ create function public.app_sources_list(p_epoch bigint,p_search text default '',
  declare result jsonb; rows jsonb;
  begin
   result:=public.app_sources_list_before_song_groups(p_epoch,p_search,p_offset,p_limit);
-  select coalesce(jsonb_agg(item||jsonb_build_object('uniqueCount',(select count(distinct app.song_group_key(sm.track_key)) from app.source_memberships sm where sm.epoch=p_epoch and sm.source_id=item->>'id')) order by ord),'[]') into rows
+  select coalesce(jsonb_agg(item||jsonb_build_object('uniqueCount',(select count(distinct coalesce(gm.group_key,sm.track_key)) from app.source_memberships sm left join app.song_group_members gm using(track_key) where sm.epoch=p_epoch and sm.source_id=item->>'id')) order by ord),'[]') into rows
    from jsonb_array_elements(result->'items') with ordinality v(item,ord);
   return result||jsonb_build_object('items',rows,'uniqueTrackCount',(select count(*) from app.filter_keys('{"membership":"active","untagged":false,"newOnly":false}'::jsonb)));
  end;
@@ -413,8 +441,8 @@ create or replace function public.app_tags_manage_preview(p_epoch bigint,p_reque
     select t.id into collision from app.tags t where t.epoch=p_epoch and t.deleted_at is null and t.normalized_name=normalized and t.id<>ids[1];
    end if;
   else raise exception 'invalid_input'; end if;
-  select count(distinct (app.song_group_key(e.track_key),e.tag_id)),count(distinct app.song_group_key(e.track_key)) filter(where m.track_key is not null and m.removed_at is null),count(distinct app.song_group_key(e.track_key)) into assignments,active,unions
-   from app.track_tags e left join app.track_metadata m using(track_key) where e.tag_id=any(ids) and e.present;
+  select count(distinct (coalesce(sm.group_key,e.track_key),e.tag_id)),count(distinct coalesce(sm.group_key,e.track_key)) filter(where m.track_key is not null and m.removed_at is null),count(distinct coalesce(sm.group_key,e.track_key)) into assignments,active,unions
+   from app.track_tags e left join app.track_metadata m using(track_key) left join app.song_group_members sm using(track_key) where e.tag_id=any(ids) and e.present;
   return jsonb_build_object('revision',app.library_revision(),'assignmentCount',assignments,'activeTrackCount',active,'unionCount',unions,'collisionTag',case when collision is null then null else app.tag_dto(collision) end);
  end;
 $$;
