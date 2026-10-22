@@ -3294,3 +3294,211 @@ dialog::backdrop {
 .queue-playback .listen-pause {
   border-radius: 999px;
 }
+
+/* Sources shares the library's neutral surfaces and the workspace navigation. */
+.sources {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+.sources .section-heading {
+  align-items: center;
+}
+.sources .section-heading h2 {
+  margin-bottom: 4px;
+}
+.sources .section-heading p {
+  margin: 0;
+}
+.sources-explainer {
+  max-width: 720px;
+  color: var(--muted);
+  margin: 0 0 28px;
+}
+.source-pool {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 24px 0;
+  margin: 0 0 28px;
+  display: grid;
+  gap: 6px;
+}
+.source-pool strong {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -1px;
+}
+.source-pool strong span {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.source-pool > span,
+.source-pool p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.source-pool p {
+  margin: 8px 0 0;
+}
+.source-toolbar {
+  display: flex;
+  gap: 20px;
+  align-items: end;
+  justify-content: space-between;
+}
+.source-toolbar label {
+  flex: 1;
+  max-width: 420px;
+}
+.source-toolbar input {
+  width: 100%;
+}
+.source-toolbar > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.source-scope {
+  font-size: 12px;
+  margin: 12px 0 28px;
+}
+.source-page-count {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 0 12px;
+}
+.source-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+.source-row .collection-artwork {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  margin: 0;
+}
+.source-identity h3 {
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  margin: 0 0 4px;
+}
+.source-identity p,
+.source-identity small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  display: block;
+}
+.source-identity a,
+.source-identity .text-button {
+  font-size: 12px;
+  display: inline-block;
+  margin: 6px 12px 0 0;
+}
+.source-identity .source-status {
+  color: var(--ink);
+  margin: 6px 0 2px;
+}
+.source-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.source-toggle input {
+  appearance: none;
+  width: 38px;
+  height: 23px;
+  padding: 0;
+  min-height: 0;
+  border-radius: 20px;
+  border: 1px solid var(--control-line);
+  background: var(--wash);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.source-toggle input::after {
+  content: "";
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  top: 3px;
+  left: 3px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.source-toggle input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.source-toggle input:checked::after {
+  left: 18px;
+  background: var(--accent-ink);
+}
+.source-toggle span {
+  width: 22px;
+  font-size: 12px;
+}
+.source-toggle input:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.source-pagination {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+.track-sources {
+  font-size: 11px;
+  color: var(--muted);
+  display: block;
+  margin-top: 4px;
+}
+@media (max-width: 640px) {
+  .workspace-tabs .nav-sources {
+    order: 6;
+  }
+  .workspace-tabs button {
+    flex-basis: 16%;
+  }
+  .source-toolbar {
+    display: grid;
+    gap: 12px;
+  }
+  .source-toolbar label {
+    max-width: none;
+  }
+  .source-pool {
+    padding: 18px 0;
+  }
+  .source-pool strong {
+    font-size: 25px;
+  }
+  .source-pool strong span {
+    font-size: 14px;
+  }
+  .source-row {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+  }
+  .source-row .collection-artwork {
+    width: 48px;
+    height: 48px;
+  }
+  .source-toggle {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .source-toggle span {
+    text-align: center;
+  }
+}

@@ -2468,3 +2468,346 @@ test("a definitive unavailable-target response retries once on the same browser 
   expect(starts).toHaveLength(2);
   expect(starts[1]).toEqual(starts[0]);
 });
+
+test("changing a source clears bulk selection and rebuilds queue membership without Spotify writes", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop bulk selection and focused queue");
+  let enabled = true;
+  let selected = false;
+  const rev = () => ({ library: selected ? "2" : "1", annotations: "1" });
+  const calls = await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/sources") {
+        await route.fulfill({
+          json: {
+            items: [
+              {
+                id: "liked",
+                kind: "liked",
+                name: "Liked Songs",
+                artworkUrl: null,
+                spotifyUrl: null,
+                enabled,
+                available: true,
+                managed: false,
+                trackCount: 3,
+                uniqueCount: 3,
+                importedCount: 3,
+                skippedCount: 0,
+                syncStatus: "complete",
+                lastSyncedAt: "2026-10-21T12:00:00Z",
+                errorCode: null,
+              },
+            ],
+            total: 1,
+            enabledCount: enabled ? 1 : 0,
+            uniqueTrackCount: enabled ? 3 : 0,
+            importing: false,
+            revision: rev(),
+          },
+        });
+        return true;
+      }
+      if (path === "/api/sources/selection") {
+        enabled = body.enabled;
+        selected = true;
+        await route.fulfill({ json: { changedCount: 1, revision: rev() } });
+        return true;
+      }
+      if (
+        selected &&
+        (path === "/api/library/status" || path === "/api/library/sync")
+      ) {
+        await route.fulfill({
+          json: {
+            revision: rev(),
+            initialSyncComplete: true,
+            syncPhase: "idle",
+            importedCount: 0,
+            reportedTotal: 0,
+            activeCount: 0,
+            untaggedCount: 0,
+            newCount: 0,
+            lastCompletedAt: "2026-10-21T12:00:00Z",
+            blockedBy: null,
+          },
+        });
+        return true;
+      }
+      if (selected && path === "/api/library/search") {
+        await route.fulfill({
+          json: body.groupBy
+            ? {
+                groupBy: body.groupBy,
+                groups: [],
+                totalGroups: 0,
+                totalTracks: 0,
+                nextCursor: null,
+                revision: rev(),
+              }
+            : {
+                groupBy: null,
+                tracks: [],
+                totalTracks: 0,
+                nextCursor: null,
+                revision: rev(),
+              },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Select all 3 matching", exact: true })
+    .click();
+  await expect(page.locator(".bulk-bar")).toBeVisible();
+  await queue(page);
+  await expect(page.locator(".queue-card")).toContainText("Synthetic song 1");
+  await page.getByRole("button", { name: "Sources", exact: true }).click();
+  await page
+    .getByRole("switch", { name: "Include Liked Songs", exact: true })
+    .click();
+  await expect(
+    page.getByRole("switch", { name: "Include Liked Songs", exact: true }),
+  ).not.toBeChecked();
+  await browser(page);
+  await expect(page.locator(".bulk-bar")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Choose Sources", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Tag queue", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "No songs waiting in this queue",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".queue-card")).toHaveCount(0);
+  expect(
+    calls.filter((call) =>
+      /\/api\/(playback\/start|tag-actions)/.test(call.path),
+    ),
+  ).toHaveLength(0);
+});
+
+test("another client's source selection stops the current browser player and invalidates its queue", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop optional audio");
+  await syntheticPlayer(page);
+  let changed = false;
+  await mock(page, {
+    intercept: async (route, path, body) => {
+      if (path === "/api/library/status" || path === "/api/library/sync") {
+        await route.fulfill({
+          json: {
+            revision: { library: changed ? "2" : "1", annotations: "1" },
+            sourcesRevision: changed ? "2" : "1",
+            initialSyncComplete: true,
+            syncPhase: "idle",
+            importedCount: changed ? 0 : 3,
+            reportedTotal: changed ? 0 : 3,
+            activeCount: changed ? 0 : 3,
+            untaggedCount: changed ? 0 : 3,
+            newCount: 0,
+            lastCompletedAt: "2026-10-21T12:00:00Z",
+            blockedBy: null,
+          },
+        });
+        return true;
+      }
+      if (changed && path === "/api/library/search") {
+        await route.fulfill({
+          json: body.groupBy
+            ? {
+                groupBy: body.groupBy,
+                groups: [],
+                totalGroups: 0,
+                totalTracks: 0,
+                nextCursor: null,
+                revision: { library: "2", annotations: "1" },
+              }
+            : {
+                groupBy: null,
+                tracks: [],
+                totalTracks: 0,
+                nextCursor: null,
+                revision: { library: "2", annotations: "1" },
+              },
+        });
+        return true;
+      }
+      if (path === "/api/playback/token") {
+        await route.fulfill({ json: { accessToken: "synthetic-access" } });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        await page.evaluate(() => {
+          (window as any).__syntheticPlayer.state.paused = false;
+        });
+        await route.fulfill({
+          json: {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+            positionMs: 60333,
+            durationMs: 181000,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Select all 3 matching", exact: true })
+    .click();
+  await queue(page);
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  await page.clock.install();
+  changed = true;
+  await page.clock.fastForward(1500);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(
+    page.getByRole("heading", {
+      name: "No songs waiting in this queue",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).__syntheticPlayer.counters.pauses),
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.disconnects,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await browser(page);
+  await expect(page.locator(".bulk-bar")).toHaveCount(0);
+});
+
+for (const action of ["create a free-form tag", "undo a changed tag"] as const)
+  test(`listening continues through annotation-only refresh when you ${action}`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(
+      isMobile,
+      "Desktop focused audio; mobile teardown is covered separately",
+    );
+    await syntheticPlayer(page);
+    const created = makeTag(4, "Synthetic Listening Tag");
+    const calls = await mock(page, {
+      intercept: async (route, path, body) => {
+        if (path === "/api/playback/token") {
+          await route.fulfill({ json: { accessToken: "synthetic-access" } });
+          return true;
+        }
+        if (path === "/api/playback/start") {
+          await page.evaluate(() => {
+            (window as any).__syntheticPlayer.state.paused = false;
+          });
+          await route.fulfill({
+            json: {
+              uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+              positionMs: 60333,
+              durationMs: 181000,
+            },
+          });
+          return true;
+        }
+        if (path === "/api/tags/lookup") {
+          await route.fulfill({
+            json: {
+              tags: body.tagIds.map((key: string) =>
+                key === created.id
+                  ? created
+                  : tags.find((tag) => tag.id === key),
+              ),
+              revision: { library: "1", annotations: "1" },
+            },
+          });
+          return true;
+        }
+        return false;
+      },
+    });
+    await page.goto("/");
+    await queue(page);
+    const input = page.getByLabel("Tag current song", { exact: true });
+    if (action === "undo a changed tag") {
+      await input.press("1");
+      await expect(
+        page.getByRole("button", {
+          name: "Remove Chill from current song",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await syncControls(page);
+      await page.getByRole("button", { name: "Sync now", exact: true }).click();
+      await expect(page.locator(".queue-feedback")).toContainText("Saved");
+    }
+    await page.clock.install();
+    await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+    await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+    if (action === "create a free-form tag") {
+      await input.fill(created.name);
+      await page
+        .getByRole("button", { name: `Create “${created.name}”`, exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", {
+          name: `Remove ${created.name} from current song`,
+          exact: true,
+        }),
+      ).toBeVisible();
+    } else {
+      await page
+        .getByRole("button", { name: "Undo last action", exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", { name: "Undo last action", exact: true }),
+      ).toHaveCount(0);
+    }
+    const before = calls.filter(
+      (call) => call.path === "/api/library/search",
+    ).length;
+    const refreshed = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/library/search" &&
+        response.request().postDataJSON().sort === undefined,
+    );
+    await page.clock.fastForward(1500);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await refreshed;
+    await expect
+      .poll(
+        () =>
+          calls.filter((call) => call.path === "/api/library/search").length,
+      )
+      .toBeGreaterThan(before);
+    await page.clock.fastForward(200);
+    await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+    const player = await page.evaluate(() => ({
+      ...(window as any).__syntheticPlayer.counters,
+      paused: (window as any).__syntheticPlayer.state.paused,
+    }));
+    expect(player).toMatchObject({
+      pauses: 0,
+      disconnects: 0,
+      constructions: 1,
+      paused: false,
+    });
+  });

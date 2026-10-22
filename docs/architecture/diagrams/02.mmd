@@ -7,6 +7,9 @@ flowchart TB
  ROUTES --> DB[database.ts / RPC client]
  ENTRY[api/index.ts + jobs/index.ts] --> DRAIN[jobs.ts / drainJobs]
  DRAIN --> LIB[library.ts]
+ DRAIN --> SOURCES[sources.ts / bounded source jobs]
+ SOURCES --> SP
+ SOURCES --> DB
  DRAIN --> PR[playlist-runtime.ts + playlist-runner.ts]
  DRAIN --> BACK[annotation-backups.ts]
  PR --> DOMAIN[playlist-domain.ts / pure behavior]

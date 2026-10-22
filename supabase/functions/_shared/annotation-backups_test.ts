@@ -98,6 +98,29 @@ Deno.test("encrypted snapshot is strict, authenticated and excludes all other pr
     await rejects(() => Promise.resolve(validateSnapshot(invalid)));
   }
 });
+Deno.test("opaque song identity links round-trip without requiring Spotify metadata or breaking old snapshots", async () => {
+  const old = await fixture();
+  equal(await codec.decode(await codec.encode(old), old), old);
+  const b = "b".repeat(64), c = "c".repeat(64), d = "d".repeat(64);
+  const value = { ...old, songGroups: [{ groupKey: b, trackKeys: [b, c] }] };
+  equal(await codec.decode(await codec.encode(value), value), value);
+  for (
+    const songGroups of [
+      null,
+      [{ groupKey: "spotify:track:raw", trackKeys: [b] }],
+      [{ groupKey: b, trackKeys: [] }],
+      [{ groupKey: b, trackKeys: [c] }],
+      [{ groupKey: b, trackKeys: [b, b] }],
+      [{ groupKey: b, trackKeys: [b, c], title: "forbidden" }],
+      [{ groupKey: b, trackKeys: [b, c] }, { groupKey: d, trackKeys: [d, c] }],
+      [{ groupKey: b, trackKeys: [b] }, { groupKey: b, trackKeys: [b] }],
+    ]
+  ) {
+    await rejects(() =>
+      Promise.resolve(validateSnapshot({ ...old, songGroups }))
+    );
+  }
+});
 Deno.test("lost upload acknowledgement is reconciled without duplicate upload or overwritten daily copy", async () => {
   const value = await fixture(), objects = storage();
   let state = "new", fail = true, commits = 0;

@@ -17,6 +17,7 @@ export interface AnnotationSnapshot {
   keyLink: string;
   tags: { id: string; name: string; normalizedName: string }[];
   assignments: { trackKey: string; tagId: string }[];
+  songGroups?: { groupKey: string; trackKeys: string[] }[];
 }
 function fields(
   value: unknown,
@@ -29,19 +30,21 @@ export function validateSnapshot(value: unknown): AnnotationSnapshot {
   const fail = () => {
     throw new Error("invalid_annotation_backup");
   };
+  const snapshotFields = [
+    "version",
+    "keyVersion",
+    "id",
+    "day",
+    "owner",
+    "epoch",
+    "revision",
+    "keyLink",
+    "tags",
+    "assignments",
+  ];
   if (
-    !fields(value, [
-      "version",
-      "keyVersion",
-      "id",
-      "day",
-      "owner",
-      "epoch",
-      "revision",
-      "keyLink",
-      "tags",
-      "assignments",
-    ])
+    !fields(value, snapshotFields) &&
+    !fields(value, [...snapshotFields, "songGroups"])
   ) return fail();
   if (
     value.version !== 1 || value.keyVersion !== 1 ||
@@ -79,6 +82,31 @@ export function validateSnapshot(value: unknown): AnnotationSnapshot {
       edges.has(`${edge.trackKey}:${edge.tagId}`)
     ) return fail();
     edges.add(`${edge.trackKey}:${edge.tagId}`);
+  }
+  if (Object.hasOwn(value, "songGroups")) {
+    if (!Array.isArray(value.songGroups) || value.songGroups.length > 100000) {
+      return fail();
+    }
+    const groups = new Set<string>(), members = new Set<string>();
+    for (const group of value.songGroups) {
+      if (
+        !fields(group, ["groupKey", "trackKeys"]) ||
+        typeof group.groupKey !== "string" || !hash.test(group.groupKey) ||
+        groups.has(group.groupKey) || !Array.isArray(group.trackKeys) ||
+        group.trackKeys.length === 0 || group.trackKeys.length > 100000 ||
+        !group.trackKeys.includes(group.groupKey)
+      ) {
+        return fail();
+      }
+      groups.add(group.groupKey);
+      for (const trackKey of group.trackKeys) {
+        if (
+          typeof trackKey !== "string" || !hash.test(trackKey) ||
+          members.has(trackKey) || members.size >= 100000
+        ) return fail();
+        members.add(trackKey);
+      }
+    }
   }
   if (
     new TextEncoder().encode(JSON.stringify(value)).length >

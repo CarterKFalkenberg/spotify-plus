@@ -1,4 +1,9 @@
 import {
+  emptySourceRequest,
+  sourceSelection,
+  sourcesList,
+} from "../_shared/sources-contracts.ts";
+import {
   ContractError,
   parseAcknowledge,
   parseCreateTag,
@@ -27,6 +32,31 @@ export async function libraryApi(
   db: Database,
 ): Promise<Response | null> {
   const url = new URL(req.url);
+  if (path === "/api/sources" && req.method === "GET") {
+    const request = sourcesList(url);
+    return json(
+      await db.rpc("app_sources_list", {
+        p_epoch: epoch,
+        p_search: request.search,
+        p_offset: request.offset,
+        p_limit: request.limit,
+      }),
+    );
+  }
+  if (path === "/api/sources/selection" && req.method === "POST") {
+    const request = sourceSelection(await readJson(req, 262144));
+    return json(
+      await db.rpc("app_sources_selection", {
+        p_epoch: epoch,
+        p_ids: request.ids,
+        p_enabled: request.enabled,
+      }),
+    );
+  }
+  if (path === "/api/sources/sync" && req.method === "POST") {
+    emptySourceRequest(await readJson(req));
+    return json(await db.rpc("app_sources_sync", { p_epoch: epoch }));
+  }
   if (path === "/api/library/status" && req.method === "GET") {
     if (url.searchParams.size) throw new ContractError("parameters");
     return json(await db.rpc("app_library_status", { p_epoch: epoch }));

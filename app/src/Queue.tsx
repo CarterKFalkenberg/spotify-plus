@@ -12,6 +12,7 @@ import {
   undoAction,
   errorMessage,
   lookupTags,
+  trackAddedAt,
 } from "./api";
 import {
   search,
@@ -35,6 +36,8 @@ import {
 } from "./tagging";
 export function Queue({
   refresh,
+  poolVersion = 0,
+  onSources,
   active,
   playbackAllowed,
   status,
@@ -43,6 +46,8 @@ export function Queue({
   onArtist,
 }: {
   refresh: number;
+  poolVersion?: number;
+  onSources?: () => void;
   active: boolean;
   playbackAllowed: boolean;
   status: LibraryStatusDTO | null;
@@ -59,6 +64,7 @@ export function Queue({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
   const [help, setHelp] = useState(false),
     [sheet, setSheet] = useState(false),
     [pinSlot, setPinSlot] = useState<number | null>(null);
@@ -214,6 +220,7 @@ export function Queue({
     const c = new AbortController();
     const ownGeneration = ++generation.current;
     setLoading(true);
+    setCheckingEligibility(false);
     setError("");
     setIndex(0);
     setRows([]);
@@ -284,7 +291,7 @@ export function Queue({
       }
     });
     return () => c.abort();
-  }, [mode, source, retry]);
+  }, [mode, source, retry, poolVersion]);
   // Membership refresh does not reorder the session snapshot or pull in new songs.
   useEffect(() => {
     if (
@@ -298,6 +305,13 @@ export function Queue({
     const c = new AbortController();
     const ownGeneration = generation.current,
       keys = new Set(queueKeys.current);
+    // Annotation refreshes update tags without revoking the current song.
+    // Membership revisions remain fail-closed while eligibility is rechecked.
+    setCheckingEligibility(
+      !status ||
+        !syncedRevision.current ||
+        status.revision.library !== syncedRevision.current.library,
+    );
     async function update() {
       let cursor: string | null = null;
       const live = new Map<string, TrackDTO>();
@@ -320,9 +334,13 @@ export function Queue({
         setIndex(next.index);
       }
     }
-    void update().catch((e) => {
-      if (!c.signal.aborted) setError(errorMessage(e));
-    });
+    void update()
+      .catch((e) => {
+        if (!c.signal.aborted) setError(errorMessage(e));
+      })
+      .finally(() => {
+        if (!c.signal.aborted) setCheckingEligibility(false);
+      });
     return () => c.abort();
   }, [
     status?.revision.library,
@@ -556,7 +574,7 @@ export function Queue({
                 }}
                 disabled={!!source}
               >
-                <option value="newest">Untagged · newest liked first</option>
+                <option value="newest">Untagged · newest added first</option>
                 <option value="oldest">Untagged · oldest first</option>
                 <option value="latest">New since last completed sync</option>
                 <option value="random">Untagged · random</option>
@@ -592,6 +610,7 @@ export function Queue({
             Tags are useful at any pace. Browse your library or check new
             arrivals after a sync.
           </p>
+          {onSources && <button onClick={onSources}>Choose Sources</button>}
         </div>
       )}
       <div className="mobile-only mobile-cards">
@@ -659,9 +678,9 @@ export function Queue({
               {current.metadata?.durationMs === null
                 ? "Duration unavailable"
                 : `${Math.floor((current.metadata?.durationMs ?? 0) / 60000)}:${String(Math.floor(((current.metadata?.durationMs ?? 0) % 60000) / 1000)).padStart(2, "0")}`}{" "}
-              · Liked{" "}
+              · Added{" "}
               {current.metadata
-                ? new Date(current.metadata.likedAt).toLocaleDateString()
+                ? new Date(trackAddedAt(current)!).toLocaleDateString()
                 : ""}
             </p>
             <QueuePlayback
@@ -670,7 +689,12 @@ export function Queue({
               available={
                 !!current.metadata?.playableUri && !!current.metadata.durationMs
               }
-              active={active && playbackAllowed && (!mobile || sheet)}
+              active={
+                active &&
+                playbackAllowed &&
+                !checkingEligibility &&
+                (!mobile || sheet)
+              }
             />
             {current.metadata?.spotifyUrl && (
               <a

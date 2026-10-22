@@ -1,0 +1,171 @@
+{
+  "issue": 72,
+  "syntheticOnly": true,
+  "realSpotifyMetadata": false,
+  "comparison": "Historical navigation baseline and new Sources capability; different scenes and fictional datasets, not matched same-view comparisons.",
+  "afterSourceHead": null,
+  "afterAppTree": "bd1f3d81e4b6675bfe583d9f51037214dddf7acb",
+  "before": [
+    {
+      "file": "before-desktop-light.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-light/desktop-library.png",
+      "capturedAt": "2026-10-21T15:30:36.010Z",
+      "name": "desktop-library",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "documentHeight": 1889,
+      "sha256": "b2d6c674d59d0ca4e2ef2de4ab338e5ada92ab04ed4969ab9f98c9a20930efda"
+    },
+    {
+      "file": "before-mobile-light.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-light/390-builder-choose.png",
+      "capturedAt": "2026-10-21T15:30:36.010Z",
+      "name": "390-builder-choose",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "documentHeight": 847,
+      "sha256": "420619fce0ac440102adf4f4977b4bc7fd53f7a0b63f80f759def9edbf943e20"
+    },
+    {
+      "file": "before-desktop-dark.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-dark/desktop-library.png",
+      "capturedAt": "2026-10-21T15:30:35.313Z",
+      "name": "desktop-library",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "overflow": false,
+      "documentHeight": 1889,
+      "sha256": "366e75c40d7e1c2b619bfb39ca1eb3a1008ae67ef4666526c222e8f45adc74c7"
+    },
+    {
+      "file": "before-mobile-dark.png",
+      "sourceHead": "c3af630d95c485289898057fb4ffa68f6c43021f",
+      "archive": "../guided-proof/original-captures.zip",
+      "archiveEntry": "after-matched-dark/390-builder-choose.png",
+      "capturedAt": "2026-10-21T15:30:35.313Z",
+      "name": "390-builder-choose",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "documentHeight": 847,
+      "sha256": "a3209ecd9c23e291aaba9b438274c65146429548a764fd16299c999f069fa0af"
+    }
+  ],
+  "after": [
+    {
+      "file": "after-desktop-light.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "pixels": {
+        "width": 1440,
+        "height": 2012
+      },
+      "sha256": "01806c1ca606711c5a59eed067c056394404b8c93e6b38e1efafa662a1904cca",
+      "fullPage": true,
+      "capturedAt": "2026-10-22T00:10:45.907688+00:00"
+    },
+    {
+      "file": "after-mobile-light.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "deviceScaleFactor": 3,
+      "pixels": {
+        "width": 1170,
+        "height": 6810
+      },
+      "sha256": "c2a1bf254db8de8b64b804404fd454b7c0793970f7718b16d8f045669c868b28",
+      "fullPage": true,
+      "capturedAt": "2026-10-22T00:10:50.733509+00:00"
+    },
+    {
+      "file": "after-desktop-dark.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "pixels": {
+        "width": 1440,
+        "height": 2012
+      },
+      "sha256": "914903acb107facb33e2abc373a60e1480359fd8237c7558cac4d700f5c95cb8",
+      "fullPage": true,
+      "capturedAt": "2026-10-22T00:10:46.712812+00:00"
+    },
+    {
+      "file": "after-mobile-dark.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "deviceScaleFactor": 3,
+      "pixels": {
+        "width": 1170,
+        "height": 6810
+      },
+      "sha256": "d13fb465fa3a4e03472f2e2573c7b90b1e71e7e3609b0e92ccd708236474723d",
+      "fullPage": true,
+      "capturedAt": "2026-10-22T00:10:52.269247+00:00"
+    }
+  ],
+  "captureHarness": "tests/browser/sources.spec.ts",
+  "captureHarnessSha256": "da79650a4fc1982aa0ac6e1618b389c35b5f695b9ce43258e4f0e19165554a05",
+  "recordedAt": "2026-10-22T00:11:13.278070+00:00",
+  "afterSourceBaseHead": "c91ac94dd026c479c55aa2ccab972195ed9ed92d",
+  "afterSourceState": "Stable worktree app snapshot including deduplicated counts, annotation-only playback preservation and explicit unavailable-source recovery; identified by afterAppTree.",
+  "afterAppFilesSha256": {
+    "app/index.html": "8a0a82ede368956ad080e352456ee0387abd81694884ff73be28ffe008c2ae06",
+    "app/public/_headers": "3a7a2ede6c62d147e7aaa6b66299a877c31685df6de65f3609c9b20726c486c8",
+    "app/public/appearance.js": "7268ee37b9226245647ab7bb656d5420e0b1e92111bbd3325f95d69079cc80e3",
+    "app/public/spotify-logo-black.svg": "b91219c14405166e3667deb7f250df4b939a8a5dbc8460ee9525a75672ba9ec5",
+    "app/public/spotify-logo-white.svg": "31cdfcdd58d3533a32d287267a1c404f376749b1fc4da99e4baa2233684f053c",
+    "app/src/Builder.tsx": "2fc9d02ed8c96d64debca7ada9e2222960b0ee8b8afcd29f0a35dde7d282d10a",
+    "app/src/BulkTags.tsx": "780e571a1ded2d5866b6d7b6de9e3e675ce59b568e0b1d1687eb1558d38c7834",
+    "app/src/Facets.tsx": "e9ba19549756f9307346ecd3dccae6649a92d6d48778f9652a9fc561499160ff",
+    "app/src/Icon.tsx": "85476447d204f413d28873e58f5708fdaf1bd932ffecde6f8565051e507868e9",
+    "app/src/Library.tsx": "9a143ee316dcf94a352d792424082178c8d919871c6bc3b9652ad713ba0ec3c3",
+    "app/src/ManagementNotice.tsx": "eb2cb2dfae4225628d2b1cc3a30e3d2b6b1c040e7495058c54383ebdbde3944c",
+    "app/src/Playlists.tsx": "733dedcd32a3dde6db5c6ac0f9d1b4dbca0e1efc81c4860c121a90b87c4b0aa7",
+    "app/src/Queue.tsx": "c6abddab942ba4552b27e06220572e1052937c5aef2bfbb5ee20b10ca0b28ef5",
+    "app/src/QueuePlayback.tsx": "d2c6e96733130cb2784d209fe33fbc05207e1b8d163a59e4a62d8f346c30c795",
+    "app/src/Sources.tsx": "76bc5444cd44d168045b4cb524708bf0e6ca1c316c074234bfe3a25d0eb6d10e",
+    "app/src/TagPicker.tsx": "3229bf6f07244898c85c9c33cc5dd2f769d307e2040318c440024f66109f17d8",
+    "app/src/Theme.tsx": "7b804a9fdfecb98b75ffd4515cc6c193c1d37bf4516735f0569be9cce0e935cc",
+    "app/src/Vocabulary.tsx": "623e0d9eea734d4d4ce54902db85be4b8d235667fa8ac91f6dcaf570b92f6c44",
+    "app/src/Workspace.tsx": "dc2df133c8dfde8a3396997dad86b5fdaa6f6dcdc06a3e238ebb16ea40228498",
+    "app/src/api.ts": "eeb31861b11e008a3091f2e6ea0f982ea9b3318a27eb59a37242221591e6b07e",
+    "app/src/fast-api.ts": "9384f41b67ab36597c42dc4ed909f4929738f3be39997809c48d2ebd1ec49524",
+    "app/src/intents.ts": "1de0bc549ee68b430c0041144256530f3bbf24c09c928e656ba6aa3b49b44752",
+    "app/src/main.tsx": "400f0e72ead51830ce0e8ffd1c504471701befbf0f6f981151202b5ead755494",
+    "app/src/playback.ts": "c9574d987c5d8dd9bb8815fe6e5925f5796aa1558e006b1869c2e88f4e7b22ec",
+    "app/src/playlist-labels.ts": "428790929981158be75750d329d7b5acc234d01f32297f6a98091764dc4735f6",
+    "app/src/polling.ts": "260fbe46782c109b3a12192fa6c9f588732658f0ee9929a565e1d90111c9e6a9",
+    "app/src/selection-tags.ts": "4cd66e348b440e80198729bbe9ec7594766bce2b45514e2d0342861427cabab4",
+    "app/src/session.ts": "ced59151fe69109e5e39a03559cd38225f37368699c99f3ce88244f529bfa5fe",
+    "app/src/sources-api.ts": "6c82b69523543794aa8f51fc2401674abaf1abcff66c09f8a42354485ab550ad",
+    "app/src/style.css": "99b2aac76d27b00c153f38c6ea5bf565634e5646c7b8ada90d5c96c7ab5011c2",
+    "app/src/tagging.ts": "d9ffe314d1492b8dfb94b5af81e26d6e6f5f2fe2c9f46ba725412588f0919804",
+    "app/src/useVisiblePolling.ts": "e15741d7d2701ce5f6711a28bc0f714992f2870993e6b65d5a18d54d30ae82b8"
+  }
+}

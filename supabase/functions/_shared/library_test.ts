@@ -77,7 +77,8 @@ Deno.test("saved page projection preserves unavailable identified tracks and ref
     ],
   }, TEST_KEY);
   equal(projected.rows.length, 2);
-  equal(projected.unresolved, 2);
+  equal(projected.unresolved, 1);
+  equal(projected.skipped, 1);
   equal(projected.rows[1].playableUri, null);
   equal(projected.rows[0].spotifyUrl, `https://open.spotify.com/track/${id}`);
   assert(!("raw" in projected.rows[0]));
@@ -85,7 +86,8 @@ Deno.test("saved page projection preserves unavailable identified tracks and ref
     ...page,
     items: [{ ...page.items[0], track: { ...track, isLocal: true } }],
   }, TEST_KEY);
-  equal(local.rows[0].playableUri, null);
+  equal(local.rows.length, 0);
+  equal(local.skipped, 1);
   equal(local.unresolved, 0);
 });
 Deno.test("worker checks checkpoint and lease before Spotify, commits page with exact offset, then reloads verification", async () => {

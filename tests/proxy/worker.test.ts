@@ -337,3 +337,50 @@ describe("core product proxy boundary", () => {
     expect(remote).not.toHaveBeenCalled();
   });
 });
+
+it("allows a bounded 10000-source selection body while retaining 16KiB limits elsewhere", async () => {
+  const body = JSON.stringify({
+    ids: Array.from({ length: 10000 }, (_, i) =>
+      i.toString(36).padStart(22, "0"),
+    ),
+    enabled: false,
+  });
+  expect(body.length).toBeGreaterThan(16384);
+  expect(body.length).toBeLessThan(262144);
+  let forwarded = 0;
+  const remote = vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => {
+    forwarded = (init?.body as Uint8Array).byteLength;
+    return Response.json({ changedCount: 10000 });
+  });
+  const post = (path: string, value: string) =>
+    request(path, {
+      method: "POST",
+      headers: {
+        origin: env.APP_ORIGIN,
+        "content-type": "application/json",
+        "content-length": "1",
+      },
+      body: value,
+    });
+  expect(
+    (await handleRequest(post("/api/sources/selection", body), env, remote))
+      .status,
+  ).toBe(200);
+  expect(forwarded).toBe(body.length);
+  expect(
+    (await handleRequest(post("/api/library/sync", body), env, remote)).status,
+  ).toBe(413);
+  expect(
+    (await handleRequest(post("/api/sources/sync", body), env, remote)).status,
+  ).toBe(413);
+  expect(
+    (
+      await handleRequest(
+        post("/api/sources/selection", " ".repeat(262145)),
+        env,
+        remote,
+      )
+    ).status,
+  ).toBe(413);
+  expect(remote).toHaveBeenCalledTimes(1);
+});

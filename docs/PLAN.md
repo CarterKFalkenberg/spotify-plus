@@ -1,6 +1,6 @@
 # Spotify Song Tagger: build plan
 
-Updated October 11, 2026 for the user's [accepted decisions](DECISIONS.md) and strict $0/month budget. This implements the original [product brief](PRODUCT-BRIEF.md). The application has not been built or deployed yet.
+Updated October 21, 2026 for the user's [accepted decisions](DECISIONS.md) and strict $0/month budget. The original MVP and optional queue playback have shipped; their historical stage plan is retained below. The current Sources extension follows [SOURCES.md](SOURCES.md): independent source memberships, resumable playlist ingestion, logical song grouping and shared eligibility throughout the app. A specification or historical deployment receipt does not prove this extension is deployed.
 
 ## Outcome and scope
 

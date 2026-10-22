@@ -1,5 +1,11 @@
 # Accepted product decisions
 
+## Playlist sources across the whole app — October 21, 2026
+
+The human requested playlist ingestion through a Sources sidebar tab, all sources enabled by default, deduplication across playlists and equal title/artist Spotify tracks, bounded background batching and clear removal behavior. They explicitly selected **whole app** for source selection and **exclude app-generated playlists by default**, then requested the accepted plan be built and shipped with documentation and diagrams updated. See [Sources contract](SOURCES.md) and [issue #72](https://github.com/CarterKFalkenberg/spotify-plus/issues/72).
+
+This extends the original Liked Songs-only scope. Source selection controls browsing, tagging and future playlist queries; it does not edit Spotify or existing generated snapshots. Memberships are independent, tags persist when the last enabled membership disappears, and incomplete sync is not evidence of removal. Exact normalized title/complete-artist grouping preserves meaningful version suffixes and original track identities. No new Spotify write capability, paid hosting, AI processing or human acceptance waiver is authorized.
+
 The user confirmed these choices in chat on October 11, 2026:
 
 - Default playlist retention: one calendar month, with the original 1 week / 1 month / 3 months / pinned picker.

@@ -1,5 +1,7 @@
 # Spotify Song Tagger — Product Brief
 
+Current scope also includes the October 21 [Sources decision](DECISIONS.md#playlist-sources-across-the-whole-app--october-21-2026): enabled playlists and Liked Songs contribute to one deduplicated pool throughout the app. App-generated sources default off. The original Liked Songs-only brief below is historical where amended; [SOURCES.md](SOURCES.md) defines membership, deduplication, batching and removal behavior.
+
 Amendment: the October 11, 2026 [accepted publication decision](DECISIONS.md#playlist-publication-requirement--october-11-2026) resolves “private playlist” below as hidden from profile/search, without link-access restrictions. The October 21 [queue-listening decision](DECISIONS.md#queue-listening-in-the-webpage--october-21-2026) additionally authorizes optional in-webpage SDK listening for tagging. Its later [explicit SDK profile-scope exception](DECISIONS.md#optional-sdk-profile-scope-exception--october-21-2026) permits email/private scopes only in optional playback consent, without app storage/display of those fields; this supersedes the corresponding original prohibition below. The original brief is retained below.
 
 I'm starting this project fresh. This document is the complete product intent; everything about how it gets built is yours to decide.

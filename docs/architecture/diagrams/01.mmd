@@ -1,6 +1,7 @@
 flowchart TB
  subgraph Device[Your device]
  B[React browser app]
+ SDK[Optional queue SDK / memory-only access token]
  SC[Spotify client]
  end
  subgraph CF[Cloudflare Workers Free]
@@ -31,3 +32,5 @@ flowchart TB
  J --> ST
  B -. deep link .-> SC
  B -. artwork URL .-> ART
+ B -->|explicit queue Play / exclusive lease| SDK
+ SDK -->|Spotify SDK protocol| S

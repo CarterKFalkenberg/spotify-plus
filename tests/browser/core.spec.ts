@@ -431,7 +431,7 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
   await choose(page);
   await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
   await expect(
-    page.getByText("Matching songs · newest liked first"),
+    page.getByText("Matching songs · newest added first"),
   ).toBeVisible();
   await expect(page.getByText(/1 unavailable song is excluded/)).toBeVisible();
   await details(page);
@@ -599,7 +599,7 @@ test("import browsing stays available while create is gated; manual sync and new
   await expect(page.locator(".query-feedback")).toContainText("2 songs");
   await expect(page.locator(".builder-readiness")).toBeVisible();
   await expect(page.locator(".builder-readiness")).toContainText(
-    "Your first import is still being verified",
+    "Your enabled sources are still being imported and verified",
   );
   await expect(page.locator(".builder-navigation .primary")).toBeDisabled();
   await expect(page.getByText(/2 of 3 imported/)).toBeVisible();
@@ -1022,7 +1022,7 @@ test("empty import is an explicit empty-library state instead of zero-of-zero pr
   await page.goto("/");
   await library(page);
   await expect(page.locator(".library-status")).toContainText(
-    "Your Spotify library is empty",
+    "Your song pool is empty",
   );
   await expect(
     page.getByRole("heading", { name: "Your library is waiting" }),
@@ -2587,7 +2587,7 @@ for (const width of [320, 360])
             (button) => button.getBoundingClientRect().width,
           ).length,
         }));
-      expect(ordinaryNavigation.items).toBe(5);
+      expect(ordinaryNavigation.items).toBe(6);
       expect(ordinaryNavigation.rows).toBe(1);
       const enlargeText = async () =>
         page.evaluate(() => {

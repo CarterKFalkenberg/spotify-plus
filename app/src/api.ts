@@ -42,7 +42,7 @@ const messages: Record<string, string> = {
   stale_revision: "Your library changed. Refresh the results and try again.",
   unknown_tag: "A tag in this query no longer exists. Update your selection.",
   initial_sync_incomplete:
-    "Your first import is still being verified. You can keep tagging while it finishes.",
+    "Your enabled sources are still being imported and verified. You can keep tagging while they arrive.",
   no_playable_matches: "No playable songs match this query.",
   reconnect: "Reconnect Spotify to resume this work.",
   unauthorized: "Your session expired. Reconnect Spotify to continue.",
@@ -150,11 +150,37 @@ function spotifyLink(value: unknown): string | null {
       : fail(),
   );
 }
-export function track(value: unknown): TrackDTO {
+export interface TrackProvenance {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: "liked" | "playlist";
+}
+export function trackSources(value: unknown): TrackProvenance[] {
+  if (value === undefined) return [];
+  return rows(
+    value,
+    (raw) => {
+      const source = obj(raw);
+      const id = str(source.id);
+      if (id !== "liked" && !/^[A-Za-z0-9]{22}$/.test(id)) fail();
+      return {
+        id,
+        name: str(source.name),
+        kind: choice(source.kind, ["liked", "playlist"] as const),
+      };
+    },
+    10000,
+  );
+}
+export function track(value: unknown): TrackDTO & {
+  sources: TrackProvenance[];
+  metadata: (NonNullable<TrackDTO["metadata"]> & { addedAt: string }) | null;
+} {
   const v = obj(value),
     m = v.metadata === null ? null : obj(v.metadata);
   return {
     trackKey: parseTrackKey(v.trackKey),
+    sources: trackSources(v.sources),
     tagIds: rows(v.tagIds, parseId, 10000),
     metadata: m && {
       title: str(m.title),
@@ -176,6 +202,7 @@ export function track(value: unknown): TrackDTO {
         /^spotify:track:[A-Za-z0-9]{22}$/.test(str(v)) ? str(v) : fail(),
       ),
       likedAt: time(m.likedAt),
+      addedAt: time(m.addedAt ?? m.likedAt),
       removedAt: nullable(m.removedAt, time),
       acknowledgedAt: nullable(m.acknowledgedAt, time),
     },
@@ -206,10 +233,15 @@ export function createdTag(value: unknown) {
     revision: parseLibraryRevision(v.revision),
   };
 }
-export function libraryStatus(value: unknown): LibraryStatusDTO {
+export function libraryStatus(
+  value: unknown,
+): LibraryStatusDTO & { sourcesRevision?: string } {
   const v = obj(value);
   return {
     revision: parseLibraryRevision(v.revision),
+    ...(v.sourcesRevision === undefined
+      ? {}
+      : { sourcesRevision: parseRevision(v.sourcesRevision) }),
     initialSyncComplete: bool(v.initialSyncComplete),
     syncPhase: choice(v.syncPhase, ["idle", "importing", "verifying"]),
     importedCount: count(v.importedCount),
@@ -396,4 +428,13 @@ export function parseArtworkUrl(value: unknown): string | null {
   )
     return fail();
   return url.href;
+}
+
+export function trackAddedAt(track: TrackDTO): string | null {
+  const m = track.metadata;
+  return m
+    ? "addedAt" in m && typeof m.addedAt === "string"
+      ? m.addedAt
+      : m.likedAt
+    : null;
 }

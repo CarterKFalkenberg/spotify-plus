@@ -12,6 +12,27 @@ Checked against official documentation on October 10, 2026. No authenticated Spo
 
 ## Supported endpoint contract to implement
 
+### Playlist sources — October 21, 2026
+
+The [Sources decision](SOURCES.md) extends ingestion beyond Liked Songs. Use the current
+`GET /me/playlists` collection and `GET /playlists/{id}/items` route, bounded to
+50 items per page. The [playlist-items reference](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items),
+reread October 21, explicitly restricts content access to playlists owned by the
+current user or where they are a collaborator; discovery is not proof that content
+is readable. Followed-only sources need an honest unavailable state. Snapshot IDs
+support unchanged-source skipping and before/after scan checks, not a universal
+atomic pagination guarantee. Rate limits and shared pacing remain authoritative.
+
+Source ingestion is read-only and introduces no saved-library write capability.
+The ordinary scope set already includes playlist-read-private. Optional Sources
+consent adds `playlist-read-collaborative` through an authenticated explicit Enable
+action, retaining previously verified playback permissions. Ordinary login and
+bootstrap keep their original scope set; denying or incompletely granting the
+upgrade leaves the old grant and tagging intact. Later playback consent likewise
+retains verified Sources permission. An upgraded SDK access token can consequently
+also carry this read capability; refresh credentials still stay server-side. Live assertions
+must emit only counts, statuses and schema booleans, never names, IDs or content.
+
 All API paths below are relative to `https://api.spotify.com/v1`.
 
 | Purpose | Current route | Limit / behavior | Source |

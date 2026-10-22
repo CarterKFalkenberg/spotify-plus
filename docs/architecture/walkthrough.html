@@ -1,12 +1,14 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Spotify Plus request walkthrough</title><style>
 :root{color-scheme:light dark;--background:#f6f7f4;--foreground:#172a32;--muted:#e6eee8;--muted-foreground:#526570;--border:#b8c9c0;--viz-series-1:#12654e}*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);font:16px/1.55 system-ui,sans-serif}main{max-width:1080px;margin:auto;padding:32px 24px}a{color:var(--viz-series-1)}h1{font-size:clamp(28px,5vw,44px);line-height:1.15;margin:18px 0}h2{font-size:24px}code{font-size:12px;overflow-wrap:anywhere}.intro{color:var(--muted-foreground)}.viz-controls{margin:20px 0}.form-label{display:grid;gap:6px;max-width:360px}.form-select,.btn{font:inherit;border:1px solid var(--border);border-radius:6px;background:var(--background);color:var(--foreground);padding:10px 14px}.btn{cursor:pointer}.btn-primary{background:var(--viz-series-1);color:var(--background);border-color:var(--viz-series-1)}.btn:disabled{opacity:.45;cursor:default}.viz-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.text-small{font-size:13px;color:var(--muted-foreground)}.tabular-nums{font-variant-numeric:tabular-nums}#sp-event{padding:16px;border:1px solid var(--border);border-radius:8px;min-height:84px}footer{margin-top:32px;font-size:13px;color:var(--muted-foreground)}@media(prefers-color-scheme:dark){:root{--background:#18251f;--foreground:#e7f0eb;--muted:#263b30;--muted-foreground:#b3c8bc;--border:#5b7767;--viz-series-1:#8ee0b9}}@media(max-width:520px){main{padding:20px 16px}.viz-row{gap:8px}.btn{padding:9px 12px}}
-</style></head><body><main><a href="handbook.html">← Architecture handbook</a><h1>Spotify Plus request walkthrough</h1><p class="intro">Step through eight synthetic flows from browser intent to durable state and remote effects. Based on the October 14, 2026 source snapshot <code>7cfd663a3766ae694041d1c170705820f49c4ff6</code>; this is an implementation guide, not a live service check.</p><div id="spotify-flow-guide">
+</style></head><body><main><a href="handbook.html">← Architecture handbook</a><h1>Spotify Plus request walkthrough</h1><p class="intro">Step through ten synthetic flows from browser intent to durable state and remote effects. Based on the October 21, 2026 Sources implementation <code>30ace8a4ee27379824d447c6265f186813a6b0a3</code>; this is an implementation guide, not a live service check.</p><div id="spotify-flow-guide">
   <div class="viz-controls">
     <label class="form-label">Flow
       <select class="form-select" id="sp-flow-select">
         <option value="login">Spotify login</option>
-        <option value="sync">Library import</option>
+        <option value="sync">Source import</option>
+        <option value="sources">Source selection</option>
+        <option value="playback">Optional queue listening</option>
         <option value="tag">Bulk tagging and undo</option>
         <option value="preview">Query preview</option>
         <option value="create">Playlist creation</option>
@@ -44,25 +46,42 @@ login:[
 ['browser','remote','Complete Spotify consent','PKCE challenge; redirect returns code and state','Spotify Accounts'],
 ['api','remote','Exchange code and read identity','Server verifier; immutable account_id','persistGrant / tokens.ts'],
 ['api','db','Commit owner, tokens and session','Encrypted credentials + session hash; import queued','app_connect'],
-['api','browser','Return the app session','Secure HttpOnly cookie; Spotify tokens stay server-side','api/handler.ts']
+['api','browser','Return the app session','Secure HttpOnly cookie; Refresh tokens stay server-side; optional SDK access token is a separate memory-only exception','api/handler.ts']
 ],
 sync:[
-['api','db','Request a library walk','Initial connection, manual Sync now, or maintenance','app_library_sync'],
-['db','jobs','Dispatch and claim durable work','pg_cron / pg_net; current epoch and lease token','app_job_claim'],
-['jobs','remote','Read one saved-library page','GET /me/tracks; up to 50 items','library.ts'],
-['jobs','db','Commit page and resume position','Metadata + seen set + offset in one transaction','app_library_page_commit'],
-['jobs','remote','Walk the entire library again','Offset pages are not a snapshot','library.ts'],
-['jobs','db','Compare consecutive valid full passes','Same track-key and liked-at sets; consistent coverage','app_library_page_commit'],
-['db','db','Complete verified reconciliation','Soft-remove missing tracks; initial generation gate opens','library_state / sync_seen'],
-['api','browser','Read the new library revision','Visible UI polling observes completion','Workspace.tsx / polling.ts']
+['api','db','Request source discovery and sync','Initial connection, manual Sync now, or maintenance','app_sources_sync'],
+['db','jobs','Claim durable source work','Current epoch, lease and resumable source offset','app_job_claim'],
+['jobs','remote','Discover sources and versions','Bounded /me/playlists; owned/collaborative content access','sources.ts / Spotify adapter'],
+['jobs','db','Preserve choices and defaults','Accessible inputs ON, generated OFF; prior choices survive','app.sources'],
+['jobs','remote','Read an enabled source in pages','At most50 items; shared pacing; skip unchanged verified snapshots','source runner'],
+['jobs','db','Commit bounded page progress','Metadata and observed membership; resumable checkpoint','source page commit'],
+['jobs','db','Verify complete source membership','Liked matching passes or playlist snapshot checks; failure keeps confirmed state','source reconciliation'],
+['db','db','Refresh pool and logical songs','Enabled membership union; exact duplicate groups; tags retained','refresh_source_pool / refresh_song_groups'],
+['api','browser','Observe cached results and status','Generation waits for complete enabled initial imports','Workspace / Sources']
+],
+sources:[
+['browser','api','Choose enabled inputs','Explicit source IDs and enabled boolean; same-origin POST','Sources.tsx'],
+['api','db','Update preferences atomically','Validate source identities; retain annotations and original memberships','app_sources_selection'],
+['db','db','Recompute eligible unique songs','One enabled membership suffices; preserve eligible representative','refresh_source_pool / song groups'],
+['api','browser','Invalidate affected views','Reset stale selections/previews and stop ineligible queue playback','Workspace.tsx'],
+['db','jobs','Refresh newly enabled content','Bounded background import; incomplete sources gate generation','durable source jobs']
+],
+playback:[
+['browser','api','Explicit optional Enable playback','Owner-session consent upgrade; ordinary login unchanged','POST /api/playback/enable'],
+['browser','api','Play current eligible song','Short-lived access token to SDK closure only','POST /api/playback/token'],
+['browser','remote','Activate and connect owned SDK lease','One underlying Player per document; gesture required','playback.ts'],
+['api','db','Resolve current eligible representative','Source selection and epoch checked server-side','app_playback_track'],
+['api','remote','Start one-third through that track','Fixed single-track request to owned device','POST /api/playback/start'],
+['remote','browser','Confirm actual playback state','20-second sample; Play more continues; Pause is explicit','QueuePlayback.tsx'],
+['browser','remote','Stop owned lease on cancellation','Track/source change, inactive view, close, disconnect or unmount','playback.ts']
 ],
 tag:[
 ['browser','api','Submit selection and tag action','Explicit keys or revision-bound matching filter','BulkTags.tsx / api/library.ts'],
 ['api','db','Freeze targets under the owner lock','Reject stale revision before applying changes','app_tag_action'],
-['db','db','Apply only missing assignments','Version edges; journal only actual changes','track_tags / tag_action_edges'],
+['db','db','Apply changes across logical-song members','Preserve alias identities; version edges; journal actual changes','track_tags / tag_action_edges'],
 ['api','browser','Return count and Undo action ID','Tag mutation is already committed','Library.tsx'],
 ['browser','api','Request session Undo','Use the server-issued action ID','POST /api/tag-actions/{id}/undo'],
-['api','db','Restore eligible changed edges','Later version changes are preserved','app_tag_undo']
+['api','db','Restore eligible changed edges','Later edits or changed duplicate groups are preserved','app_tag_undo']
 ],
 preview:[
 ['browser','browser','Build a query tree','All / Any / None buckets become AND / OR / NOT','Builder.tsx'],

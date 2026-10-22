@@ -16,6 +16,7 @@ export interface JobContext {
   sha: string;
   now?: () => number;
   library?: FeatureJob;
+  sources?: FeatureJob;
   playlist?: FeatureJob;
   annotationBackup?: FeatureJob;
   artwork?: FeatureJob;
@@ -130,6 +131,21 @@ export async function drainJobs(
             p_outcome: "queued",
             p_retry_ms: result.retryMs ?? 1000,
             p_error: (result.retryMs ?? 0) >= 60000 ? "library_unstable" : null,
+          });
+          continue;
+        }
+      } else if (
+        (job.kind === "source_sync" || job.kind === "source_discovery") &&
+        context.sources
+      ) {
+        const result = await context.sources(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
           });
           continue;
         }
