@@ -274,8 +274,11 @@ create or replace function public.app_library_page_commit(p_epoch bigint,p_id uu
     on conflict(track_key) do update set spotify_id=excluded.spotify_id,title=excluded.title,artists=excluded.artists,album=excluded.album,
      release_date=excluded.release_date,duration_ms=excluded.duration_ms,explicit=excluded.explicit,artwork_url=excluded.artwork_url,spotify_url=excluded.spotify_url,
      playable_uri=excluded.playable_uri,liked_at=excluded.liked_at,removed_at=null,
-     acknowledged_at=case when app.track_metadata.removed_at is not null or app.track_metadata.liked_at<>excluded.liked_at then null else app.track_metadata.acknowledged_at end,
-     added_run_id=case when app.track_metadata.removed_at is not null or app.track_metadata.liked_at<>excluded.liked_at then r.id else app.track_metadata.added_run_id end
+     -- Becoming liked does not create another shared-pool arrival when a
+     -- playlist already keeps this song active. Provisional pages must not
+     -- overwrite a verified arrival cohort or its acknowledgment.
+     acknowledged_at=case when app.track_metadata.removed_at is not null then null else app.track_metadata.acknowledged_at end,
+     added_run_id=case when app.track_metadata.removed_at is not null then r.id else app.track_metadata.added_run_id end
     where (app.track_metadata.spotify_id,app.track_metadata.title,app.track_metadata.artists,app.track_metadata.album,app.track_metadata.release_date,
      app.track_metadata.duration_ms,app.track_metadata.explicit,app.track_metadata.artwork_url,app.track_metadata.spotify_url,app.track_metadata.playable_uri,app.track_metadata.liked_at,app.track_metadata.removed_at)
      is distinct from (excluded.spotify_id,excluded.title,excluded.artists,excluded.album,excluded.release_date,excluded.duration_ms,excluded.explicit,excluded.artwork_url,excluded.spotify_url,excluded.playable_uri,excluded.liked_at,null::timestamptz);
