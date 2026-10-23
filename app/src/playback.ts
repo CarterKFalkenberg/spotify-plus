@@ -264,8 +264,10 @@ export class QueuePlayer {
   }
   private invalidateWrites() {
     // Aborting fetch only cancels our wait: the server/Spotify may still finish.
-    // Never reconnect this document's shared device after an unresolved write.
-    if (this.startPending || this.commandPending) this.retire();
+    // An HTTP acknowledgement without fresh SDK playing proof is unresolved too.
+    // Never reconnect this document's shared device after either outcome.
+    if (this.startPending || this.commandPending || this.awaitingProof)
+      this.retire();
   }
   prepare(): Promise<void> {
     if (!this.preparation) this.preparation = this.play(true);
@@ -274,7 +276,11 @@ export class QueuePlayer {
   async setTrack(trackKey: string): Promise<void> {
     if (this.dead || this.trackKey === trackKey) return;
     this.trackKey = trackKey;
-    if (this.startPending || (this.commandPending && !this.handoff)) {
+    if (
+      this.startPending ||
+      this.awaitingProof ||
+      (this.commandPending && !this.handoff)
+    ) {
       this.retire();
       this.fail(
         "Playback could not be stopped safely. Check Spotify before reloading this page.",
@@ -995,6 +1001,7 @@ export class QueuePlayer {
     if (
       !this.dead &&
       (this.startPending ||
+        this.awaitingProof ||
         (this.commandPending > 0 && !this.pauseConfirmation))
     ) {
       this.retire();

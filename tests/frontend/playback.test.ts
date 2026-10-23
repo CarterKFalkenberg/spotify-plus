@@ -921,6 +921,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("detaches old listeners before pause/disconnect and ignores saved late callbacks", async () => {
     await controller.play();
+    await player.state();
     const ready = player.listeners.get("ready")!;
     const notReady = player.listeners.get("not_ready")!;
     const state = player.listeners.get("player_state_changed")!;
@@ -940,6 +941,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("routes token refresh to the current owner and fences a previous owner's late token", async () => {
     await controller.play();
+    await player.state();
     sdkToken(vi.fn());
     await vi.advanceTimersByTimeAsync(0);
     let resolve!: (token: string) => void;
@@ -962,6 +964,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("activates in the new click but waits for the old disconnect dispatch before connecting", async () => {
     await controller.play();
+    await player.state();
     let release!: () => void;
     player.disconnect.mockImplementationOnce(
       () => new Promise<void>((yes) => (release = yes)),
@@ -978,6 +981,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("ignores raw shared readiness/state events until the replacement dispatches connect", async () => {
     await controller.play();
+    await player.state();
     let release!: () => void;
     player.disconnect.mockImplementationOnce(
       () => new Promise<void>((yes) => (release = yes)),
@@ -1026,6 +1030,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("does not reconnect when the previous disconnect dispatch rejects", async () => {
     await controller.play();
+    await player.state();
     player.disconnect.mockImplementationOnce(() =>
       Promise.reject(new Error("synthetic-disconnect-failure")),
     );
@@ -1037,6 +1042,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("bounds a stuck disconnect dispatch and never starts a canceled replacement", async () => {
     await controller.play();
+    await player.state();
     player.disconnect.mockImplementationOnce(() => new Promise(() => {}));
     replace();
     const playing = controller.play();
@@ -1596,3 +1602,38 @@ it("Pause retires an unresolved resume even when a playing event arrived before 
   expect(player.connect).toHaveBeenCalledTimes(1);
   expect(start).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  "paused timeout",
+  "implausible seek",
+  "destroy",
+  "navigation",
+  "manual Pause",
+])(
+  "an acknowledged start without fresh playing proof retires on %s",
+  async (outcome) => {
+    await controller.prepare();
+    await player.state(true);
+    await controller.play();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(views.at(-1)?.status).toBe("starting");
+    if (outcome === "paused timeout") await vi.advanceTimersByTimeAsync(12000);
+    if (outcome === "implausible seek") await player.state(false, 100000);
+    if (outcome === "destroy") controller.destroy();
+    if (outcome === "navigation") await controller.setTrack("b".repeat(64));
+    if (outcome === "manual Pause") await controller.pause();
+    if (outcome !== "destroy") expect(views.at(-1)?.status).toBe("error");
+    controller.destroy();
+    await player.state();
+    controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+      views.push(view),
+    );
+    await controller.prepare();
+    await controller.play();
+    expect(views.at(-1)?.status).toBe("error");
+    expect(views.at(-1)?.message).toContain("Check Spotify");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(player.resume).not.toHaveBeenCalled();
+  },
+);
