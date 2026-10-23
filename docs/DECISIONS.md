@@ -1,5 +1,15 @@
 # Accepted product decisions
 
+## Warm active-queue player — October 23, 2026
+
+The user selected a persistent warm player throughout the active tagging queue, with connection and token preparation after existing playback consent. This amends the October 21 per-song disconnect lifecycle: ordinary eligible song navigation pauses and confirms silence, then keeps the same connection ready for the next explicit Play. Preparation never activates audio, starts/resumes a song, or opens consent automatically. One underlying SDK instance remains the limit for each document.
+
+Leaving the queue, hiding the document, closing the mobile sheet, losing eligibility, disconnecting or unmounting still stops and releases the session. One-third start, 20 seconds of confirmed playback, manual Pause and Play more are unchanged. No song starts automatically. Tokens remain closure-only; refresh credentials and authorization decisions remain server-side.
+
+An unresolved dispatched start or ambiguous playback outcome cannot safely share its device with another song: disconnect and permanently retire that document’s holder. A later aborted fetch or late response does not remove that fence. Recovery guidance asks the user to check Spotify before reloading, without claiming that reload proves a new remote device. Failed quiet handoffs also retire the holder. See the [warm session contract](SPOTIFY-API.md#warm-active-queue-session--october-23-2026).
+
+The user requires autonomous comparable before/after proof, including real matching SDK playback confirmation, before a performance claim or release. Deterministic synthetic timings establish regression behavior only. Actual phone and tagging-speed acceptance remain separate.
+
 ## Playlist sources across the whole app — October 21, 2026
 
 The human requested playlist ingestion through a Sources sidebar tab, all sources enabled by default, deduplication across playlists and equal title/artist Spotify tracks, bounded background batching and clear removal behavior. They explicitly selected **whole app** for source selection and **exclude app-generated playlists by default**, then requested the accepted plan be built and shipped with documentation and diagrams updated. See [Sources contract](SOURCES.md) and [issue #72](https://github.com/CarterKFalkenberg/spotify-plus/issues/72).

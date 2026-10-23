@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { QueuePlayer, loadSDK, type ListenView } from "./playback";
+import { QueuePlayer, type ListenView } from "./playback";
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid_response");
@@ -25,24 +25,12 @@ export function QueuePlayback({
   const [sdkReady, setSdkReady] = useState(false);
   const enableRequest = useRef<AbortController | null>(null);
   const player = useRef<QueuePlayer | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setView({ status: "idle", message: "", enable: false });
     setEnabling(false);
     if (!active || !available) return;
     let current = true;
     setSdkReady(false);
-    void loadSDK()
-      .then(() => {
-        if (current) setSdkReady(true);
-      })
-      .catch(() => {
-        if (current)
-          setView({
-            status: "error",
-            message: "Audio could not load. Try again or open Spotify.",
-            enable: false,
-          });
-      });
     const controller = new QueuePlayer(
       trackKey,
       {
@@ -92,6 +80,13 @@ export function QueuePlayback({
       setView,
     );
     player.current = controller;
+    // Let an immediately replaced render release its session before any token
+    // request (including React's development effect replay).
+    void Promise.resolve()
+      .then(() => (current ? controller.prepare() : undefined))
+      .then(() => {
+        if (current) setSdkReady(true);
+      });
     return () => {
       current = false;
       player.current = null;
@@ -99,7 +94,10 @@ export function QueuePlayback({
       enableRequest.current = null;
       controller.destroy();
     };
-  }, [trackKey, available, active, retry]);
+  }, [available, active, retry]);
+  useLayoutEffect(() => {
+    void player.current?.setTrack(trackKey);
+  }, [trackKey]);
   const playing = view.status === "snippet" || view.status === "more";
   const waiting =
     view.status === "loading" ||
