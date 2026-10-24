@@ -65,7 +65,7 @@ The recommended first step needs no paid inference or new data provider. Reuse b
 3. Inspect the group and bulk-confirm when the group genuinely fits. Otherwise review a compact list with **Yes / No / Later**, keyboard access and optional explicit listening. Keep the target tag visible and apply only user-confirmed additions.
 4. Persist decisions so resuming does not repeat rejected songs. Permit changing one's mind and undo. A new tag's progress is independent of all other tags and of the existing untagged queue.
 5. Offer **Explore outside these groups** and a random sample of unreviewed songs. This counters narrow starting choices; it is not proof of completeness. Stop whenever enough useful matches have been found; resume later.
-6. On future arrivals, allow reviewing new eligible songs against selected tags. Avoid producing a mandatory songs-times-tags backlog. A confirmed source removal makes a song ineligible, preserving its tags and review history under the existing removal/return policy.
+6. On future arrivals, allow reviewing new eligible songs against selected tags. Avoid producing a mandatory songs-times-tags backlog. A song leaves the active library only after confirmed loss of its last enabled source membership, preserving its tags and review history under the existing removal/return policy. Leaving one session's selected candidate group does not remove the song from the library or erase its decisions.
 
 The UI might say “Added 42 · Reviewed 160 · 1,840 not reviewed.” These are illustrative counts. Never turn an empty candidate list or a low score into “all done.”
 
