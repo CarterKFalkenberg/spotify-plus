@@ -66,6 +66,13 @@ async function mock(
     const body = route.request().postData()
       ? route.request().postDataJSON()
       : {};
+    // General tagging fixtures model an owner without optional playback consent.
+    // Listening tests override this route explicitly with their synthetic SDK.
+    if (path === "/api/playback/token")
+      return route.fulfill({
+        status: 503,
+        json: { error: "playback_required" },
+      });
     let json: unknown;
     if (path === "/api/session")
       json = {

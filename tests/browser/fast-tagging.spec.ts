@@ -72,6 +72,13 @@ async function mock(
     calls.push({ path, body });
     if (options.intercept && (await options.intercept(route, path, body)))
       return;
+    // General tagging fixtures model an owner without optional playback consent.
+    // Listening tests override this route explicitly with their synthetic SDK.
+    if (path === "/api/playback/token")
+      return route.fulfill({
+        status: 503,
+        json: { error: "playback_required" },
+      });
     let json: any;
     if (path === "/api/session")
       json = {
@@ -1113,7 +1120,15 @@ for (const scenario of ["restored", "empty", "skipped", "noop"] as const)
       page.locator(".section-heading").filter({ hasText: "Tagging queue" }),
     ).toContainText(`${changed ? 1 : 0} tagged this session`);
     await syncControls(page);
+    // Establish the concurrent snapshot before testing changed-only Undo. The
+    // empty case has no extra tag chip to use as a hydration-ready signal.
+    const concurrentSnapshot = page.waitForResponse(
+      async (response) =>
+        new URL(response.url()).pathname === "/api/library/queue-tracks" &&
+        (await response.json()).revision.annotations === "3",
+    );
     await page.getByRole("button", { name: "Sync now" }).click();
+    await concurrentSnapshot;
     if (hasLaterTag)
       await expect(
         page.getByRole("button", {
@@ -2101,7 +2116,7 @@ test("queue listening is explicit, confirms audio, pauses after20s and continues
   });
   await page.goto("/");
   await queue(page);
-  expect(tokens).toBe(0);
+  await expect.poll(() => tokens).toBe(1);
   await page.clock.install();
   await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
@@ -2131,13 +2146,13 @@ test("queue listening is explicit, confirms audio, pauses after20s and continues
         () => (window as any).__syntheticPlayer.counters.disconnects,
       ),
     )
-    .toBe(1);
+    .toBe(0);
   expect(starts).toBe(1);
   await page.getByRole("button", { name: "← Previous", exact: true }).click();
   await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
   expect(starts).toBe(2);
-  expect(tokens).toBe(2);
+  expect(tokens).toBe(1);
   expect(
     await page.evaluate(
       () => (window as any).__syntheticPlayer.counters.constructions,
@@ -2203,7 +2218,6 @@ test("mobile sheet close disconnects its player and scope upgrade leaves tagging
   await page
     .getByRole("button", { name: /Synthetic song 1.*Tap to tag/ })
     .click();
-  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Enable playback", exact: true }),
   ).toBeVisible();
@@ -2252,7 +2266,6 @@ test("leaving the sheet cancels pending playback consent and prevents late navig
   await page.goto("/");
   await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   await page.locator(".mobile-track").first().click();
-  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await page
     .getByRole("button", { name: "Enable playback", exact: true })
     .click();
@@ -2371,7 +2384,7 @@ test("confirming disconnect stops audio before the server reply", async ({
   release();
 });
 
-test("SDK initialization and connection failure cannot hide required playback consent", async ({
+test("background grant verification precedes SDK setup and exposes required playback consent", async ({
   page,
 }, info) => {
   test.skip(info.project.name !== "desktop", "Legacy grant SDK ordering");
@@ -2412,7 +2425,6 @@ test("SDK initialization and connection failure cannot hide required playback co
   });
   await page.goto("/");
   await queue(page);
-  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   release();
   await expect(
     page.getByRole("button", { name: "Enable playback", exact: true }),
@@ -2422,6 +2434,9 @@ test("SDK initialization and connection failure cannot hide required playback co
     page.getByLabel("Tag current song", { exact: true }),
   ).toHaveValue("sad");
   expect(starts).toBe(0);
+  expect(
+    await page.evaluate(() => (window as any).__syntheticPlayer.counters),
+  ).toMatchObject({ constructions: 0, connections: 0 });
 });
 
 test("a definitive unavailable-target response retries once on the same browser player while tagging stays usable", async ({
@@ -3291,3 +3306,89 @@ for (const navigation of ["Next →", "Skip · requeue"] as const)
         ).toBeEnabled();
       }
     });
+
+test("warm queue navigation pauses active audio, never autoplays, and releases on hidden page", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Desktop warm queue lifecycle");
+  await syntheticPlayer(page);
+  let tokens = 0,
+    starts = 0;
+  await mock(page, {
+    intercept: async (route, path) => {
+      if (path === "/api/playback/token") {
+        tokens++;
+        await route.fulfill({ json: { accessToken: "synthetic-access" } });
+        return true;
+      }
+      if (path === "/api/playback/start") {
+        starts++;
+        await page.evaluate(() => {
+          (window as any).__syntheticPlayer.state.paused = false;
+        });
+        await route.fulfill({
+          json: {
+            uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+            positionMs: 60333,
+            durationMs: 181000,
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+  });
+  await page.goto("/");
+  await queue(page);
+  await expect(
+    page.getByRole("button", { name: "▶ Play", exact: true }),
+  ).toBeEnabled();
+  expect(starts).toBe(0);
+  expect(tokens).toBe(1);
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  await page.getByRole("button", { name: "Next →", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "▶ Play", exact: true }),
+  ).toBeEnabled();
+  expect(starts).toBe(1);
+  expect(
+    await page.evaluate(() => ({
+      ...(window as any).__syntheticPlayer.counters,
+      paused: (window as any).__syntheticPlayer.state.paused,
+    })),
+  ).toMatchObject({ connections: 1, disconnects: 0, pauses: 1, paused: true });
+  await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+  await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+  expect(starts).toBe(2);
+  expect(tokens).toBe(1);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).__syntheticPlayer.counters.disconnects,
+      ),
+    )
+    .toBe(1);
+  expect(
+    await page.evaluate(() => (window as any).__syntheticPlayer.state.paused),
+  ).toBe(true);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(
+    page.getByRole("button", { name: "▶ Play", exact: true }),
+  ).toBeEnabled();
+  expect(starts).toBe(2);
+  expect(tokens).toBe(2);
+});

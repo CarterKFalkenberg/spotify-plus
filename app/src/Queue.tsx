@@ -778,7 +778,6 @@ export function Queue({
                     : ""}
                 </p>
                 <QueuePlayback
-                  key={current.trackKey}
                   trackKey={current.trackKey}
                   available={
                     !!current.metadata?.playableUri &&

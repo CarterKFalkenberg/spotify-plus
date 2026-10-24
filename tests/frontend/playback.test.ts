@@ -34,7 +34,7 @@ class Player implements WebPlayer {
       this.listeners.delete(event);
     return true;
   }
-  state(paused = false, position = 60000, track = uri) {
+  async state(paused = false, position = 60000, track = uri) {
     this.current = {
       paused,
       position,
@@ -42,6 +42,7 @@ class Player implements WebPlayer {
       track_window: { current_track: { uri: track } },
     };
     this.listeners.get("player_state_changed")?.(this.current);
+    await Promise.resolve();
   }
 }
 let player: Player;
@@ -107,7 +108,7 @@ describe("queue listening", () => {
     expect(views.at(-1)?.status).toBe("starting");
     await vi.advanceTimersByTimeAsync(8000);
     expect(player.pause).not.toHaveBeenCalled();
-    player.state();
+    await player.state();
     await vi.advanceTimersByTimeAsync(19999);
     expect(player.pause).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -163,7 +164,7 @@ describe("queue listening", () => {
     const count = views.length;
     resolve({ uri, positionMs: 60000, durationMs: 180000 });
     await pending;
-    player.state();
+    await player.state();
     await vi.advanceTimersByTimeAsync(30000);
     expect(views).toHaveLength(count);
     expect(player.disconnect).toHaveBeenCalledTimes(1);
@@ -172,8 +173,8 @@ describe("queue listening", () => {
   it("a different track stops the dedicated device and never starts the next song", async () => {
     await prepare();
     await controller.play();
-    player.state();
-    player.state(false, 0, `spotify:track:${"b".repeat(22)}`);
+    await player.state();
+    await player.state(false, 0, `spotify:track:${"b".repeat(22)}`);
     expect(views.at(-1)?.status).toBe("error");
     expect(player.disconnect).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledTimes(1);
@@ -181,15 +182,15 @@ describe("queue listening", () => {
   it("manual pause suppresses late playback states and keeps Play more unbounded", async () => {
     await prepare();
     await controller.play();
-    player.state();
+    await player.state();
     await controller.pause();
-    player.state();
+    void player.state();
     expect(views.at(-1)?.status).toBe("pausing");
     await vi.advanceTimersByTimeAsync(0);
     expect(views.at(-1)?.status).toBe("paused");
     expect(player.pause).toHaveBeenCalledTimes(2);
     await controller.play();
-    player.state();
+    await player.state();
     await vi.advanceTimersByTimeAsync(25000);
     expect(player.pause).toHaveBeenCalledTimes(2);
   });
@@ -214,7 +215,7 @@ describe("queue listening", () => {
 it("unresolved pause remains waiting until confirmed or disconnects after its deadline", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   player.pause.mockImplementation(() => new Promise(() => {}));
   void controller.pause();
   expect(views.at(-1)?.status).toBe("pausing");
@@ -227,10 +228,10 @@ it("unresolved pause remains waiting until confirmed or disconnects after its de
 it("lost SDK state during continuous playback disconnects within a bound", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   await controller.pause();
   await controller.play();
-  player.state();
+  await player.state();
   expect(views.at(-1)?.status).toBe("more");
   player.current = null;
   await vi.advanceTimersByTimeAsync(3000);
@@ -254,10 +255,10 @@ it("a warmed SDK activates during the click and starts on that same click", asyn
 it("an unresolved SDK state read during Play more disconnects within its deadline", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   await controller.pause();
   await controller.play();
-  player.state();
+  await player.state();
   player.getCurrentState.mockImplementation(() => new Promise(() => {}));
   await vi.advanceTimersByTimeAsync(3000);
   expect(views.at(-1)?.status).toBe("error");
@@ -267,7 +268,7 @@ it("an unresolved SDK state read during Play more disconnects within its deadlin
 it("a paused poll resolving after Play more cannot undo the newer resume", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   await controller.pause();
   const paused = structuredClone(player.current!);
   let resolve!: (state: PlaybackState) => void;
@@ -291,7 +292,7 @@ it.each(["paused", "rejected", "pending"] as const)(
   async (outcome) => {
     await prepare();
     await controller.play();
-    player.state();
+    await player.state();
     await controller.pause();
     await controller.play();
     let resolve!: (state: PlaybackState) => void;
@@ -304,7 +305,7 @@ it.each(["paused", "rejected", "pending"] as const)(
         }),
     );
     await vi.advanceTimersByTimeAsync(500);
-    player.state(); // A notification supersedes the snapshot that the poll requested.
+    await player.state(); // A notification supersedes the snapshot that the poll requested.
     if (outcome === "paused") resolve({ ...player.current!, paused: true });
     if (outcome === "rejected") reject(new Error("synthetic stale read"));
     await vi.advanceTimersByTimeAsync(3000);
@@ -318,10 +319,10 @@ it.each(["paused", "rejected", "pending"] as const)(
 it("rejected suppression of unsolicited playing disconnects instead of claiming paused", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   await controller.pause();
   player.pause.mockRejectedValue(new Error("synthetic pause failure"));
-  player.state();
+  void player.state();
   expect(views.at(-1)?.status).toBe("pausing");
   await vi.advanceTimersByTimeAsync(0);
   expect(views.at(-1)?.status).toBe("error");
@@ -330,16 +331,16 @@ it("rejected suppression of unsolicited playing disconnects instead of claiming 
 it("repeated unsolicited playing cannot extend a permanently pending pause deadline", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   await controller.pause();
   player.pause.mockImplementation(() => new Promise(() => {}));
-  player.state();
+  await player.state();
   expect(views.at(-1)?.status).toBe("pausing");
   await vi.advanceTimersByTimeAsync(1000);
-  player.state();
+  await player.state();
   await vi.advanceTimersByTimeAsync(999);
-  player.state();
-  expect(player.pause).toHaveBeenCalledTimes(2);
+  await player.state();
+  expect(player.pause).toHaveBeenCalledTimes(4);
   expect(player.disconnect).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(views.at(-1)?.status).toBe("error");
@@ -349,7 +350,7 @@ it("repeated unsolicited playing cannot extend a permanently pending pause deadl
 it("an obsolete poll cleanup cannot release a newer in-flight polling ticket", async () => {
   await prepare();
   await controller.play();
-  player.state();
+  await player.state();
   await controller.pause();
   await controller.play();
   const initialReads = player.getCurrentState.mock.calls.length;
@@ -369,7 +370,7 @@ it("an obsolete poll cleanup cannot release a newer in-flight polling ticket", a
         }),
     );
   await vi.advanceTimersByTimeAsync(500);
-  player.state();
+  await player.state();
   await vi.advanceTimersByTimeAsync(500);
   expect(player.getCurrentState).toHaveBeenCalledTimes(initialReads + 2);
   oldResolve({ ...player.current!, paused: true });
@@ -434,7 +435,7 @@ it.each(
       "playback_error",
     ])
       player.listeners.get(late)?.({ message: "synthetic private diagnostic" });
-    player.state();
+    await player.state();
     await vi.advanceTimersByTimeAsync(15000);
     expect(views.at(-1)).toEqual({
       status: "error",
@@ -741,7 +742,7 @@ it("a classified API 404 retries once after one second on the same owned song/de
   await pending;
   expect(start).toHaveBeenCalledTimes(2);
   expect(start.mock.calls[1]).toEqual(start.mock.calls[0]);
-  player.state();
+  await player.state();
   expect(views.at(-1)?.status).toBe("snippet");
 });
 it.each([
@@ -793,7 +794,7 @@ it("teardown during target backoff cancels the timer and ignores all late SDK ca
   controller.destroy();
   const count = views.length;
   await pending;
-  player.state();
+  await player.state();
   await vi.advanceTimersByTimeAsync(30000);
   expect(start).toHaveBeenCalledTimes(1);
   expect(views).toHaveLength(count);
@@ -855,7 +856,7 @@ it("a late successful recovery response cannot update a destroyed queue player",
   const count = views.length;
   resolve({ uri, positionMs: 60000, durationMs: 180000 });
   await pending;
-  player.state();
+  await player.state();
   await vi.advanceTimersByTimeAsync(30000);
   expect(views).toHaveLength(count);
   expect(start).toHaveBeenCalledTimes(2);
@@ -866,8 +867,9 @@ it("a changed command during backoff prevents a second start without needing an 
   start.mockRejectedValueOnce(new ApiError("playback_target_unavailable", 404));
   const pending = controller.play();
   await vi.advanceTimersByTimeAsync(500);
-  await controller.pause();
-  await vi.advanceTimersByTimeAsync(500);
+  const pausing = controller.pause();
+  await vi.advanceTimersByTimeAsync(2000);
+  await pausing;
   await pending;
   expect(start).toHaveBeenCalledTimes(1);
 });
@@ -906,7 +908,7 @@ describe("one page SDK player across queue songs", () => {
     for (const key of ["a", "b", "a", "a"]) {
       if (constructions) replace(key.repeat(64));
       await controller.play();
-      player.state();
+      await player.state();
       expect(views.at(-1)?.status).toBe("snippet");
       await controller.pause();
       expect(views.at(-1)?.status).toBe("paused");
@@ -919,6 +921,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("detaches old listeners before pause/disconnect and ignores saved late callbacks", async () => {
     await controller.play();
+    await player.state();
     const ready = player.listeners.get("ready")!;
     const notReady = player.listeners.get("not_ready")!;
     const state = player.listeners.get("player_state_changed")!;
@@ -927,7 +930,7 @@ describe("one page SDK player across queue songs", () => {
     });
     replace();
     await controller.play();
-    player.state();
+    await player.state();
     const disconnects = player.disconnect.mock.calls.length;
     ready({ device_id: "late-old-device-1234567890" });
     notReady({});
@@ -938,6 +941,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("routes token refresh to the current owner and fences a previous owner's late token", async () => {
     await controller.play();
+    await player.state();
     sdkToken(vi.fn());
     await vi.advanceTimersByTimeAsync(0);
     let resolve!: (token: string) => void;
@@ -960,6 +964,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("activates in the new click but waits for the old disconnect dispatch before connecting", async () => {
     await controller.play();
+    await player.state();
     let release!: () => void;
     player.disconnect.mockImplementationOnce(
       () => new Promise<void>((yes) => (release = yes)),
@@ -976,6 +981,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("ignores raw shared readiness/state events until the replacement dispatches connect", async () => {
     await controller.play();
+    await player.state();
     let release!: () => void;
     player.disconnect.mockImplementationOnce(
       () => new Promise<void>((yes) => (release = yes)),
@@ -994,7 +1000,7 @@ describe("one page SDK player across queue songs", () => {
     expect(start).toHaveBeenCalledTimes(1);
     release();
     await playing;
-    player.state();
+    await player.state();
     expect(views.at(-1)?.status).toBe("snippet");
     expect(player.connect).toHaveBeenCalledTimes(2);
     expect(start.mock.calls.at(-1)?.[1]).toBe(device);
@@ -1014,7 +1020,7 @@ describe("one page SDK player across queue songs", () => {
     await vi.advanceTimersByTimeAsync(0);
     replace();
     await controller.play();
-    player.state();
+    await player.state();
     const disconnects = player.disconnect.mock.calls.length;
     reject(new Error("synthetic-late-connection"));
     await oldPlay;
@@ -1024,6 +1030,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("does not reconnect when the previous disconnect dispatch rejects", async () => {
     await controller.play();
+    await player.state();
     player.disconnect.mockImplementationOnce(() =>
       Promise.reject(new Error("synthetic-disconnect-failure")),
     );
@@ -1035,6 +1042,7 @@ describe("one page SDK player across queue songs", () => {
   });
   it("bounds a stuck disconnect dispatch and never starts a canceled replacement", async () => {
     await controller.play();
+    await player.state();
     player.disconnect.mockImplementationOnce(() => new Promise(() => {}));
     replace();
     const playing = controller.play();
@@ -1045,3 +1053,587 @@ describe("one page SDK player across queue songs", () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("warm active queue session", () => {
+  it("prepares authorization and connection without activation or playback", async () => {
+    await controller.prepare();
+    expect(views.at(-1)?.status).toBe("ready");
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(player.activateElement).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(player.resume).not.toHaveBeenCalled();
+    const playing = controller.play();
+    expect(player.activateElement).toHaveBeenCalledTimes(1);
+    await playing;
+    await player.state();
+    expect(views.at(-1)?.status).toBe("snippet");
+  });
+  it("preparation with missing consent never constructs/connects or opens consent", async () => {
+    token.mockRejectedValue(new ApiError("playback_required", 503));
+    await controller.prepare();
+    expect(views.at(-1)?.enable).toBe(true);
+    expect(player.connect).not.toHaveBeenCalled();
+    expect(player.activateElement).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+  it("reuses one connection across settled A→B→A with explicit independent snippets", async () => {
+    await controller.prepare();
+    for (const key of ["a", "b", "a"]) {
+      await controller.setTrack(key.repeat(64));
+      const count = start.mock.calls.length;
+      expect(views.at(-1)?.status).toBe("ready");
+      expect(start).toHaveBeenCalledTimes(count);
+      await controller.play();
+      await player.state();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(start.mock.calls.at(-1)?.[0]).toBe(key.repeat(64));
+      expect(views.at(-1)?.status).toBe("snippet");
+    }
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(player.disconnect).not.toHaveBeenCalled();
+    expect(player.pause).toHaveBeenCalledTimes(2);
+    expect(player.resume).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(19000);
+    expect(views.at(-1)?.status).toBe("paused");
+  });
+  it("rapid arrows await one pause proof and do not allow Play before it settles", async () => {
+    await controller.prepare();
+    await controller.play();
+    await player.state();
+    let release!: () => void;
+    player.pause.mockImplementationOnce(
+      () => new Promise((yes) => (release = yes)),
+    );
+    const first = controller.setTrack("b".repeat(64));
+    const last = controller.setTrack("a".repeat(64));
+    await controller.play();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    player.current = { ...player.current!, paused: true };
+    release();
+    await Promise.all([first, last]);
+    await controller.play();
+    await player.state();
+    expect(start.mock.calls.at(-1)?.[0]).toBe("a".repeat(64));
+    expect(views.at(-1)?.status).toBe("snippet");
+  });
+  it.each(["pending", "rejected", "unconfirmed"])(
+    "a %s transition pause retires the shared connection",
+    async (outcome) => {
+      await controller.prepare();
+      await controller.play();
+      await player.state();
+      if (outcome === "pending")
+        player.pause.mockImplementationOnce(() => new Promise(() => {}));
+      if (outcome === "rejected")
+        player.pause.mockRejectedValueOnce(new Error("synthetic failure"));
+      if (outcome === "unconfirmed")
+        player.pause.mockImplementation(async () => {});
+      void controller.setTrack("b".repeat(64));
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(views.at(-1)?.status).toBe("error");
+      controller.destroy();
+      controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+        views.push(view),
+      );
+      await controller.prepare();
+      expect(views.at(-1)?.message).toContain("Check Spotify");
+      expect(player.connect).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["navigation", "destroy", "deadline", "manual pause"])(
+    "an unresolved start at %s permanently fences late writes and replacement sessions",
+    async (action) => {
+      await controller.prepare();
+      let resolve!: (value: {
+        uri: string;
+        positionMs: number;
+        durationMs: number;
+      }) => void;
+      start.mockImplementationOnce(() => new Promise((yes) => (resolve = yes)));
+      const playing = controller.play();
+      await vi.advanceTimersByTimeAsync(0);
+      if (action === "navigation") await controller.setTrack("b".repeat(64));
+      if (action === "destroy") controller.destroy();
+      if (action === "deadline") await vi.advanceTimersByTimeAsync(12000);
+      if (action === "manual pause") await controller.pause();
+      controller.destroy();
+      resolve({ uri, positionMs: 60000, durationMs: 180000 });
+      await playing;
+      controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+        views.push(view),
+      );
+      await controller.prepare();
+      await controller.play();
+      await player.state();
+      expect(views.at(-1)?.status).toBe("error");
+      expect(views.at(-1)?.message).toContain("Check Spotify");
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(player.connect).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("an ambiguous settled start stays retired after fetch has rejected", async () => {
+    await controller.prepare();
+    start.mockRejectedValueOnce(new ApiError("playback_unconfirmed", 503));
+    await controller.play();
+    controller.destroy();
+    controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+      views.push(view),
+    );
+    await controller.prepare();
+    expect(views.at(-1)?.message).toContain("Check Spotify");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+  });
+  it("navigation during definitive 404 backoff cannot replay the old or new track", async () => {
+    await controller.prepare();
+    start.mockRejectedValueOnce(
+      new ApiError("playback_target_unavailable", 404),
+    );
+    const playing = controller.play();
+    await vi.advanceTimersByTimeAsync(500);
+    await controller.setTrack("b".repeat(64));
+    await vi.advanceTimersByTimeAsync(500);
+    await playing;
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(views.at(-1)?.status).toBe("ready");
+    await controller.play();
+    await player.state();
+    expect(start.mock.calls.at(-1)?.[0]).toBe("b".repeat(64));
+    expect(player.connect).toHaveBeenCalledTimes(1);
+  });
+  it("unsolicited playing while warm and idle disconnects without starting any song", async () => {
+    await controller.prepare();
+    await player.state();
+    expect(views.at(-1)?.status).toBe("error");
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+    expect(start).not.toHaveBeenCalled();
+  });
+  it("a stale poll from A cannot cross the quiet barrier and stop a new A snippet", async () => {
+    await controller.prepare();
+    await controller.play();
+    await player.state();
+    let resolve!: (state: PlaybackState) => void;
+    player.getCurrentState.mockImplementationOnce(
+      () => new Promise((yes) => (resolve = yes)),
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    await controller.setTrack("b".repeat(64));
+    await controller.setTrack("a".repeat(64));
+    await controller.play();
+    await player.state();
+    resolve({ ...player.current!, paused: true });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(views.at(-1)?.status).toBe("snippet");
+    expect(player.disconnect).not.toHaveBeenCalled();
+  });
+});
+
+it("teardown drains its old pause as well as disconnect before a replacement connects", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  let release!: () => void;
+  player.pause.mockImplementationOnce(
+    () => new Promise((yes) => (release = yes)),
+  );
+  controller.destroy();
+  controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+    views.push(view),
+  );
+  const prepared = controller.prepare();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(player.connect).toHaveBeenCalledTimes(1);
+  release();
+  await prepared;
+  expect(player.connect).toHaveBeenCalledTimes(2);
+  expect(start).toHaveBeenCalledTimes(1);
+});
+it("a song change during explicit cold setup cannot spend that gesture on the next song", async () => {
+  let release!: (value: string) => void;
+  token.mockImplementationOnce(() => new Promise((yes) => (release = yes)));
+  const playing = controller.play();
+  await controller.setTrack("b".repeat(64));
+  release("synthetic-access");
+  await playing;
+  expect(start).not.toHaveBeenCalled();
+  expect(views.at(-1)?.status).toBe("error");
+});
+
+it("repeated retry cannot erase a rejected teardown fence", async () => {
+  await controller.prepare();
+  player.pause.mockRejectedValueOnce(new Error("synthetic teardown refusal"));
+  controller.destroy();
+  for (let retry = 0; retry < 3; retry++) {
+    controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+      views.push(view),
+    );
+    await controller.prepare();
+    controller.destroy();
+  }
+  expect(player.connect).toHaveBeenCalledTimes(1);
+  expect(start).not.toHaveBeenCalled();
+});
+
+it("a stale raw A notification cannot confirm a new A without a fresh post-ack snapshot", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  await controller.setTrack("b".repeat(64));
+  await controller.setTrack("a".repeat(64));
+  await controller.play();
+  const stale = { ...player.current!, paused: false };
+  // The event says old A is playing, but the authoritative SDK snapshot is paused.
+  player.listeners.get("player_state_changed")?.(stale);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(views.at(-1)?.status).toBe("starting");
+  expect(player.pause).toHaveBeenCalledTimes(1);
+  await player.state();
+  expect(views.at(-1)?.status).toBe("snippet");
+});
+it("fresh start proof rejects a matching URI at an implausible seek position", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state(false, 100000);
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+it("a paused handoff snapshot superseded by a playing event cannot expose the next Play", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  let release!: (state: PlaybackState) => void;
+  player.getCurrentState.mockImplementationOnce(
+    () => new Promise((yes) => (release = yes)),
+  );
+  player.pause.mockImplementation(async () => {});
+  const changing = controller.setTrack("b".repeat(64));
+  await vi.advanceTimersByTimeAsync(0);
+  const paused = { ...player.current!, paused: true };
+  await player.state();
+  release(paused);
+  await vi.advanceTimersByTimeAsync(1999);
+  expect(views.at(-1)?.status).toBe("pausing");
+  await vi.advanceTimersByTimeAsync(1);
+  await changing;
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+  expect(start).toHaveBeenCalledTimes(1);
+});
+
+it("a warm start waits through the previous paused URI until fresh matching playback", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  await controller.setTrack("b".repeat(64));
+  const nextURI = `spotify:track:${"b".repeat(22)}`;
+  start.mockResolvedValueOnce({
+    uri: nextURI,
+    positionMs: 60000,
+    durationMs: 180000,
+  });
+  await controller.play();
+  expect(views.at(-1)?.status).toBe("starting");
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(views.at(-1)?.status).toBe("starting");
+  expect(player.disconnect).not.toHaveBeenCalled();
+  await player.state(false, 60000, nextURI);
+  expect(views.at(-1)?.status).toBe("snippet");
+  await vi.advanceTimersByTimeAsync(19999);
+  expect(player.pause).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(player.pause).toHaveBeenCalledTimes(2);
+  expect(views.at(-1)?.status).toBe("paused");
+});
+it.each(["pending paused item", "old playing item"])(
+  "warm next-song startup still bounds a %s",
+  async (outcome) => {
+    await controller.prepare();
+    await controller.play();
+    await player.state();
+    await controller.setTrack("b".repeat(64));
+    start.mockResolvedValueOnce({
+      uri: `spotify:track:${"b".repeat(22)}`,
+      positionMs: 60000,
+      durationMs: 180000,
+    });
+    await controller.play();
+    if (outcome === "old playing item") await player.state();
+    else await vi.advanceTimersByTimeAsync(12000);
+    expect(views.at(-1)?.status).toBe("error");
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(2);
+  },
+);
+
+it("a malformed paused item cannot use the warm-start previous-item exception", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state(true, 60000, "synthetic-invalid-uri");
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+
+it.each(["unpaused", "null"])(
+  "a pause acknowledgement with initial %s state waits for bounded quiet proof",
+  async (initial) => {
+    await controller.prepare();
+    await controller.play();
+    await player.state();
+    player.pause.mockImplementationOnce(async () => {});
+    if (initial === "null") player.current = null;
+    const changing = controller.setTrack("b".repeat(64));
+    await vi.advanceTimersByTimeAsync(149);
+    expect(views.at(-1)?.status).toBe("pausing");
+    await controller.play();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(player.disconnect).not.toHaveBeenCalled();
+    await player.state(true);
+    await vi.advanceTimersByTimeAsync(1);
+    await changing;
+    expect(views.at(-1)?.status).toBe("ready");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    await controller.play();
+    await player.state();
+    expect(views.at(-1)?.status).toBe("snippet");
+    expect(start.mock.calls.at(-1)?.[0]).toBe("b".repeat(64));
+  },
+);
+it.each(["unpaused", "null"])(
+  "a permanently %s handoff state cannot extend the original quiet deadline",
+  async (state) => {
+    await controller.prepare();
+    await controller.play();
+    await player.state();
+    player.pause.mockImplementation(async () => {});
+    if (state === "null") player.current = null;
+    const changing = controller.setTrack("b".repeat(64));
+    await vi.advanceTimersByTimeAsync(1000);
+    const finalChange = controller.setTrack("a".repeat(64));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(views.at(-1)?.status).toBe("pausing");
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all([changing, finalChange]);
+    expect(views.at(-1)?.status).toBe("error");
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+  },
+);
+it("a malformed handoff snapshot fails immediately instead of claiming quiet", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  player.getCurrentState.mockResolvedValueOnce({
+    ...player.current!,
+    paused: true,
+    duration: 0,
+  });
+  await controller.setTrack("b".repeat(64));
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+
+it.each(["handoff", "manual", "automatic"])(
+  "a dropped first pause recovers on bounded reassertion during %s",
+  async (mode) => {
+    await controller.prepare();
+    await controller.play();
+    await player.state();
+    player.pause.mockImplementationOnce(async () => {});
+    let pausing: Promise<void> | undefined;
+    if (mode === "handoff") pausing = controller.setTrack("b".repeat(64));
+    else if (mode === "manual") pausing = controller.pause();
+    else await vi.advanceTimersByTimeAsync(20000);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(views.at(-1)?.status).toBe("pausing");
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    await controller.play();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(player.resume).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await pausing;
+    expect(views.at(-1)?.status).toBe(mode === "handoff" ? "ready" : "paused");
+    expect(player.pause).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(player.pause).toHaveBeenCalledTimes(2);
+    expect(player.disconnect).not.toHaveBeenCalled();
+  },
+);
+it("quiet proof after the first dispatch cancels both reassertion timers", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  await controller.pause();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(player.pause).toHaveBeenCalledTimes(1);
+  expect(views.at(-1)?.status).toBe("paused");
+});
+it("three ignored pause dispatches retire at the original deadline without another retry", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  player.pause.mockImplementation(async () => {});
+  const pausing = controller.pause();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(player.pause).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(1499);
+  expect(views.at(-1)?.status).toBe("pausing");
+  expect(player.pause).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(1);
+  await pausing;
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+  // Teardown dispatches its own final pause; no retry survives that teardown.
+  expect(player.pause).toHaveBeenCalledTimes(4);
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(player.pause).toHaveBeenCalledTimes(4);
+});
+it("raw quiet state cannot release a handoff before every SDK command settles", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  let settle!: () => void;
+  player.pause
+    .mockImplementationOnce(async () => {})
+    .mockImplementationOnce(() => {
+      player.current = { ...player.current!, paused: true };
+      return new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+    });
+  const changing = controller.setTrack("b".repeat(64));
+  await vi.advanceTimersByTimeAsync(250);
+  await player.state(true);
+  const readsBeforeSettle = player.getCurrentState.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(750);
+  expect(views.at(-1)?.status).toBe("pausing");
+  expect(player.pause).toHaveBeenCalledTimes(2);
+  await controller.play();
+  expect(start).toHaveBeenCalledTimes(1);
+  settle();
+  await vi.advanceTimersByTimeAsync(0);
+  await changing;
+  expect(player.getCurrentState.mock.calls.length).toBeGreaterThan(
+    readsBeforeSettle,
+  );
+  expect(views.at(-1)?.status).toBe("ready");
+  await controller.play();
+  await player.state();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(views.at(-1)?.status).toBe("snippet");
+  expect(player.pause).toHaveBeenCalledTimes(2);
+});
+it("cancelling pause confirmation removes future reassertions and fences late settlement", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  let settle!: () => void;
+  player.pause.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+  );
+  const pausing = controller.pause();
+  await vi.advanceTimersByTimeAsync(100);
+  controller.destroy();
+  await pausing;
+  const pauseCount = player.pause.mock.calls.length;
+  settle();
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(player.pause).toHaveBeenCalledTimes(pauseCount);
+  expect(start).toHaveBeenCalledTimes(1);
+  controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+    views.push(view),
+  );
+  await controller.prepare();
+  expect(views.at(-1)?.message).toContain("Check Spotify");
+  expect(player.connect).toHaveBeenCalledTimes(1);
+});
+
+it("manual pause never grants Play more on a different SDK song", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  player.current = {
+    ...player.current!,
+    track_window: { current_track: { uri: `spotify:track:${"b".repeat(22)}` } },
+  };
+  await controller.pause();
+  expect(views.at(-1)?.status).toBe("error");
+  await controller.play();
+  expect(player.resume).not.toHaveBeenCalled();
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+});
+
+it("Pause retires an unresolved resume even when a playing event arrived before its acknowledgement", async () => {
+  await controller.prepare();
+  await controller.play();
+  await player.state();
+  await controller.pause();
+  let settle!: () => void;
+  player.resume.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+  );
+  const resuming = controller.play();
+  await vi.advanceTimersByTimeAsync(0);
+  await player.state();
+  expect(views.at(-1)?.status).toBe("more");
+  await controller.pause();
+  expect(views.at(-1)?.status).toBe("error");
+  expect(player.disconnect).toHaveBeenCalledTimes(1);
+  settle();
+  await resuming;
+  await player.state();
+  expect(views.at(-1)?.status).toBe("error");
+  controller.destroy();
+  controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+    views.push(view),
+  );
+  await controller.prepare();
+  expect(views.at(-1)?.message).toContain("Check Spotify");
+  expect(player.connect).toHaveBeenCalledTimes(1);
+  expect(start).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  "paused timeout",
+  "implausible seek",
+  "destroy",
+  "navigation",
+  "manual Pause",
+])(
+  "an acknowledged start without fresh playing proof retires on %s",
+  async (outcome) => {
+    await controller.prepare();
+    await player.state(true);
+    await controller.play();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(views.at(-1)?.status).toBe("starting");
+    if (outcome === "paused timeout") await vi.advanceTimersByTimeAsync(12000);
+    if (outcome === "implausible seek") await player.state(false, 100000);
+    if (outcome === "destroy") controller.destroy();
+    if (outcome === "navigation") await controller.setTrack("b".repeat(64));
+    if (outcome === "manual Pause") await controller.pause();
+    if (outcome !== "destroy") expect(views.at(-1)?.status).toBe("error");
+    controller.destroy();
+    await player.state();
+    controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
+      views.push(view),
+    );
+    await controller.prepare();
+    await controller.play();
+    expect(views.at(-1)?.status).toBe("error");
+    expect(views.at(-1)?.message).toContain("Check Spotify");
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(player.resume).not.toHaveBeenCalled();
+  },
+);
