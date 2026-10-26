@@ -2,6 +2,7 @@
 
 Read `docs/PRODUCT-BRIEF.md`, `docs/DECISIONS.md`, `docs/PLAN.md`, `docs/HOSTING.md`, `docs/SPOTIFY-API.md`, and `docs/SETUP.md` before implementation. The original brief and accepted human decisions define scope; `.local/config.json` supplies targets and action authorizations. Never infer human approval from an agent's output.
 
+- Never use `docs/FUTURE-FEATURES.md` as an implementation or planning reference; read or edit it only for explicitly requested idea maintenance.
 - Work only in a separate worktree on `codex/...`. All repository changes ship through PRs. The user authorized autonomous review and merge after checks pass; follow `docs/agents/delivery.md`. Never commit or push directly to main. Fast-forward the primary main checkout when clean; preserve unrelated edits.
 - Complete each useful stage from `.build/tasks.json`, including the common gates in `docs/agents/acceptance.md`, deployment and live verification. An API proof is internal setup, not a library-browser release. The milestone list does not narrow the original MVP requirements.
 - One user. Spotify OAuth is login. No audio features, AI features, or extra product scope. Profile scopes remain excluded from ordinary login/bootstrap; the October 21 human-approved SDK exception permits `user-read-email` and `user-read-private` only for optional queue playback consent, without app storage/display of those fields. Queue-only in-webpage SDK listening is authorized by that decision; preserve its narrow browser-token exception and playback lifecycle.
