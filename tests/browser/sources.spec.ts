@@ -1,3 +1,4 @@
+import { parseDiagnostic } from "../../supabase/functions/_shared/diagnostics-contract";
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { appearance } from "./flows";
 import { assertReadableSurface } from "./visual-assertions";
@@ -62,6 +63,11 @@ async function mock(
       return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
+    // Operational traffic has its own strict contract and is not a source action.
+    if (path === "/api/diagnostics") {
+      parseDiagnostic(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { accepted: true } });
+    }
     if (options.intercept && (await options.intercept(route, path))) return;
     const body = route.request().postData()
       ? route.request().postDataJSON()
