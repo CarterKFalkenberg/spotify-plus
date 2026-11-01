@@ -1,3 +1,4 @@
+import { UUID } from "../../supabase/functions/_shared/diagnostics-contract";
 import {
   parseId,
   parseLibraryRevision,
@@ -23,6 +24,7 @@ export class ApiError extends Error {
   constructor(
     readonly code: string,
     readonly status = 0,
+    readonly requestId?: string,
   ) {
     super(code);
   }
@@ -91,6 +93,9 @@ export async function api<T>(
         ? code
         : "unavailable",
       response.status,
+      UUID.test(response.headers.get("x-diagnostic-request") ?? "")
+        ? response.headers.get("x-diagnostic-request")!
+        : undefined,
     );
   }
   return parse(value);

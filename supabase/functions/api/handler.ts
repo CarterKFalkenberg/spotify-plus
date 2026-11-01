@@ -1,3 +1,5 @@
+import { parseDiagnostic, UUID } from "../_shared/diagnostics-contract.ts";
+import { reportDiagnostic } from "../_shared/diagnostics.ts";
 import { ContractError } from "../_shared/contracts.ts";
 import { libraryApi } from "./library.ts";
 import { playlistApi } from "../_shared/playlist-api.ts";
@@ -62,6 +64,7 @@ export interface ApiDependencies {
   fetch?: typeof fetch;
   now?: () => number;
   startJobs?: () => void;
+  background?: (task: Promise<unknown>) => void;
 }
 const CLEAR_OAUTH = cookie(OAUTH_COOKIE, "", 0);
 export const DISCONNECT_REMAINS =
@@ -83,8 +86,15 @@ function validDate(value: string): string {
   return new Date(timestamp).toISOString();
 }
 export function createApi(
-  { db, box, config, fetch: request = fetch, now = Date.now, startJobs }:
-    ApiDependencies,
+  {
+    db,
+    box,
+    config,
+    fetch: request = fetch,
+    now = Date.now,
+    startJobs,
+    background,
+  }: ApiDependencies,
 ) {
   const authFailure = (kind: string) =>
     redirect(`${config.origin}/?auth_error=${kind}`, [CLEAR_OAUTH]);
@@ -185,6 +195,7 @@ export function createApi(
     }
     const path = pathFor(req, "api");
     const url = new URL(req.url);
+    let diagnosticEpoch: number | undefined;
     try {
       if (path === "/healthz" && req.method === "GET") {
         return json({
@@ -346,6 +357,7 @@ export function createApi(
           p_token_hash: await sha256(token),
         })
         : null;
+      diagnosticEpoch = session?.epoch;
       if (path === "/api/session" && req.method === "GET") {
         if (!session) {
           const status = await db.rpc<AccountStatus>("app_account_status");
@@ -377,6 +389,28 @@ export function createApi(
         !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
         req.headers.get("Origin") !== config.origin
       ) return json({ error: "invalid_origin" }, 403);
+      if (path === "/api/diagnostics" && req.method === "POST") {
+        const body = parseDiagnostic(await readJson(req, 1024));
+        const incoming = req.headers.get("x-diagnostic-request");
+        const task = Promise.resolve().then(() =>
+          db.rpc("app_diagnostic_record", {
+            p_source: "browser",
+            p_event: body.event,
+            p_reason: body.reason,
+            p_build: body.build,
+            p_document: body.document,
+            p_playback: body.playback,
+            p_request: incoming && UUID.test(incoming)
+              ? incoming
+              : crypto.randomUUID(),
+            p_facts: body.facts,
+            p_epoch: session.epoch,
+            p_related_request: body.relatedRequest,
+          })
+        ).catch(() => false);
+        background?.(task);
+        return json({ accepted: true }, 202);
+      }
       if (path === "/api/sources/enable" && req.method === "POST") {
         const body = await readJson(req);
         if (Object.keys(body).length) throw new ContractError("parameters");
@@ -543,35 +577,71 @@ export function createApi(
       }
       return json({ error: "not_found" }, 404);
     } catch (error) {
+      const diagnosed = (response: Response): Response => {
+        // No feedback loop, provider payloads or raw exception strings.
+        if (path !== "/api/diagnostics" && diagnosticEpoch !== undefined) {
+          const task = reportDiagnostic(
+            db,
+            config.sha,
+            "api",
+            path === "/api/playback/start"
+              ? "playback_api_failed"
+              : path === "/api/playback/token"
+              ? "token_api_failed"
+              : "api_failed",
+            error instanceof SpotifyError
+              ? error.kind
+              : error instanceof DatabaseError
+              ? "database"
+              : "unavailable",
+            UUID.test(req.headers.get("x-diagnostic-request") ?? "")
+              ? req.headers.get("x-diagnostic-request")!
+              : crypto.randomUUID(),
+            {
+              outgoingStatus: response.status,
+              upstreamStatus: error instanceof SpotifyError &&
+                  Number.isSafeInteger(error.status) && error.status! >= 0 &&
+                  error.status! <= 599
+                ? error.status!
+                : 0,
+            },
+            diagnosticEpoch,
+          );
+          background?.(task);
+        }
+        return response;
+      };
       if (error instanceof ContractError) {
-        return json({ error: "invalid_input" }, 400);
+        return diagnosed(json({ error: "invalid_input" }, 400));
       }
       if (
         error instanceof DatabaseError &&
         !["wrong_account", "unavailable"].includes(error.kind)
       ) {
-        return json(
+        return diagnosed(json(
           { error: error.kind },
           error.kind === "invalid_input" ? 400 : 409,
-        );
+        ));
       }
       if (path === "/api/playback/start" && error instanceof SpotifyError) {
         if (error.kind === "not_found" && error.status === 404) {
-          return json({ error: "playback_target_unavailable" }, 404);
+          return diagnosed(json({ error: "playback_target_unavailable" }, 404));
         }
         if (error.kind === "network" || error.kind === "response") {
           // A lost/malformed write response cannot authorize an automatic replay.
-          return json({ error: "playback_unconfirmed" }, 503);
+          return diagnosed(json({ error: "playback_unconfirmed" }, 503));
         }
         if (error.kind === "http") {
           const status =
             error.status !== null && error.status >= 500 && error.status <= 599
               ? error.status
               : 502;
-          return json({ error: "playback_service_error" }, status);
+          return diagnosed(json({ error: "playback_service_error" }, status));
         }
         if (error.kind === "control_unavailable") {
-          return json({ error: "playback_control_unavailable" }, 503);
+          return diagnosed(
+            json({ error: "playback_control_unavailable" }, 503),
+          );
         }
       }
       const kind = error instanceof SpotifyError
@@ -590,15 +660,17 @@ export function createApi(
         : error instanceof Error && error.message === "invalid_input"
         ? "invalid_input"
         : "temporarily_unavailable";
-      if (path === "/auth/spotify/callback") return authFailure(kind);
-      return json(
+      if (path === "/auth/spotify/callback") {
+        return diagnosed(authFailure(kind));
+      }
+      return diagnosed(json(
         { error: kind },
         kind === "wrong_account" || kind === "forbidden"
           ? 403
           : kind === "invalid_input"
           ? 400
           : 503,
-      );
+      ));
     }
   };
 }

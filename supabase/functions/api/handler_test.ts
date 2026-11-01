@@ -602,3 +602,58 @@ Deno.test("optional consent without either accepted SDK profile scope cannot rep
     equal(result.connectArgs, undefined);
   }
 });
+
+Deno.test("diagnostics require session and origin, validate closed schema and fail open", async () => {
+  const body = {
+    relatedRequest: null,
+    event: "pause_failed",
+    reason: "deadline",
+    build: "a".repeat(40),
+    document: "11111111-1111-4111-8111-111111111111",
+    playback: "22222222-2222-4222-8222-222222222222",
+    facts: { dispatches: 3 },
+  };
+  let stored = 0;
+  let logged: Record<string, unknown> = {};
+  let owner = true;
+  const work: Promise<unknown>[] = [];
+  const handler = createApi({
+    config,
+    box,
+    background: (task) => {
+      work.push(task);
+    },
+    db: database((name, args) => {
+      if (name === "app_session") return owner ? authenticated : null;
+      if (name === "app_diagnostic_record") {
+        stored++;
+        logged = args;
+        throw new Error("private database failure");
+      }
+      throw new Error("unexpected RPC");
+    }),
+  });
+  const post = (data: unknown, origin = config.origin) =>
+    handler(request("/api/diagnostics", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: origin,
+        Cookie: `${SESSION_COOKIE}=${session}`,
+      },
+      body: JSON.stringify(data),
+    }));
+  owner = false;
+  equal((await post(body)).status, 401);
+  owner = true;
+  equal((await post(body, "https://other.example")).status, 403);
+  equal((await post({ ...body, raw: "private" })).status, 400);
+  equal((await post({ ...body, facts: { error: "private" } })).status, 400);
+  equal(stored, 0);
+  equal((await post(body)).status, 202);
+  await Promise.all(work);
+  equal(stored, 1);
+  equal(logged.p_epoch, 1);
+  equal(logged.p_source, "browser");
+  assert(typeof logged.p_request === "string");
+});

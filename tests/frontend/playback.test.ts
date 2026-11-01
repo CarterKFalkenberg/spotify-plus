@@ -7,6 +7,10 @@ import {
   type WebPlayer,
   type SpotifySDK,
 } from "../../app/src/playback";
+const diagnostic = vi.hoisted(() => vi.fn());
+vi.mock("../../app/src/diagnostics", () => ({
+  playbackDiagnostics: () => diagnostic,
+}));
 const uri = `spotify:track:${"a".repeat(22)}`;
 const device = "synthetic-device-1234567890";
 class Player implements WebPlayer {
@@ -60,6 +64,7 @@ let start: ReturnType<
 let token: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<string>>>;
 beforeEach(() => {
   vi.useFakeTimers();
+  diagnostic.mockClear();
   views = [];
   player = new Player();
   const sdk = {
@@ -1140,6 +1145,12 @@ describe("warm active queue session", () => {
       );
       await controller.prepare();
       expect(views.at(-1)?.message).toContain("Check Spotify");
+      expect(diagnostic).toHaveBeenCalledWith(
+        "holder_retired",
+        "retired",
+        expect.any(Object),
+        undefined,
+      );
       expect(player.connect).toHaveBeenCalledTimes(1);
       expect(start).toHaveBeenCalledTimes(1);
     },
@@ -1160,6 +1171,15 @@ describe("warm active queue session", () => {
       if (action === "destroy") controller.destroy();
       if (action === "deadline") await vi.advanceTimersByTimeAsync(12000);
       if (action === "manual pause") await controller.pause();
+      if (action === "navigation" || action === "manual pause")
+        expect(diagnostic).toHaveBeenCalledWith(
+          action === "navigation"
+            ? "navigation_unresolved"
+            : "pause_unresolved",
+          "none",
+          expect.objectContaining({ startPending: true, awaitingProof: false }),
+          undefined,
+        );
       controller.destroy();
       resolve({ uri, positionMs: 60000, durationMs: 180000 });
       await playing;
@@ -1487,6 +1507,17 @@ it("three ignored pause dispatches retire at the original deadline without anoth
   await pausing;
   expect(views.at(-1)?.status).toBe("error");
   expect(player.disconnect).toHaveBeenCalledTimes(1);
+  expect(diagnostic).toHaveBeenCalledWith(
+    "pause_failed",
+    "deadline",
+    expect.objectContaining({
+      dispatches: 3,
+      inFlight: 0,
+      stateSeen: true,
+      paused: false,
+      elapsedMs: 2000,
+    }),
+  );
   // Teardown dispatches its own final pause; no retry survives that teardown.
   expect(player.pause).toHaveBeenCalledTimes(4);
   await vi.advanceTimersByTimeAsync(10000);
@@ -1623,6 +1654,14 @@ it.each([
     if (outcome === "navigation") await controller.setTrack("b".repeat(64));
     if (outcome === "manual Pause") await controller.pause();
     if (outcome !== "destroy") expect(views.at(-1)?.status).toBe("error");
+    if (outcome === "navigation" || outcome === "manual Pause") {
+      expect(diagnostic).toHaveBeenCalledWith(
+        outcome === "navigation" ? "navigation_unresolved" : "pause_unresolved",
+        "none",
+        expect.objectContaining({ startPending: false, awaitingProof: true }),
+        undefined,
+      );
+    }
     controller.destroy();
     await player.state();
     controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
@@ -1632,6 +1671,12 @@ it.each([
     await controller.play();
     expect(views.at(-1)?.status).toBe("error");
     expect(views.at(-1)?.message).toContain("Check Spotify");
+    expect(diagnostic).toHaveBeenCalledWith(
+      "holder_retired",
+      "retired",
+      expect.any(Object),
+      undefined,
+    );
     expect(player.connect).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledTimes(1);
     expect(player.resume).not.toHaveBeenCalled();

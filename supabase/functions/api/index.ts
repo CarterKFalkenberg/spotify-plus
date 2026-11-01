@@ -17,6 +17,7 @@ const box = new SecretBox(config.tokenEncryptionKey);
 const backups = new PrivateBackups(config.supabaseUrl, config.serviceKey);
 const jobs = {
   db,
+  background: (task: Promise<unknown>) => EdgeRuntime.waitUntil(task),
   sha: config.sha,
   backups,
   annotationBackup: annotationBackupJob(
@@ -36,6 +37,7 @@ Deno.serve(
     config,
     db,
     box,
+    background: (task) => EdgeRuntime.waitUntil(task),
     startJobs: () => {
       // One invocation, at most 20 claimed jobs / 80 seconds. Leases and cron
       // remain authoritative if this opportunistic background task is stopped.

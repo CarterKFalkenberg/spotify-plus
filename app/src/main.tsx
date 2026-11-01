@@ -411,6 +411,14 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
             and a minimal keyed identifier are kept so re-liking a song can
             restore your annotations.
           </p>
+          <p>
+            Sanitized operational diagnostics record fixed error codes, build
+            versions, random correlation identifiers, and limited playback
+            timing and state facts. They contain no song metadata, Spotify
+            identifiers, credentials, or raw errors. They are scheduled for
+            deletion after seven days, capped at 5,000 records, and deleted on
+            disconnect. A paused service can delay scheduled deletion.
+          </p>
           <h2>Optional listening</h2>
           <p>
             Optional listening in this webpage uses Spotify’s Web Playback SDK.

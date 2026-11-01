@@ -77,6 +77,7 @@ describe("fixed same-origin proxy", () => {
           "content-type",
           "cookie",
           "origin",
+          "x-diagnostic-request",
           "x-proxy-secret",
         ]);
         expect(headers.get("x-proxy-secret")).toBe(env.PROXY_SECRET);
@@ -385,4 +386,29 @@ it("allows a bounded 10000-source selection body while retaining 16KiB limits el
     ).status,
   ).toBe(413);
   expect(remote).toHaveBeenCalledTimes(1);
+});
+
+it("diagnostics have a tiny body cap and proxy-generated request correlation", async () => {
+  const remote = vi.fn(async () => new Response("{}", { status: 202 }));
+  const post = (body: string) =>
+    request("/api/diagnostics", {
+      method: "POST",
+      headers: {
+        Origin: env.APP_ORIGIN,
+        "Content-Type": "application/json",
+        "x-diagnostic-request": "untrusted-client-value",
+      },
+      body,
+    });
+  expect(
+    (await handleRequest(post("a".repeat(1025)), env, remote)).status,
+  ).toBe(413);
+  expect(remote).not.toHaveBeenCalled();
+  expect((await handleRequest(post("{}"), env, remote)).status).toBe(202);
+  const headers = (
+    remote.mock.calls[0] as unknown as [unknown, RequestInit]
+  )[1];
+  expect(new Headers(headers.headers).get("x-diagnostic-request")).toMatch(
+    /^[a-f0-9-]{36}$/,
+  );
 });
