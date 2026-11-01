@@ -86,7 +86,11 @@ has three direct entry paths:
   command remains unresolved.
 - `holder_retired`: a later controller attempts to reuse a document's retired SDK
   holder. Earlier lifecycle events may explain why it was retired, including an
-  unconfirmed start, teardown rejection, or `pause_failed`.
+  unconfirmed start, teardown rejection, or `pause_failed`. `start_failed` with
+  `startup_deadline` records the start/proof state when its deadline fires;
+  `holder_retired` with `teardown_rejected` records the safety facts captured at
+  teardown dispatch. Late start settlements retain their original dispatch
+  operation ordinal, even after navigation or controller destruction.
 
 `pause_failed` records a fixed reason (deadline, invalid state, different item,
 state-read rejection, pause rejection), dispatch/in-flight counts, null/stale

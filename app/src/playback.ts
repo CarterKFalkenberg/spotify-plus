@@ -77,7 +77,11 @@ interface SDKHolder {
   unsafe?: boolean;
 }
 const players = new WeakMap<Window, SDKHolder>();
-function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
+function ownPlayer(
+  sdk: SpotifySDK,
+  options: PlayerOptions,
+  onTeardown: () => () => void,
+): WebPlayer {
   let holder = players.get(window);
   if (!holder) {
     const created: SDKHolder = {
@@ -133,6 +137,7 @@ function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
     },
     disconnect() {
       if (!current()) return;
+      const teardownFailed = onTeardown();
       shared.owner = undefined;
       shared.token = undefined;
       for (const [event, listener] of listeners) {
@@ -164,6 +169,7 @@ function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
         () => {},
         () => {
           shared.unsafe = true;
+          teardownFailed();
           throw new Error("connect_failed");
         },
       );
@@ -729,11 +735,12 @@ export class QueuePlayer {
     deviceId: string,
     signal: AbortSignal,
   ) {
+    const operation = this.operation;
     this.startPending = true;
-    this.diagnose("start_dispatched");
+    this.diagnose("start_dispatched", "none", { operation });
     try {
       const result = await this.transport.start(trackKey, deviceId, signal);
-      this.diagnose("start_acknowledged");
+      this.diagnose("start_acknowledged", "none", { operation });
       return result;
     } catch (error) {
       this.diagnose(
@@ -742,6 +749,7 @@ export class QueuePlayer {
           error instanceof ApiError ? error.code : "unavailable",
         ),
         {
+          operation,
           apiStatus:
             error instanceof ApiError &&
             Number.isSafeInteger(error.status) &&
@@ -841,26 +849,43 @@ export class QueuePlayer {
             this.failure(error);
           },
         );
-        const player = ownPlayer(sdk, {
-          name: "Song Tagger",
-          volume: 0.7,
-          getOAuthToken: (callback) => {
-            if (this.dead || this.status === "error") return;
-            if (initialToken) {
-              const token = initialToken;
-              initialToken = undefined;
-              callback(token);
-              return;
-            }
-            const grant = firstGrant ?? this.transport.token(this.abort.signal);
-            firstGrant = undefined;
-            void grant
-              .then((token) => {
-                if (!this.dead && this.status !== "error") callback(token);
-              })
-              .catch((e) => this.failure(e));
+        const player = ownPlayer(
+          sdk,
+          {
+            name: "Song Tagger",
+            volume: 0.7,
+            getOAuthToken: (callback) => {
+              if (this.dead || this.status === "error") return;
+              if (initialToken) {
+                const token = initialToken;
+                initialToken = undefined;
+                callback(token);
+                return;
+              }
+              const grant =
+                firstGrant ?? this.transport.token(this.abort.signal);
+              firstGrant = undefined;
+              void grant
+                .then((token) => {
+                  if (!this.dead && this.status !== "error") callback(token);
+                })
+                .catch((e) => this.failure(e));
+            },
           },
-        });
+          () => {
+            // Teardown can settle after this controller is destroyed or replaced.
+            // Capture its safety facts when dispatching, without retaining SDK data.
+            const facts = {
+              operation: this.operation,
+              startPending: this.startPending,
+              awaitingProof: this.awaitingProof,
+              commandPending: this.commandPending,
+              accepted: this.accepted,
+            };
+            return () =>
+              this.report("holder_retired", "teardown_rejected", facts);
+          },
+        );
         this.player = player;
         const ready = new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(
@@ -982,10 +1007,16 @@ export class QueuePlayer {
       const activation = activated ?? this.player.activateElement();
       this.emit("starting");
       const startupUntil = this.now() + 12000;
-      this.deadline = setTimeout(
-        () => this.fail("Playback did not start. Try again or open Spotify."),
-        12000,
-      );
+      this.deadline = setTimeout(() => {
+        this.diagnose("start_failed", "startup_deadline", {
+          operation,
+          elapsedMs: Math.min(
+            86400000,
+            Math.max(0, this.now() - (startupUntil - 12000)),
+          ),
+        });
+        this.fail("Playback did not start. Try again or open Spotify.");
+      }, 12000);
       await activation;
       if (this.dead || operation !== this.operation) return;
       if (this.accepted && !ended) {

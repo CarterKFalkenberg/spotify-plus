@@ -1169,7 +1169,20 @@ describe("warm active queue session", () => {
       await vi.advanceTimersByTimeAsync(0);
       if (action === "navigation") await controller.setTrack("b".repeat(64));
       if (action === "destroy") controller.destroy();
-      if (action === "deadline") await vi.advanceTimersByTimeAsync(12000);
+      if (action === "deadline") {
+        await vi.advanceTimersByTimeAsync(12000);
+        expect(diagnostic).toHaveBeenCalledWith(
+          "start_failed",
+          "startup_deadline",
+          expect.objectContaining({
+            startPending: true,
+            awaitingProof: false,
+            accepted: false,
+            elapsedMs: 12000,
+          }),
+          undefined,
+        );
+      }
       if (action === "manual pause") await controller.pause();
       if (action === "navigation" || action === "manual pause")
         expect(diagnostic).toHaveBeenCalledWith(
@@ -1295,6 +1308,15 @@ it("repeated retry cannot erase a rejected teardown fence", async () => {
   }
   expect(player.connect).toHaveBeenCalledTimes(1);
   expect(start).not.toHaveBeenCalled();
+  expect(diagnostic).toHaveBeenCalledWith(
+    "holder_retired",
+    "teardown_rejected",
+    expect.objectContaining({
+      startPending: false,
+      awaitingProof: false,
+      accepted: false,
+    }),
+  );
 });
 
 it("a stale raw A notification cannot confirm a new A without a fresh post-ack snapshot", async () => {
@@ -1648,7 +1670,20 @@ it.each([
     await controller.play();
     expect(start).toHaveBeenCalledTimes(1);
     expect(views.at(-1)?.status).toBe("starting");
-    if (outcome === "paused timeout") await vi.advanceTimersByTimeAsync(12000);
+    if (outcome === "paused timeout") {
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(diagnostic).toHaveBeenCalledWith(
+        "start_failed",
+        "startup_deadline",
+        expect.objectContaining({
+          startPending: false,
+          awaitingProof: true,
+          accepted: true,
+          elapsedMs: 12000,
+        }),
+        undefined,
+      );
+    }
     if (outcome === "implausible seek") await player.state(false, 100000);
     if (outcome === "destroy") controller.destroy();
     if (outcome === "navigation") await controller.setTrack("b".repeat(64));
@@ -1680,5 +1715,53 @@ it.each([
     expect(player.connect).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledTimes(1);
     expect(player.resume).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["navigation", "destroy"])(
+  "late start settlements keep the dispatch operation after %s",
+  async (action) => {
+    for (const outcome of ["acknowledged", "failed"] as const) {
+      // Each case needs a fresh document because invalidation permanently retires it.
+      if (outcome === "failed") {
+        controller.destroy();
+        vi.stubGlobal("window", {});
+        controller = new QueuePlayer("a".repeat(64), { token, start }, (view) =>
+          views.push(view),
+        );
+      }
+      await controller.prepare();
+      let settle!: () => void;
+      start.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            settle = () =>
+              outcome === "acknowledged"
+                ? resolve({ uri, positionMs: 60000, durationMs: 180000 })
+                : reject(new ApiError("playback_unconfirmed", 503));
+          }),
+      );
+      diagnostic.mockClear();
+      const playing = controller.play();
+      await vi.advanceTimersByTimeAsync(0);
+      const launched = diagnostic.mock.calls.find(
+        ([event]) => event === "start_dispatched",
+      )![2].operation;
+      if (action === "navigation") await controller.setTrack("b".repeat(64));
+      else controller.destroy();
+      const after = diagnostic.mock.calls.at(-1)![2].operation;
+      settle();
+      await playing;
+      expect(diagnostic).toHaveBeenCalledWith(
+        outcome === "acknowledged" ? "start_acknowledged" : "start_failed",
+        outcome === "acknowledged" ? "none" : "playback_unconfirmed",
+        expect.objectContaining({ operation: launched }),
+        undefined,
+      );
+      // The retirement path may report before incrementing, but no late settlement
+      // may attach to a subsequently created operation.
+      expect(after).toBeGreaterThanOrEqual(launched);
+      expect(views.at(-1)?.status).not.toBe("snippet");
+    }
   },
 );

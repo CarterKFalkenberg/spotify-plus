@@ -15,6 +15,8 @@ afterEach(() => {
 });
 it("rejects arbitrary metadata, identifiers, raw errors and unbounded facts", () => {
   expect(parseDiagnostic(valid)).toEqual(valid);
+  for (const reason of ["startup_deadline", "teardown_rejected"])
+    expect(parseDiagnostic({ ...valid, reason }).reason).toBe(reason);
   for (const body of [
     { ...valid, track: "private" },
     { ...valid, event: "private" },

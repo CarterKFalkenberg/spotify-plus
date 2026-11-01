@@ -29,6 +29,8 @@ export const DIAGNOSTIC_REASONS = [
   "guard",
   "none",
   "deadline",
+  "startup_deadline",
+  "teardown_rejected",
   "invalid_state",
   "different_item",
   "state_rejected",

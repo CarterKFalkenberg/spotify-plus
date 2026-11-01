@@ -12,7 +12,9 @@ do $$
   if public.app_diagnostic_record('browser','pause_failed','deadline',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{"dispatches":1.5}',e) then raise exception 'fraction accepted'; end if;
   if public.app_diagnostic_record('browser','pause_failed','deadline',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{}',e-1) then raise exception 'stale owner accepted'; end if;
   if not public.app_diagnostic_record('browser','pause_failed','deadline',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{"dispatches":3,"paused":false}',e) then raise exception 'valid facts rejected'; end if;
-  for n in 2..300 loop
+  if not public.app_diagnostic_record('browser','start_failed','startup_deadline',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{"awaitingProof":true}',e) then raise exception 'startup deadline reason rejected'; end if;
+  if not public.app_diagnostic_record('browser','holder_retired','teardown_rejected',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{"startPending":false}',e) then raise exception 'teardown rejection reason rejected'; end if;
+  for n in 4..300 loop
    perform public.app_diagnostic_record('browser','pause_failed','deadline',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{}',e);
   end loop;
   if public.app_diagnostic_record('browser','pause_failed','deadline',repeat('a',40),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{}',e) then raise exception 'budget exceeded'; end if;
