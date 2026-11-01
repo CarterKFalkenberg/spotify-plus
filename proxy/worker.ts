@@ -9,6 +9,7 @@ export interface Env {
 const routes: Readonly<Record<string, string>> = {
   "/healthz": "GET",
   "/api/session": "GET",
+  "/api/diagnostics": "POST",
   "/api/disconnect": "POST",
   "/api/playback/enable": "POST",
   "/api/playback/token": "POST",
@@ -135,6 +136,8 @@ export async function handleRequest(
     if (value !== null) headers.set(name, value);
   }
   headers.set("x-proxy-secret", env.PROXY_SECRET);
+  const requestId = crypto.randomUUID();
+  headers.set("x-diagnostic-request", requestId);
   const target = new URL(
     `/functions/v1/api${url.pathname}`,
     env.SUPABASE_ORIGIN,
@@ -157,7 +160,11 @@ export async function handleRequest(
       )
         return error(415, "invalid_content_type");
       const maxBodyBytes =
-        url.pathname === "/api/sources/selection" ? 262144 : 16384;
+        url.pathname === "/api/diagnostics"
+          ? 1024
+          : url.pathname === "/api/sources/selection"
+            ? 262144
+            : 16384;
       const reader = request.body?.getReader();
       const chunks: Uint8Array[] = [];
       let length = 0;
@@ -184,9 +191,11 @@ export async function handleRequest(
     const response = await upstream(target, init);
     if (url.pathname !== "/healthz") {
       // Never buffer private payloads. Preserve HttpOnly Set-Cookie and OAuth redirects.
+      const responseHeaders = privateHeaders(response.headers);
+      responseHeaders.set("x-diagnostic-request", requestId);
       return new Response(response.body, {
         status: response.status,
-        headers: privateHeaders(response.headers),
+        headers: responseHeaders,
       });
     }
     if (!response.ok) return error(503, "temporarily_unavailable");
@@ -213,6 +222,14 @@ export async function handleRequest(
       { headers: privateHeaders() },
     );
   } catch {
+    // Fixed custom event only; invocation logs must remain disabled (OAuth URLs).
+    console.warn(
+      JSON.stringify({
+        event: "proxy_failed",
+        build: env.FRONTEND_SHA,
+        request: requestId,
+      }),
+    );
     // Never relay vendor errors, request URLs, credentials or response bodies into logs.
     return error(503, "temporarily_unavailable");
   }

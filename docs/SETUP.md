@@ -56,7 +56,7 @@ The repository/skills/CI bootstrap was merged through PR #1, and main protection
 chmod 600 .local/supabase-access-token .local/supabase-db-password
 ```
 
-Project-scoped tokens do not need account-wide `projects_read`: preflight checks the configured project directly through the Management API, including its healthy status. Do not broaden the token just to make `supabase projects list` work. Renew an expired token in the same private file.
+Project-scoped tokens do not need account-wide `projects_read`: preflight checks the configured project directly through the Management API, including its healthy status. Do not broaden the token just to make `supabase projects list` work. Renew an expired token in the same private file. Management tokens do not auto-renew; an expired token blocks management/deployment checks even while the app remains usable. If you deliberately choose the dashboard’s 90-day option for continued maintenance, preserve the same project and capability scope; do not extend lifetime or permissions automatically.
 
 No manual `supabase link` is needed now. The runner passes these values through `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD`; the first milestone links its separate worktree. [CLI reference](https://supabase.com/docs/reference/cli/introduction).
 

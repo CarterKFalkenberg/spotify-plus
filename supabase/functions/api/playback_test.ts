@@ -314,10 +314,19 @@ for (const kind of ["timeout", "unexpected-success-status"] as const) {
   Deno.test(`playback ${kind} remains explicitly unconfirmed and is never replayed`, async () => {
     const encryptedTokens = await box.encrypt(pair, "tokens:1");
     let dispatches = 0;
+    const records: Record<string, unknown>[] = [];
+    const work: Promise<unknown>[] = [];
     const handler = createApi({
       config,
       box,
-      db: database((name) => {
+      background: (task) => {
+        work.push(task);
+      },
+      db: database((name, args) => {
+        if (name === "app_diagnostic_record") {
+          records.push(args);
+          return true;
+        }
         if (name === "app_session") return { epoch: 1, state: "connected" };
         if (name === "app_playback_track") return { uri, durationMs: 180001 };
         if (name === "app_token_claim") {
@@ -346,6 +355,15 @@ for (const kind of ["timeout", "unexpected-success-status"] as const) {
     equal(response.status, 503);
     equal(await response.json(), { error: "playback_unconfirmed" });
     equal(dispatches, 1);
+    await Promise.all(work);
+    equal(records.length, 1);
+    equal(records[0].p_event, "playback_api_failed");
+    equal(records[0].p_reason, kind === "timeout" ? "network" : "response");
+    equal(records[0].p_facts, {
+      outgoingStatus: 503,
+      upstreamStatus: kind === "timeout" ? 0 : 201,
+    });
+    equal(JSON.stringify(records).includes("synthetic-sensitive"), false);
   });
 }
 Deno.test("playback control failure is distinct and cannot dispatch a provider write", async () => {

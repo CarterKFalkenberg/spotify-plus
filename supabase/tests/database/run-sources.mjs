@@ -116,6 +116,7 @@ try {
       "20261022000100_source_discovery_identity.sql",
       "20261022000200_singleton_vocabulary_undo.sql",
       "20261022000300_queue_loading.sql",
+      "20261101000100_diagnostics.sql",
     ]
   ) {
     await sql(
@@ -125,6 +126,19 @@ try {
       ),
     );
   }
+  await sql(
+    await readFile(new URL("./diagnostics.sql", import.meta.url), "utf8"),
+  );
+  // Concurrent calls must share the transactional global hourly budget.
+  await sql("update app.account set state='connected' where singleton;");
+  await Promise.all(Array.from({ length: 8 }, () =>
+    sql(`
+    select public.app_diagnostic_record('api','api_failed','unavailable',repeat('a',40),gen_random_uuid(),null,null,'{}',(select epoch from app.account where singleton)) from generate_series(1,20);
+  `)));
+  if (await sql("select count(*) from app.diagnostic_events") !== "100") {
+    throw new Error("Concurrent diagnostics cap failed");
+  }
+  await sql("update app.account set state='disconnected' where singleton;");
   await sql(await readFile(new URL("./sources.sql", import.meta.url), "utf8"));
   await sql(
     await readFile(
@@ -141,7 +155,9 @@ try {
   await sql(
     await readFile(new URL("./song-groups.sql", import.meta.url), "utf8"),
   );
-  await sql(await readFile(new URL("./queue-loading.sql", import.meta.url), "utf8"));
+  await sql(
+    await readFile(new URL("./queue-loading.sql", import.meta.url), "utf8"),
+  );
   await sql(
     await readFile(new URL("./song-groups-scale.sql", import.meta.url), "utf8"),
   );

@@ -7,6 +7,10 @@ import {
   type WebPlayer,
   type SpotifySDK,
 } from "../../app/src/playback";
+const diagnostic = vi.hoisted(() => vi.fn());
+vi.mock("../../app/src/diagnostics", () => ({
+  playbackDiagnostics: () => diagnostic,
+}));
 const uri = `spotify:track:${"a".repeat(22)}`;
 const device = "synthetic-device-1234567890";
 class Player implements WebPlayer {
@@ -60,6 +64,7 @@ let start: ReturnType<
 let token: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<string>>>;
 beforeEach(() => {
   vi.useFakeTimers();
+  diagnostic.mockClear();
   views = [];
   player = new Player();
   const sdk = {
@@ -1140,6 +1145,12 @@ describe("warm active queue session", () => {
       );
       await controller.prepare();
       expect(views.at(-1)?.message).toContain("Check Spotify");
+      expect(diagnostic).toHaveBeenCalledWith(
+        "holder_retired",
+        "retired",
+        expect.any(Object),
+        undefined,
+      );
       expect(player.connect).toHaveBeenCalledTimes(1);
       expect(start).toHaveBeenCalledTimes(1);
     },
@@ -1158,8 +1169,30 @@ describe("warm active queue session", () => {
       await vi.advanceTimersByTimeAsync(0);
       if (action === "navigation") await controller.setTrack("b".repeat(64));
       if (action === "destroy") controller.destroy();
-      if (action === "deadline") await vi.advanceTimersByTimeAsync(12000);
+      if (action === "deadline") {
+        await vi.advanceTimersByTimeAsync(12000);
+        expect(diagnostic).toHaveBeenCalledWith(
+          "start_failed",
+          "startup_deadline",
+          expect.objectContaining({
+            startPending: true,
+            awaitingProof: false,
+            accepted: false,
+            elapsedMs: 12000,
+          }),
+          undefined,
+        );
+      }
       if (action === "manual pause") await controller.pause();
+      if (action === "navigation" || action === "manual pause")
+        expect(diagnostic).toHaveBeenCalledWith(
+          action === "navigation"
+            ? "navigation_unresolved"
+            : "pause_unresolved",
+          "none",
+          expect.objectContaining({ startPending: true, awaitingProof: false }),
+          undefined,
+        );
       controller.destroy();
       resolve({ uri, positionMs: 60000, durationMs: 180000 });
       await playing;
@@ -1275,6 +1308,15 @@ it("repeated retry cannot erase a rejected teardown fence", async () => {
   }
   expect(player.connect).toHaveBeenCalledTimes(1);
   expect(start).not.toHaveBeenCalled();
+  expect(diagnostic).toHaveBeenCalledWith(
+    "holder_retired",
+    "teardown_rejected",
+    expect.objectContaining({
+      startPending: false,
+      awaitingProof: false,
+      accepted: false,
+    }),
+  );
 });
 
 it("a stale raw A notification cannot confirm a new A without a fresh post-ack snapshot", async () => {
@@ -1487,6 +1529,17 @@ it("three ignored pause dispatches retire at the original deadline without anoth
   await pausing;
   expect(views.at(-1)?.status).toBe("error");
   expect(player.disconnect).toHaveBeenCalledTimes(1);
+  expect(diagnostic).toHaveBeenCalledWith(
+    "pause_failed",
+    "deadline",
+    expect.objectContaining({
+      dispatches: 3,
+      inFlight: 0,
+      stateSeen: true,
+      paused: false,
+      elapsedMs: 2000,
+    }),
+  );
   // Teardown dispatches its own final pause; no retry survives that teardown.
   expect(player.pause).toHaveBeenCalledTimes(4);
   await vi.advanceTimersByTimeAsync(10000);
@@ -1617,12 +1670,33 @@ it.each([
     await controller.play();
     expect(start).toHaveBeenCalledTimes(1);
     expect(views.at(-1)?.status).toBe("starting");
-    if (outcome === "paused timeout") await vi.advanceTimersByTimeAsync(12000);
+    if (outcome === "paused timeout") {
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(diagnostic).toHaveBeenCalledWith(
+        "start_failed",
+        "startup_deadline",
+        expect.objectContaining({
+          startPending: false,
+          awaitingProof: true,
+          accepted: true,
+          elapsedMs: 12000,
+        }),
+        undefined,
+      );
+    }
     if (outcome === "implausible seek") await player.state(false, 100000);
     if (outcome === "destroy") controller.destroy();
     if (outcome === "navigation") await controller.setTrack("b".repeat(64));
     if (outcome === "manual Pause") await controller.pause();
     if (outcome !== "destroy") expect(views.at(-1)?.status).toBe("error");
+    if (outcome === "navigation" || outcome === "manual Pause") {
+      expect(diagnostic).toHaveBeenCalledWith(
+        outcome === "navigation" ? "navigation_unresolved" : "pause_unresolved",
+        "none",
+        expect.objectContaining({ startPending: false, awaitingProof: true }),
+        undefined,
+      );
+    }
     controller.destroy();
     await player.state();
     controller = new QueuePlayer("b".repeat(64), { token, start }, (view) =>
@@ -1632,8 +1706,62 @@ it.each([
     await controller.play();
     expect(views.at(-1)?.status).toBe("error");
     expect(views.at(-1)?.message).toContain("Check Spotify");
+    expect(diagnostic).toHaveBeenCalledWith(
+      "holder_retired",
+      "retired",
+      expect.any(Object),
+      undefined,
+    );
     expect(player.connect).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledTimes(1);
     expect(player.resume).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["navigation", "destroy"])(
+  "late start settlements keep the dispatch operation after %s",
+  async (action) => {
+    for (const outcome of ["acknowledged", "failed"] as const) {
+      // Each case needs a fresh document because invalidation permanently retires it.
+      if (outcome === "failed") {
+        controller.destroy();
+        vi.stubGlobal("window", {});
+        controller = new QueuePlayer("a".repeat(64), { token, start }, (view) =>
+          views.push(view),
+        );
+      }
+      await controller.prepare();
+      let settle!: () => void;
+      start.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            settle = () =>
+              outcome === "acknowledged"
+                ? resolve({ uri, positionMs: 60000, durationMs: 180000 })
+                : reject(new ApiError("playback_unconfirmed", 503));
+          }),
+      );
+      diagnostic.mockClear();
+      const playing = controller.play();
+      await vi.advanceTimersByTimeAsync(0);
+      const launched = diagnostic.mock.calls.find(
+        ([event]) => event === "start_dispatched",
+      )![2].operation;
+      if (action === "navigation") await controller.setTrack("b".repeat(64));
+      else controller.destroy();
+      const after = diagnostic.mock.calls.at(-1)![2].operation;
+      settle();
+      await playing;
+      expect(diagnostic).toHaveBeenCalledWith(
+        outcome === "acknowledged" ? "start_acknowledged" : "start_failed",
+        outcome === "acknowledged" ? "none" : "playback_unconfirmed",
+        expect.objectContaining({ operation: launched }),
+        undefined,
+      );
+      // The retirement path may report before incrementing, but no late settlement
+      // may attach to a subsequently created operation.
+      expect(after).toBeGreaterThanOrEqual(launched);
+      expect(views.at(-1)?.status).not.toBe("snippet");
+    }
   },
 );

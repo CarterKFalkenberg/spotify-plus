@@ -1,3 +1,4 @@
+import { parseDiagnostic } from "../../supabase/functions/_shared/diagnostics-contract";
 import {
   appearance as chooseAppearance,
   details,
@@ -96,6 +97,11 @@ async function mock(
       return route.abort();
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
+    // Operational traffic has its own strict contract and is not a product action.
+    if (path === "/api/diagnostics") {
+      parseDiagnostic(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { accepted: true } });
+    }
     calls.push({
       path,
       body: route.request().postData() ? route.request().postDataJSON() : null,

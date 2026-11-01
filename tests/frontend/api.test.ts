@@ -90,3 +90,23 @@ it.each([
     status: 503,
   });
 });
+it.each(["11111111-1111-4111-8111-111111111111", "private arbitrary header"])(
+  "captures only validated proxy request correlation: %s",
+  async (requestId) => {
+    vi.stubGlobal("fetch", async () =>
+      Response.json(
+        { error: "playback_unconfirmed" },
+        { status: 503, headers: { "x-diagnostic-request": requestId } },
+      ),
+    );
+    try {
+      await api("/playback/start", () => null, {});
+      throw new Error("expected failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).requestId).toBe(
+        requestId.startsWith("1111") ? requestId : undefined,
+      );
+    }
+  },
+);

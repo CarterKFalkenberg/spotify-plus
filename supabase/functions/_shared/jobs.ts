@@ -1,3 +1,4 @@
+import { reportDiagnostic } from "./diagnostics.ts";
 import type { FeatureJob } from "./library.ts";
 import type { Database } from "./database.ts";
 import type { BackupStorage } from "./backups.ts";
@@ -12,6 +13,7 @@ export interface Job {
 }
 export interface JobContext {
   db: Database;
+  background?: (task: Promise<unknown>) => void;
   backups: BackupStorage;
   sha: string;
   now?: () => number;
@@ -204,6 +206,18 @@ export async function drainJobs(
       ) completed++;
     } catch (error) {
       const classified = error instanceof SpotifyError ? error : null;
+      // One safe, bounded write per failed job; no raw error, job id or payload.
+      const diagnostic = reportDiagnostic(
+        db,
+        sha,
+        "jobs",
+        "job_failed",
+        classified?.kind,
+        crypto.randomUUID(),
+        {},
+        job.epoch ?? undefined,
+      );
+      context.background?.(diagnostic);
       const reconnect = classified?.kind === "authentication";
       const delay = Math.max(
         classified?.retryAfterMs ?? 0,

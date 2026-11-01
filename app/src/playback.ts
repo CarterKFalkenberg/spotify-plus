@@ -1,4 +1,11 @@
 import { ApiError } from "./api";
+import { playbackDiagnostics } from "./diagnostics";
+import {
+  diagnosticReason,
+  type DiagnosticEvent,
+  type DiagnosticFacts,
+  type DiagnosticReason,
+} from "../../supabase/functions/_shared/diagnostics-contract";
 
 // Provider payloads stay inside this module. Only fixed statuses reach React.
 export interface PlaybackState {
@@ -70,7 +77,11 @@ interface SDKHolder {
   unsafe?: boolean;
 }
 const players = new WeakMap<Window, SDKHolder>();
-function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
+function ownPlayer(
+  sdk: SpotifySDK,
+  options: PlayerOptions,
+  onTeardown: () => () => void,
+): WebPlayer {
   let holder = players.get(window);
   if (!holder) {
     const created: SDKHolder = {
@@ -126,6 +137,7 @@ function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
     },
     disconnect() {
       if (!current()) return;
+      const teardownFailed = onTeardown();
       shared.owner = undefined;
       shared.token = undefined;
       for (const [event, listener] of listeners) {
@@ -157,6 +169,7 @@ function ownPlayer(sdk: SpotifySDK, options: PlayerOptions): WebPlayer {
         () => {},
         () => {
           shared.unsafe = true;
+          teardownFailed();
           throw new Error("connect_failed");
         },
       );
@@ -203,6 +216,27 @@ interface Transport {
 // One active queue session owns the connection; song operations have a separate
 // generation. Only a confirmed quiet handoff can reuse its warmed device.
 export class QueuePlayer {
+  private readonly report = playbackDiagnostics();
+  private diagnose(
+    event: DiagnosticEvent,
+    reason: DiagnosticReason = "none",
+    facts: DiagnosticFacts = {},
+    relatedRequest?: string,
+  ) {
+    this.report(
+      event,
+      reason,
+      {
+        operation: this.operation,
+        startPending: this.startPending,
+        awaitingProof: this.awaitingProof,
+        commandPending: this.commandPending,
+        accepted: this.accepted,
+        ...facts,
+      },
+      relatedRequest,
+    );
+  }
   private player: WebPlayer | undefined;
   private dead = false;
   private abort = new AbortController();
@@ -281,6 +315,7 @@ export class QueuePlayer {
       this.awaitingProof ||
       (this.commandPending && !this.handoff)
     ) {
+      this.diagnose("navigation_unresolved");
       this.retire();
       this.fail(
         "Playback could not be stopped safely. Check Spotify before reloading this page.",
@@ -325,6 +360,9 @@ export class QueuePlayer {
     const player = this.player!;
     this.commandPending++;
     return new Promise((resolve) => {
+      const began = this.now();
+      let staleReads = 0;
+      let nullReads = 0;
       let closed = false;
       let reading = false;
       let inFlight = 0;
@@ -352,8 +390,20 @@ export class QueuePlayer {
         },
       };
       this.pauseConfirmation = control;
-      const failure = () => {
+      const pauseFacts = () => ({
+        operation,
+        elapsedMs: Math.min(86400000, Math.max(0, this.now() - began)),
+        dispatches: dispatchVersion,
+        inFlight,
+        staleReads,
+        nullReads,
+        reading,
+        stateSeen: latest !== undefined,
+        paused: latest?.paused === true,
+      });
+      const failure = (reason: DiagnosticReason) => {
         if (!current()) return;
+        this.report("pause_failed", reason, pauseFacts());
         this.retire();
         control.cancel();
         this.fail("Pause could not be confirmed. The player was disconnected.");
@@ -370,8 +420,11 @@ export class QueuePlayer {
           if (
             revision !== this.notificationRevision ||
             dispatch !== dispatchVersion
-          )
+          ) {
+            staleReads++;
             return;
+          }
+          if (!state) nullReads++;
           if (
             state &&
             (typeof state.paused !== "boolean" ||
@@ -385,7 +438,7 @@ export class QueuePlayer {
                 state.track_window.current_track.uri,
               ))
           ) {
-            failure();
+            failure("invalid_state");
             return;
           }
           if (
@@ -393,7 +446,7 @@ export class QueuePlayer {
             this.accepted &&
             state.track_window.current_track.uri !== this.uri
           ) {
-            failure();
+            failure("different_item");
             return;
           }
           latest = { paused: state?.paused === true, revision };
@@ -403,12 +456,13 @@ export class QueuePlayer {
             // read was requested after the final dispatch.
             cancelRetries();
             if (!inFlight) {
+              this.report("pause_confirmed", "none", pauseFacts());
               control.cancel();
               confirmed(state);
             }
           }
         } catch {
-          failure();
+          failure("state_rejected");
         } finally {
           reading = false;
           if (current()) pollTimer = setTimeout(() => void inspect(), 50);
@@ -428,15 +482,15 @@ export class QueuePlayer {
             },
             () => {
               inFlight--;
-              failure();
+              failure("pause_rejected");
             },
           );
         } catch {
           inFlight--;
-          failure();
+          failure("pause_rejected");
         }
       };
-      this.deadline = setTimeout(failure, 2000);
+      this.deadline = setTimeout(() => failure("deadline"), 2000);
       for (const delay of [250, 500])
         retries.push(
           setTimeout(() => {
@@ -455,6 +509,7 @@ export class QueuePlayer {
   }
   destroy() {
     if (this.dead) return;
+    this.diagnose("controller_destroyed");
     this.invalidateWrites();
     this.pauseConfirmation?.cancel();
     this.dead = true;
@@ -490,6 +545,8 @@ export class QueuePlayer {
     } catch {
       /* Unknown errors never supply display text. */
     }
+    if (marker === "playback_retired")
+      this.diagnose("holder_retired", "retired");
     const setupMessage =
       marker === "playback_retired"
         ? "Playback could not be stopped safely. Check Spotify before reloading this page."
@@ -604,6 +661,7 @@ export class QueuePlayer {
         );
         return;
       }
+      this.diagnose("playing_confirmed");
       this.awaitingProof = false;
     }
     clearTimeout(this.deadline);
@@ -677,10 +735,31 @@ export class QueuePlayer {
     deviceId: string,
     signal: AbortSignal,
   ) {
+    const operation = this.operation;
     this.startPending = true;
+    this.diagnose("start_dispatched", "none", { operation });
     try {
-      return await this.transport.start(trackKey, deviceId, signal);
+      const result = await this.transport.start(trackKey, deviceId, signal);
+      this.diagnose("start_acknowledged", "none", { operation });
+      return result;
     } catch (error) {
+      this.diagnose(
+        "start_failed",
+        diagnosticReason(
+          error instanceof ApiError ? error.code : "unavailable",
+        ),
+        {
+          operation,
+          apiStatus:
+            error instanceof ApiError &&
+            Number.isSafeInteger(error.status) &&
+            error.status >= 0 &&
+            error.status <= 599
+              ? error.status
+              : 0,
+        },
+        error instanceof ApiError ? error.requestId : undefined,
+      );
       // This is the only definitive remote refusal the client retries. All other
       // failures could hide a dispatched write, so their device is retired.
       if (!(
@@ -770,26 +849,43 @@ export class QueuePlayer {
             this.failure(error);
           },
         );
-        const player = ownPlayer(sdk, {
-          name: "Song Tagger",
-          volume: 0.7,
-          getOAuthToken: (callback) => {
-            if (this.dead || this.status === "error") return;
-            if (initialToken) {
-              const token = initialToken;
-              initialToken = undefined;
-              callback(token);
-              return;
-            }
-            const grant = firstGrant ?? this.transport.token(this.abort.signal);
-            firstGrant = undefined;
-            void grant
-              .then((token) => {
-                if (!this.dead && this.status !== "error") callback(token);
-              })
-              .catch((e) => this.failure(e));
+        const player = ownPlayer(
+          sdk,
+          {
+            name: "Song Tagger",
+            volume: 0.7,
+            getOAuthToken: (callback) => {
+              if (this.dead || this.status === "error") return;
+              if (initialToken) {
+                const token = initialToken;
+                initialToken = undefined;
+                callback(token);
+                return;
+              }
+              const grant =
+                firstGrant ?? this.transport.token(this.abort.signal);
+              firstGrant = undefined;
+              void grant
+                .then((token) => {
+                  if (!this.dead && this.status !== "error") callback(token);
+                })
+                .catch((e) => this.failure(e));
+            },
           },
-        });
+          () => {
+            // Teardown can settle after this controller is destroyed or replaced.
+            // Capture its safety facts when dispatching, without retaining SDK data.
+            const facts = {
+              operation: this.operation,
+              startPending: this.startPending,
+              awaitingProof: this.awaitingProof,
+              commandPending: this.commandPending,
+              accepted: this.accepted,
+            };
+            return () =>
+              this.report("holder_retired", "teardown_rejected", facts);
+          },
+        );
         this.player = player;
         const ready = new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(
@@ -839,6 +935,7 @@ export class QueuePlayer {
           "autoplay_failed",
         ])
           player.addListener(event, (payload: unknown) => {
+            this.diagnose("sdk_failed", diagnosticReason(event));
             let permissionsRejected = false;
             if (
               event === "authentication_error" &&
@@ -910,10 +1007,16 @@ export class QueuePlayer {
       const activation = activated ?? this.player.activateElement();
       this.emit("starting");
       const startupUntil = this.now() + 12000;
-      this.deadline = setTimeout(
-        () => this.fail("Playback did not start. Try again or open Spotify."),
-        12000,
-      );
+      this.deadline = setTimeout(() => {
+        this.diagnose("start_failed", "startup_deadline", {
+          operation,
+          elapsedMs: Math.min(
+            86400000,
+            Math.max(0, this.now() - (startupUntil - 12000)),
+          ),
+        });
+        this.fail("Playback did not start. Try again or open Spotify.");
+      }, 12000);
       await activation;
       if (this.dead || operation !== this.operation) return;
       if (this.accepted && !ended) {
@@ -1004,6 +1107,7 @@ export class QueuePlayer {
         this.awaitingProof ||
         (this.commandPending > 0 && !this.pauseConfirmation))
     ) {
+      this.diagnose("pause_unresolved");
       this.retire();
       this.fail(
         "Playback could not be stopped safely. Check Spotify before reloading this page.",

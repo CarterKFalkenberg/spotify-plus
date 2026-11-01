@@ -11,12 +11,14 @@ import { ServiceDatabase } from "../_shared/database.ts";
 import { PrivateBackups } from "../_shared/backups.ts";
 import { playlistJobs } from "../_shared/playlist-runtime.ts";
 import { createJobs } from "./handler.ts";
+declare const EdgeRuntime: { waitUntil(task: Promise<unknown>): void };
 const config = runtimeConfig();
 const db = new ServiceDatabase(config.supabaseUrl, config.serviceKey);
 const backups = new PrivateBackups(config.supabaseUrl, config.serviceKey);
 Deno.serve(
   createJobs({
     db,
+    background: (task) => EdgeRuntime.waitUntil(task),
     playlist: playlistJobs(
       db,
       new SecretBox(config.tokenEncryptionKey),

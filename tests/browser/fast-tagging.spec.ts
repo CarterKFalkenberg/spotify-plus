@@ -1,3 +1,4 @@
+import { parseDiagnostic } from "../../supabase/functions/_shared/diagnostics-contract";
 import {
   appearance as chooseAppearance,
   syncControls,
@@ -69,6 +70,11 @@ async function mock(
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname,
       body = route.request().postData() ? route.request().postDataJSON() : null;
+    // Operational traffic has its own strict contract and is not a product action.
+    if (path === "/api/diagnostics") {
+      parseDiagnostic(body);
+      return route.fulfill({ status: 202, json: { accepted: true } });
+    }
     calls.push({ path, body });
     if (options.intercept && (await options.intercept(route, path, body)))
       return;
@@ -3392,3 +3398,95 @@ test("warm queue navigation pauses active audio, never autoplays, and releases o
   expect(starts).toBe(2);
   expect(tokens).toBe(2);
 });
+
+for (const failure of ["unavailable", "aborted"] as const) {
+  test(`diagnostics ${failure} uploads preserve saved tags and safe playback`, async ({
+    page,
+    isMobile,
+  }) => {
+    await syntheticPlayer(page);
+    let starts = 0;
+    const calls = await mock(page, {
+      intercept: async (route, path) => {
+        if (path === "/api/playback/token") {
+          await route.fulfill({ json: { accessToken: "synthetic-access" } });
+          return true;
+        }
+        if (path === "/api/playback/start") {
+          starts++;
+          await page.evaluate(() => {
+            (window as any).__syntheticPlayer.state.paused = false;
+          });
+          await route.fulfill({
+            json: {
+              uri: "spotify:track:aaaaaaaaaaaaaaaaaaaaaa",
+              positionMs: 60333,
+              durationMs: 181000,
+            },
+          });
+          return true;
+        }
+        return false;
+      },
+    });
+    let uploads = 0;
+    // Override only delivery: rejected uploads must retain the exact tiny schema.
+    await page.route("**/api/diagnostics", async (route) => {
+      const body = parseDiagnostic(route.request().postDataJSON());
+      expect(body.facts).not.toHaveProperty("trackKey");
+      uploads++;
+      if (failure === "aborted") await route.abort("failed");
+      else
+        await route.fulfill({
+          status: 503,
+          json: { error: "temporarily_unavailable" },
+        });
+    });
+    await page.goto("/");
+    if (isMobile) {
+      await page
+        .getByRole("button", { name: /^(2 new|New arrivals 2)$/ })
+        .click();
+      await page
+        .getByRole("button", { name: /Synthetic song 1.*Tap to tag/ })
+        .click();
+    } else await queue(page);
+    await expect(
+      page.getByRole("button", { name: "▶ Play", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "▶ Play", exact: true }).click();
+    await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
+    await expect.poll(() => uploads).toBeGreaterThan(0);
+    if (isMobile)
+      await page.getByRole("button", { name: "chillout", exact: true }).click();
+    else await page.getByLabel("Tag current song", { exact: true }).press("1");
+    const tagName = isMobile ? "chillout" : "Chill";
+    await expect(
+      page.getByRole("button", {
+        name: `Remove ${tagName} from current song`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    const saved = await page.evaluate(async () => {
+      const response = await fetch("/api/library/queue-tracks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ trackKeys: [String(1).padStart(64, "0")] }),
+      });
+      return (await response.json()).entries[0].track.tagIds;
+    });
+    expect(saved).toContain(id(isMobile ? 2 : 1));
+    await page.getByRole("button", { name: "Ⅱ Pause", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "▶ Play more", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => (window as any).__syntheticPlayer.state.paused),
+    ).toBe(true);
+    expect(starts).toBe(1);
+    expect(
+      calls.filter((call) => call.path === "/api/tag-actions"),
+    ).toHaveLength(1);
+    expect(calls.some((call) => call.path === "/api/diagnostics")).toBe(false);
+  });
+}
