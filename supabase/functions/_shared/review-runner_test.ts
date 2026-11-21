@@ -43,6 +43,8 @@ function fixture() {
   let reverseError: unknown;
   let liked = true;
   let ownerProfile = "profile";
+  let metadataSnapshot = "before";
+  const reversals: unknown[][] = [];
   let remoteUris: string[] = [];
   let itemReads = 0;
   let metadataTotal: number | null = null;
@@ -65,7 +67,7 @@ function fixture() {
         ownerId: ownerProfile,
         ownerAccountId: null,
         ownerProfileId: ownerProfile,
-        snapshotId: "before",
+        snapshotId: metadataSnapshot,
         total: metadataTotal ?? remoteUris.length,
         id: playlist,
         name: "Synthetic playlist",
@@ -111,7 +113,7 @@ function fixture() {
       _uri: string,
       snapshot: string,
     ) => {
-      strictEqual(snapshot, "before");
+      reversals.push([_operation, _playlist, _uri, snapshot]);
       events.push("reverse");
       return reverseError
         ? Promise.reject(reverseError)
@@ -132,6 +134,8 @@ function fixture() {
     state,
     events,
     observations,
+    reversals,
+    setSnapshot: (value: string) => metadataSnapshot = value,
     itemReads: () => itemReads,
     setItems: (uris: string[]) => remoteUris = uris,
     setMetadataTotal: (value: number) => metadataTotal = value,
@@ -241,19 +245,24 @@ Deno.test("Undo restores like before any playlist reversal and verifies it later
   await f.run();
   deepStrictEqual(f.events, ["contains", "restored"]);
 });
-Deno.test("Undo sends only acknowledged one-copy same-version reversal after durable intent", async () => {
+Deno.test("Undo targets the persisted append ACK despite an unchanged older GET snapshot", async () => {
   const f = reversingFixture();
+  f.state.items[0].snapshot_id = "append-ack";
   await f.run();
   deepStrictEqual(f.events, ["reverse_intent", "reverse", "reverse_check"]);
+  deepStrictEqual(f.reversals, [["operation", playlist, uri, "append-ack"]]);
 });
-Deno.test("Undo preserves preexisting, unconfirmed, changed and duplicate memberships", async () => {
+Deno.test("Undo preserves preexisting, unconfirmed, unstable and duplicate memberships", async () => {
   for (
     const scenario of [
       "preexisting",
       "unconfirmed",
       "changed",
       "duplicate",
-      "liveChanged",
+      "ownerChanged",
+      "unconfigured",
+      "missingAck",
+      "unavailable",
     ]
   ) {
     const f = reversingFixture();
@@ -263,15 +272,24 @@ Deno.test("Undo preserves preexisting, unconfirmed, changed and duplicate member
     if (scenario === "changed") f.state.memberships[0].snapshot_id = "changed";
     if (scenario === "duplicate") f.state.memberships[0].occurrences = 2;
     if (scenario === "ownerChanged") f.setOwner("another-profile");
-    if (scenario === "liveChanged") {
-      f.state.items[0].snapshot_id = "different-ack";
-      f.state.memberships[0].snapshot_id = "different-ack";
+    if (scenario === "unconfigured") f.state.destinations = [];
+    if (scenario === "missingAck") f.state.items[0].snapshot_id = null;
+    if (scenario === "unavailable") {
+      f.state.memberships[0].status = "unavailable";
     }
     await f.run();
     deepStrictEqual(f.events, [
       scenario === "preexisting" ? "undone" : "reverse_unavailable",
     ]);
   }
+});
+Deno.test("Undo may target its historical ACK after stable observed unrelated changes", async () => {
+  const f = reversingFixture();
+  f.state.items[0].snapshot_id = "append-ack";
+  f.state.memberships[0].snapshot_id = "new-read-version";
+  f.setSnapshot("new-read-version");
+  await f.run();
+  deepStrictEqual(f.reversals, [["operation", playlist, uri, "append-ack"]]);
 });
 Deno.test("Undo stale intent never dispatches and stale observations are refreshed", async () => {
   const denied = reversingFixture();

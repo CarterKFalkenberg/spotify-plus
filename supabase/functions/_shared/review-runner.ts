@@ -328,14 +328,14 @@ export function createReviewRunner(input: {
         if (
           item.state !== "confirmed" || membership.status !== "present" ||
           membership.occurrences !== 1 || !item.snapshot_id ||
-          membership.snapshot_id !== item.snapshot_id
+          !state.destinations.includes(item.playlist_id)
         ) return await unavailable();
         if (now() >= deadline - 20000) return { done: false, retryMs: 1000 };
         try {
           const live = await client.getPlaylist(item.playlist_id);
           if (
             !spotifyPlaylistOwnedBy(live, identity) ||
-            live.snapshotId !== item.snapshot_id
+            live.snapshotId !== membership.snapshot_id
           ) return await unavailable();
         } catch (error) {
           if (
@@ -344,8 +344,9 @@ export function createReviewRunner(input: {
           ) return await unavailable();
           throw error;
         }
-        // Fresh reads narrow attribution; they are not a remote atomic version
-        // precondition. The provider can still change after this last read.
+        // The persisted append ACK targets the historical addition; read-side
+        // snapshots only detect observed instability, never an atomic version
+        // precondition. Spotify can still change after this last read.
         if (
           !await transition(
             "reverse_intent",

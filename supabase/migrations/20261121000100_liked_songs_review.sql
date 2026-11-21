@@ -432,8 +432,8 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    if o.phase<>'reversing' or o.status<>'undoing' or o.id is distinct from (select undo_id from app.review_state where epoch=p_epoch)
     or item_row.state<>'confirmed' or item_row.snapshot_id is null or p_snapshot is distinct from item_row.snapshot_id
     or not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=p_playlist
-     and m.status='present' and m.occurrences=1 and m.snapshot_id=item_row.snapshot_id and m.checked_at>now()-interval '1 minute') then raise exception 'invalid_action'; end if;
-   if not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=p_playlist and d.owned and d.available)
+     and m.status='present' and m.occurrences=1 and m.checked_at>now()-interval '1 minute') then raise exception 'invalid_action'; end if;
+   if not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=p_playlist and d.configured and d.owned and d.available)
     or exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=p_playlist) then raise exception 'unknown_playlist'; end if;
    update app.review_operation_items set state='reverse_sending' where operation_id=o.id and playlist_id=p_playlist;
    delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
@@ -489,7 +489,7 @@ create function public.app_review_authorize(p_epoch bigint,p_job uuid,p_lease uu
    pid:=substring(p_path from '^/playlists/([A-Za-z0-9]{22})/items$');
    return pid is not null and o.phase='reversing' and o.status='undoing' and o.id=(select undo_id from app.review_state where epoch=p_epoch)
     and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and i.playlist_id=pid and i.state='reverse_sending' and i.snapshot_id=p_snapshot)
-    and exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=pid and d.owned and d.available)
+    and exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=pid and d.configured and d.owned and d.available)
     and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=pid);
   end if;
   return false;
