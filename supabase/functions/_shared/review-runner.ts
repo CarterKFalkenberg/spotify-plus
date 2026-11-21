@@ -1,7 +1,11 @@
 import type { Database } from "./database.ts";
 import type { FeatureJob } from "./library.ts";
 import type { Job } from "./jobs.ts";
-import { SpotifyClient, SpotifyError } from "./spotify.ts";
+import {
+  SpotifyClient,
+  SpotifyError,
+  spotifyPlaylistOwnedBy,
+} from "./spotify.ts";
 import type { SecretBox } from "./crypto.ts";
 import { databasePacing, OwnerTokens } from "./tokens.ts";
 
@@ -38,6 +42,7 @@ export interface ReviewWorkerState {
 }
 type ReviewSpotify = Pick<
   SpotifyClient,
+  | "getCurrentUser"
   | "getPlaylist"
   | "getPlaylistItemsPage"
   | "containsTracks"
@@ -65,13 +70,18 @@ export function createReviewRunner(input: {
     );
     if (!state) return null;
     const o = state.operation;
-    if (o && ["completed", "undone", "needs_attention"].includes(o.status)) {
+    if (
+      o &&
+      ["completed", "undone", "cancelled", "needs_attention"].includes(o.status)
+    ) {
       return { done: true };
     }
     if (!state.uri || !/^spotify:track:[A-Za-z0-9]{22}$/.test(state.uri)) {
       return { done: true };
     }
     const client = input.spotify(job);
+    const identity = await client.getCurrentUser();
+    if (identity.accountId !== state.accountId) throw new SpotifyError("guard");
     const transition = (
       event: string,
       playlist: string | null = null,
@@ -111,7 +121,7 @@ export function createReviewRunner(input: {
       if (now() >= deadline - 20000) return "checking";
       try {
         const playlist = await client.getPlaylist(id);
-        if (playlist.ownerId !== state.accountId) {
+        if (!spotifyPlaylistOwnedBy(playlist, identity)) {
           return await missing("destination_not_owned");
         }
         const cache = state.cache.find((c) =>
@@ -149,7 +159,7 @@ export function createReviewRunner(input: {
         if (page.nextOffset === null) {
           await wait(550);
           const after = await client.getPlaylist(id);
-          if (after.ownerId !== state.accountId) {
+          if (!spotifyPlaylistOwnedBy(after, identity)) {
             return await missing("destination_not_owned");
           }
           if (
@@ -245,7 +255,7 @@ export function createReviewRunner(input: {
           }
           if (now() >= deadline - 20000) return { done: false, retryMs: 1000 };
           const live = await client.getPlaylist(item.playlist_id);
-          if (live.ownerId !== state.accountId) {
+          if (!spotifyPlaylistOwnedBy(live, identity)) {
             return await attention("destination_unavailable");
           }
           if (live.snapshotId !== membership.snapshot_id) {
@@ -303,7 +313,7 @@ export function createReviewRunner(input: {
           return { done: false, retryMs: 1000 };
         }
         const live = await client.getPlaylist(item.playlist_id);
-        if (live.ownerId !== state.accountId) {
+        if (!spotifyPlaylistOwnedBy(live, identity)) {
           return await attention("destination_unavailable");
         }
         if (live.snapshotId !== membership.snapshot_id) {

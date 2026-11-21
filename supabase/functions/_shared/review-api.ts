@@ -35,6 +35,7 @@ export async function reviewApi(
       "discard",
       "undo",
       "retry",
+      "cancel",
     ].includes(command)
   ) return null;
   const input = reviewInput(command, await readJson(req, 16384));
@@ -67,6 +68,7 @@ export function reviewInput(
       discard: ["trackKey", "requestId", "confirmation"],
       undo: ["operationId", "requestId"],
       retry: ["operationId"],
+      cancel: ["operationId"],
     }[command]),
   ];
   if (

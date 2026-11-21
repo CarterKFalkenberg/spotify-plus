@@ -33,6 +33,7 @@ export interface ReviewOperationDTO {
   completedDestinations: number;
   totalDestinations: number;
   reversalIncomplete: boolean;
+  canCancel?: boolean;
 }
 export interface ReviewDraftDTO {
   trackKey: string;
@@ -66,7 +67,8 @@ export type ReviewCommand =
   | "done"
   | "discard"
   | "undo"
-  | "retry";
+  | "retry"
+  | "cancel";
 export interface ReviewInput {
   revision: string;
   destinationIds?: string[];

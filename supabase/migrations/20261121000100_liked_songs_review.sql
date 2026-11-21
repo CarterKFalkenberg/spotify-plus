@@ -41,7 +41,7 @@ create table app.review_operations (
  track_key text not null references app.annotations(track_key) on delete cascade,
  uri text not null check(uri ~ '^spotify:track:[A-Za-z0-9]{22}$'),
  kind text not null check(kind in ('done','discard')),
- status text not null default 'queued' check(status in ('queued','adding','unliking','completed','undoing','undone','needs_attention')),
+ status text not null default 'queued' check(status in ('queued','adding','unliking','completed','undoing','undone','cancelled','needs_attention')),
  phase text not null default 'adding' check(phase in ('adding','unlike_pending','unlike_sending','unlike_check','restore_pending','restore_sending','restore_check','terminal')),
  error_code text,
  job_id uuid references app.jobs(id) on delete set null,
@@ -112,7 +112,10 @@ $$;
 create function app.review_operation_dto(p_id uuid) returns jsonb language sql stable set search_path='' as $$
  select jsonb_build_object('id',o.id,'trackKey',o.track_key,'kind',o.kind,'status',o.status,'errorCode',o.error_code,
  'completedDestinations',(select count(*) from app.review_operation_items i where i.operation_id=o.id and i.state in ('confirmed','preexisting')),
- 'totalDestinations',(select count(*) from app.review_operation_items i where i.operation_id=o.id),'reversalIncomplete',o.reversal_incomplete)
+ 'totalDestinations',(select count(*) from app.review_operation_items i where i.operation_id=o.id),'reversalIncomplete',o.reversal_incomplete,
+ 'canCancel',o.status='needs_attention' and o.phase='adding'
+  and not exists(select 1 from app.review_operation_items i where i.operation_id=o.id and i.state in ('sending','unconfirmed'))
+  and not exists(select 1 from app.jobs j where j.id=o.job_id and j.state='running' and j.lease_until>now()))
  from app.review_operations o where o.id=p_id;
 $$;
 create function app.review_destination_dto(p_epoch bigint,p_key text,p_all boolean default false) returns jsonb language sql stable set search_path='' as $$
@@ -164,7 +167,7 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
  begin
   perform app.require_owner(p_epoch,true); perform app.review_ensure(p_epoch);
   select * into s from app.review_state where epoch=p_epoch for update;
-  if p_command not in ('destinations','draft','session','skip','done','discard','undo','retry') or jsonb_typeof(p_input) is distinct from 'object' then raise exception 'invalid_input'; end if;
+  if p_command not in ('destinations','draft','session','skip','done','discard','undo','retry','cancel') or jsonb_typeof(p_input) is distinct from 'object' then raise exception 'invalid_input'; end if;
   if p_command in ('done','discard','undo') then
    rid:=(p_input->>'requestId')::uuid;
    select * into receipt from app.review_receipts where epoch=p_epoch and request_id=rid;
@@ -189,7 +192,7 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    end if;
   end if;
   if p_input->>'revision' is distinct from s.revision::text then raise exception 'stale_revision'; end if;
-  if s.active_id is not null and p_command<>'retry' then raise exception 'playlist_busy'; end if;
+  if s.active_id is not null and p_command not in ('retry','cancel') then raise exception 'playlist_busy'; end if;
   key:=p_input->>'trackKey';
   if p_command in ('draft','skip','done','discard') and (key is null or key is distinct from app.review_current(p_epoch)) then raise exception 'unknown_track'; end if;
   if p_command in ('destinations','draft') then
@@ -238,6 +241,16 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    insert into app.review_receipts values(p_epoch,rid,p_command,o.track_key,oid);
    update app.review_operations set status='undoing',phase='restore_pending',undo_request_id=rid,job_id=jid,error_code=null where id=oid;
    update app.review_state set active_id=oid,last_id=oid where epoch=p_epoch;
+  elsif p_command='cancel' then
+   oid:=(p_input->>'operationId')::uuid;
+   if oid is distinct from s.active_id then raise exception 'unknown_action'; end if;
+   select * into o from app.review_operations where id=oid and epoch=p_epoch for update;
+   if (app.review_operation_dto(oid)->>'canCancel')::boolean is distinct from true then raise exception 'invalid_action'; end if;
+   -- No unlike intent was committed. Keep the saved draft and every confirmed
+   -- addition; uncertain dispatched writes never qualify for cancellation.
+   update app.review_operations set status='cancelled',phase='terminal' where id=oid;
+   update app.jobs set state='cancelled',lease_token=null,lease_until=null where id=o.job_id;
+   update app.review_state set active_id=null,last_id=null,focus_track=o.track_key where epoch=p_epoch;
   elsif p_command='retry' then
    oid:=(p_input->>'operationId')::uuid;
    if oid is distinct from s.active_id then raise exception 'unknown_action'; end if;
@@ -361,7 +374,7 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    update app.review_state set active_id=null,last_id=o.id,undo_id=o.id,focus_track=null,revision=revision+1 where epoch=p_epoch;
    perform app.refresh_source_pool(p_epoch);
    perform app.review_restart_liked(p_epoch);
-   delete from app.review_operations where epoch=p_epoch and id<>o.id and status in ('completed','undone');
+   delete from app.review_operations where epoch=p_epoch and id<>o.id and status in ('completed','undone','cancelled');
    perform app.review_enqueue_checks(p_epoch);
   elsif p_event='restore_intent' then
    if o.phase<>'restore_pending' or o.id is distinct from (select undo_id from app.review_state where epoch=p_epoch) then raise exception 'invalid_action'; end if;

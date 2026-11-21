@@ -70,6 +70,35 @@ do $$ declare o app.review_operations; lease uuid:='22222222-2222-4222-8222-2222
 end $$;
 select pg_temp.assert(public.app_library_page_commit(1,id,'33333333-3333-4333-8333-333333333333',pass,0,0,0,null,'[]',0,'{}') is null,'stale scan cannot erase Undo') from stale_sync;
 select pg_temp.assert(exists(select 1 from app.source_memberships where source_id='liked' and track_key=repeat('1',64)),'stale scan leaves restored membership');
+-- Definitively settled failures can return to their saved draft. Ambiguous
+-- sends and a live worker lease cannot expose cancellation.
+savepoint cancellation;
+do $$ declare oid uuid; jid uuid; revision text; begin
+ select s.revision::text into revision from app.review_state s;
+ perform public.app_review_command(1,'draft',jsonb_build_object('revision',revision,'trackKey',repeat('1',64),'destinationIds',jsonb_build_array(repeat('p',22))));
+ select s.revision::text into revision from app.review_state s;
+ perform public.app_review_command(1,'done',jsonb_build_object('revision',revision,'trackKey',repeat('1',64),'requestId','66666666-6666-4666-8666-666666666666'));
+ select s.active_id into oid from app.review_state s;
+ select job_id into jid from app.review_operations where id=oid;
+ update app.review_operations set status='needs_attention',error_code='destination_unavailable' where id=oid;
+ update app.jobs set state='done' where id=jid;
+ perform pg_temp.assert((app.review_operation_dto(oid)->>'canCancel')::boolean,'settled unavailable destination can cancel');
+ update app.review_operation_items set state='unconfirmed' where operation_id=oid;
+ perform pg_temp.assert(not (app.review_operation_dto(oid)->>'canCancel')::boolean,'ambiguous addition cannot cancel');
+ update app.review_operation_items set state='confirmed',snapshot_id='confirmed' where operation_id=oid;
+ update app.jobs set state='running',lease_until=now()+interval '1 hour',lease_token=gen_random_uuid() where id=jid;
+ perform pg_temp.assert(not (app.review_operation_dto(oid)->>'canCancel')::boolean,'live lease cannot cancel');
+ update app.jobs set state='done',lease_token=null,lease_until=null where id=jid;
+ select s.revision::text into revision from app.review_state s;
+ perform public.app_review_command(1,'cancel',jsonb_build_object('revision',revision,'operationId',oid));
+ perform pg_temp.assert((select active_id is null from app.review_state),'cancel clears active failure');
+ perform pg_temp.assert((select status='cancelled' from app.review_operations where id=oid),'cancel retains operation evidence');
+ perform pg_temp.assert((select state='confirmed' from app.review_operation_items where operation_id=oid),'cancel preserves acknowledged addition evidence');
+ perform pg_temp.assert(exists(select 1 from app.review_receipts where request_id='66666666-6666-4666-8666-666666666666'),'cancel retains idempotency receipt');
+ perform pg_temp.assert(exists(select 1 from app.review_drafts where track_key=repeat('1',64)),'cancel restores saved draft for correction');
+ perform pg_temp.assert(exists(select 1 from app.source_memberships where source_id='liked' and track_key=repeat('1',64)),'cancel never unlikes');
+end $$;
+rollback to cancellation;
 -- Stale clients, accidental Discard and changed request identities fail atomically.
 do $$ declare revision text; begin
  select s.revision::text into revision from app.review_state s;

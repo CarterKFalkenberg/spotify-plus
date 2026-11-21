@@ -47,9 +47,13 @@ function fixture() {
     },
   } as Database;
   const client = {
+    getCurrentUser: () =>
+      Promise.resolve({ accountId: "owner", id: "profile" }),
     getPlaylist: () =>
       Promise.resolve({
-        ownerId: "owner",
+        ownerId: "profile",
+        ownerAccountId: null,
+        ownerProfileId: "profile",
         snapshotId: "before",
         total: 0,
         id: playlist,

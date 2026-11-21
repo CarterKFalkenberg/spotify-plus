@@ -33,6 +33,8 @@ const metadata: SpotifyPlaylist = {
   public: false,
   collaborative: false,
   ownerId: "synthetic-owner",
+  ownerProfileId: "synthetic-owner",
+  ownerAccountId: null,
   snapshotId: "snapshot",
   total: 1,
 };
@@ -153,6 +155,11 @@ Deno.test("unchanged playlist snapshot skips content reads and disabled source r
         getPlaylistItemsPage: () => {
           throw Error("content fetched");
         },
+        getCurrentUser: () =>
+          Promise.resolve({
+            accountId: "synthetic-owner",
+            id: "synthetic-owner",
+          }),
         getCurrentUserPlaylistsPage: () => {
           throw Error("discovery fetched");
         },
@@ -210,6 +217,11 @@ Deno.test("source walk validates before and after snapshots with bounded50item p
           }],
         });
       },
+      getCurrentUser: () =>
+        Promise.resolve({
+          accountId: "synthetic-owner",
+          id: "synthetic-owner",
+        }),
       getCurrentUserPlaylistsPage: () => {
         throw Error("unexpected");
       },
@@ -250,6 +262,11 @@ Deno.test("selection and lease are rechecked before content; access failure reco
             reason === "forbidden" ? "forbidden" : "cooldown",
           );
         },
+        getCurrentUser: () =>
+          Promise.resolve({
+            accountId: "synthetic-owner",
+            id: "synthetic-owner",
+          }),
         getCurrentUserPlaylistsPage: () => {
           throw Error("unexpected");
         },
@@ -377,6 +394,11 @@ Deno.test("response access probe retains strict failures and propagates retry an
             nextOffset: null,
           });
         },
+        getCurrentUser: () =>
+          Promise.resolve({
+            accountId: "synthetic-owner",
+            id: "synthetic-owner",
+          }),
         getCurrentUserPlaylistsPage: () => {
           throw Error("unexpected discovery");
         },
@@ -422,6 +444,11 @@ Deno.test("response access probe fences late selection changes and stale leases"
         getPlaylistItemsPage: () => {
           throw Error("stale content probe");
         },
+        getCurrentUser: () =>
+          Promise.resolve({
+            accountId: "synthetic-owner",
+            id: "synthetic-owner",
+          }),
         getCurrentUserPlaylistsPage: () => {
           throw Error("unexpected discovery");
         },
@@ -475,6 +502,11 @@ Deno.test("postwalk metadata response failure probes access without confirming s
           })
           : Promise.reject(new SpotifyError("not_found", 404));
       },
+      getCurrentUser: () =>
+        Promise.resolve({
+          accountId: "synthetic-owner",
+          id: "synthetic-owner",
+        }),
       getCurrentUserPlaylistsPage: () => {
         throw Error("unexpected discovery");
       },
@@ -530,6 +562,11 @@ Deno.test("large source imports checkpoint at50items and five pages per invocati
           })),
         });
       },
+      getCurrentUser: () =>
+        Promise.resolve({
+          accountId: "synthetic-owner",
+          id: "synthetic-owner",
+        }),
       getCurrentUserPlaylistsPage: () => {
         throw Error("unexpected");
       },
@@ -543,4 +580,72 @@ Deno.test("large source imports checkpoint at50items and five pages per invocati
   equal(state.offset, 500);
   equal(contentCalls, 10);
   equal(metadataCalls, 2);
+});
+Deno.test("discovery verifies immutable owner before mapping current profile playlist identities", async () => {
+  for (const matchingAccount of [true, false]) {
+    const state = await fixture({ sourceId: null });
+    let discoveries = 0;
+    let committed: unknown;
+    const runner = createSourcesRunner({
+      annotationBox: box,
+      wait: () => Promise.resolve(),
+      db: database((name, args) => {
+        if (name === "app_source_job_state") return state;
+        if (name === "app_job_renew") return true;
+        if (name === "app_source_discovery_commit") {
+          committed = args.p_sources;
+          return { done: true };
+        }
+        throw new Error("unexpected RPC");
+      }),
+      spotify: () => ({
+        getCurrentUser: () =>
+          Promise.resolve({
+            accountId: matchingAccount ? "synthetic-owner" : "another-account",
+            id: "different-profile-id",
+          }),
+        getCurrentUserPlaylistsPage: () => {
+          discoveries++;
+          return Promise.resolve({
+            offset: 0,
+            limit: 50,
+            total: 2,
+            nextOffset: null,
+            items: [
+              {
+                ...metadata,
+                ownerId: "different-profile-id",
+                ownerProfileId: "different-profile-id",
+                ownerAccountId: null,
+              },
+              {
+                ...metadata,
+                id: "q".repeat(22),
+                ownerId: "different-immutable-account",
+                ownerProfileId: "different-profile-id",
+                ownerAccountId: "different-immutable-account",
+              },
+            ],
+          });
+        },
+        getPlaylist: () => Promise.reject(new Error("unexpected metadata")),
+        getPlaylistItemsPage: () =>
+          Promise.reject(new Error("unexpected items")),
+      }),
+    });
+    if (!matchingAccount) {
+      await rejects(
+        () => runner({ ...job, kind: "source_discovery" }, Date.now() + 80000),
+        (error) => error instanceof SpotifyError && error.kind === "guard",
+      );
+      equal(discoveries, 0);
+    } else {
+      await runner({ ...job, kind: "source_discovery" }, Date.now() + 80000);
+      const rows = committed as { owned: boolean; eligible: boolean }[];
+      equal(rows.map((r) => [r.owned, r.eligible]), [[true, true], [
+        false,
+        false,
+      ]]);
+    }
+  }
 });
