@@ -219,8 +219,19 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
   elsif p_command in ('done','discard') then
    if rid is null or (p_command='discard' and p_input->'confirmation' is distinct from 'true'::jsonb) then raise exception 'invalid_input'; end if;
    ids:=coalesce((select destination_ids from app.review_drafts where epoch=p_epoch and track_key=key),'[]');
-   if p_command='done' and jsonb_array_length(ids)=0 then raise exception 'invalid_action'; end if;
    if p_command='done' and exists(select 1 from jsonb_array_elements_text(ids) x where not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=x and d.configured and d.owned and d.available and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id))) then raise exception 'unknown_playlist'; end if;
+   if p_command='done' then
+    -- Already-added destinations express desired memberships even when no new
+    -- choices were saved. Freeze their eligible server-side identities along
+    -- with explicit draft choices; the worker still starts with fresh scans.
+    select coalesce(jsonb_agg(target.id order by target.id),'[]'::jsonb) into ids
+     from (select value as id from jsonb_array_elements_text(ids)
+      union
+      select m.playlist_id from app.review_memberships m join app.review_destinations d on d.epoch=m.epoch and d.id=m.playlist_id
+       where m.epoch=p_epoch and m.track_key=key and m.status='present' and d.configured and d.owned and d.available
+        and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id)) target;
+    if jsonb_array_length(ids)=0 then raise exception 'invalid_action'; end if;
+   end if;
    insert into app.jobs(kind,epoch,priority) values('review',p_epoch,12) returning id into jid;
    insert into app.review_operations(epoch,request_id,track_key,uri,kind,job_id,phase)
     select p_epoch,rid,key,'spotify:track:'||m.spotify_id,p_command,jid,case when p_command='discard' then 'unlike_pending' else 'adding' end from app.track_metadata m where m.track_key=key returning id into oid;

@@ -18,6 +18,31 @@ select pg_temp.assert(app.review_current(1)=repeat('1',64),'oldest exact track s
 select pg_temp.assert(public.app_playback_track(1,repeat('1',64)) is not null,'review playback ignores Sources');
 select pg_temp.assert(public.app_review_get(1)->'destinations'='[]','no initial destination configuration');
 insert into app.review_destinations(epoch,id,name,owned,configured) values(1,repeat('p',22),'Synthetic owned',true,true),(1,repeat('q',22),'Synthetic preexisting',true,true);
+-- Already-added-only Done is valid without a saved draft, but cached labels
+-- cannot authorize an unlike or include an ineligible destination.
+savepoint already_added_only;
+do $$ declare oid uuid; jid uuid; lease uuid:='77777777-7777-4777-8777-777777777777'; begin
+ begin perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId',gen_random_uuid())); raise exception 'empty_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,checked_at) values(1,repeat('1',64),repeat('q',22),'present','cached',now());
+ update app.review_destinations set owned=false where id=repeat('q',22);
+ begin perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId',gen_random_uuid())); raise exception 'unowned_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ update app.review_destinations set owned=true where id=repeat('q',22);
+ perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId',gen_random_uuid()));
+ select s.active_id into oid from app.review_state s;
+ select job_id into jid from app.review_operations where id=oid;
+ perform pg_temp.assert((select count(*)=1 and bool_and(playlist_id=repeat('q',22) and state='pending') from app.review_operation_items where operation_id=oid),'already-added-only Done freezes its eligible destination for revalidation');
+ perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=repeat('1',64)),'cached presence is cleared before worker confirmation');
+ update app.jobs set state='running',lease_token=lease,lease_until=now()+interval '1 hour' where id=jid;
+ perform pg_temp.assert(not public.app_review_authorize(1,jid,lease,oid,'unlike','DELETE','/me/library','spotify:track:'||repeat('1',22)),'already-added label never directly authorizes unlike');
+ begin perform public.app_review_transition(1,jid,lease,'unlike_prepare'); raise exception 'unverified_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+end $$;
+rollback to already_added_only;
+savepoint selected_and_already_added;
+insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,checked_at) values(1,repeat('1',64),repeat('q',22),'present','cached',now());
+select public.app_review_command(1,'draft',jsonb_build_object('revision','0','trackKey',repeat('1',64),'destinationIds',jsonb_build_array(repeat('p',22))));
+select public.app_review_command(1,'done',jsonb_build_object('revision','1','trackKey',repeat('1',64),'requestId',gen_random_uuid()));
+select pg_temp.assert((select count(*)=2 from app.review_operation_items where operation_id=(select active_id from app.review_state)),'Done unions explicit choices with eligible already-added destinations');
+rollback to selected_and_already_added;
 select public.app_review_command(1,'draft',jsonb_build_object('revision','0','trackKey',repeat('1',64),'destinationIds',jsonb_build_array(repeat('p',22),repeat('q',22))));
 select pg_temp.assert((select not enabled from app.sources where id=repeat('p',22)),'destinations do not enable Sources');
 select public.app_review_command(1,'done',jsonb_build_object('revision','1','trackKey',repeat('1',64),'requestId','11111111-1111-4111-8111-111111111111'));
