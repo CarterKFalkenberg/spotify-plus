@@ -25,7 +25,7 @@ const binding = btoa('s'.repeat(32));
 const account = 'synthetic-account';
 const fingerprint = await ownerFingerprint(account, binding);
 const r = { version:1, operation:crypto.randomUUID(), epoch:2, ownerFingerprint:fingerprint, playlistId:'p'.repeat(22), state:'created', pending:'append' };
-const input = { origin:'https://synthetic.supabase.co', serviceKey:'synthetic', clientId:'synthetic', encryptionKey:binding, bindingKey:binding, ownerFingerprint:fingerprint, epoch:2, projectRef:'a'.repeat(20), managementToken:'synthetic', registryPath:path, authorized:true };
+const input = { origin:'https://'+'a'.repeat(20)+'.supabase.co', serviceKey:'synthetic', clientId:'synthetic', encryptionKey:binding, bindingKey:binding, ownerFingerprint:fingerprint, epoch:2, projectRef:'a'.repeat(20), managementToken:'synthetic', registryPath:path, authorized:true };
 ServiceDatabase.prototype.rpc = (name) => Promise.resolve(name === 'app_pacing_acquire' ? {granted:true,retryAfterMs:0} : true);
 OwnerTokens.prototype.getAccessToken = () => Promise.resolve('synthetic-token');
 const playlist = () => ({ id:r.playlistId, name:'Synthetic', description:'[Tagger review proof '+r.operation+'] Disposable', owner:{id:'legacy', account_id:account}, collaborative:false, public:false, snapshot_id:'synthetic-snapshot', items:{total:0} });

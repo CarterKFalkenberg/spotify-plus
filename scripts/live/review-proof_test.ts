@@ -4,6 +4,7 @@ import {
   removeReviewItems,
   reviewProofFailure,
   runReviewExperiment,
+  runReviewProof,
 } from "./review-proof.ts";
 import { equal } from "../../supabase/functions/_shared/testing.ts";
 const uris = [
@@ -15,6 +16,34 @@ const removal = {
   uri: uris[0],
   snapshotId: "historical",
 };
+Deno.test("proof refuses a different service origin before opening files or sending credentials", async () => {
+  for (
+    const origin of [
+      "http://aaaaaaaaaaaaaaaaaaaa.supabase.co",
+      "https://other.example",
+      "https://bbbbbbbbbbbbbbbbbbbb.supabase.co",
+    ]
+  ) {
+    equal(
+      await failure(() =>
+        runReviewProof({
+          origin,
+          projectRef: "a".repeat(20),
+          serviceKey: "synthetic",
+          clientId: "synthetic",
+          encryptionKey: "synthetic",
+          bindingKey: "synthetic",
+          ownerFingerprint: "a".repeat(64),
+          epoch: 1,
+          managementToken: "synthetic",
+          registryPath: "must-not-open",
+          authorized: true,
+        })
+      ),
+      "review_input_invalid",
+    );
+  }
+});
 async function failure(action: () => unknown) {
   try {
     await action();
@@ -68,6 +97,25 @@ Deno.test("operator DELETE sends only current URI/snapshot contract after two fi
   equal(JSON.parse(t.calls[0].init.body as string), {
     items: [{ uri: uris[0] }],
     snapshot_id: "historical",
+  });
+});
+Deno.test("operator DELETE keeps its authorized target when caller input changes during pacing", async () => {
+  const t = transport();
+  const input = { ...removal };
+  t.deps.pacing.acquire = () => {
+    input.playlistId = "q".repeat(22);
+    input.uri = uris[1];
+    input.snapshotId = "changed";
+    return Promise.resolve({ granted: true, retryAfterMs: 0 });
+  };
+  await removeReviewItems(input, t.deps);
+  equal(
+    t.calls[0].url,
+    `https://api.spotify.com/v1/playlists/${removal.playlistId}/items`,
+  );
+  equal(JSON.parse(t.calls[0].init.body as string), {
+    items: [{ uri: removal.uri }],
+    snapshot_id: removal.snapshotId,
   });
 });
 Deno.test("operator DELETE rejects invalid boundaries and revoked fixture authorization without dispatch", async () => {

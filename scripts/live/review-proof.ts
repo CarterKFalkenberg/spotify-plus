@@ -288,6 +288,7 @@ export async function runReviewProof(input: ReviewProofInput) {
   check(input.authorized === true, "authorization_required");
   check(
     /^[a-z0-9]{20}$/.test(input.projectRef) &&
+      input.origin === `https://${input.projectRef}.supabase.co` &&
       Number.isSafeInteger(input.epoch) && input.epoch > 0 &&
       /^[a-f0-9]{64}$/.test(input.ownerFingerprint),
     "input_invalid",
@@ -536,7 +537,7 @@ export async function runReviewProof(input: ReviewProofInput) {
       method: "POST",
       path: "/me/playlists",
       body: {
-        name: `Tagger review proof ${registry.operation}`,
+        name: `Tagger API test review ${registry.operation}`,
         public: false,
         collaborative: false,
         description: `${marker()} Disposable snapshot-removal experiment.`,
@@ -612,7 +613,8 @@ export async function runReviewProof(input: ReviewProofInput) {
         }) as SpotifyPlaylist;
         check(
           before.snapshotId === after.snapshotId && page.total <= 4 &&
-            page.total === page.items.length && page.nextOffset === null,
+            page.total === page.items.length && page.nextOffset === null &&
+            page.items.every((item) => item.uri !== null),
           "readback_unstable",
         );
         return {

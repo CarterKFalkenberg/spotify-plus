@@ -4,7 +4,8 @@ Only the orchestrator runs `scripts/live/review-proof.ts`. This is an operator
 experiment, separate from deployment/stage verification. It does not enable the
 review feature or satisfy its live acceptance. It never changes Liked Songs,
 existing user playlists, annotations, tags, app destination settings or app SQL.
-The sole fixture is a newly created, registered disposable playlist.
+The sole fixture is a newly created, registered disposable playlist named
+`Tagger API test review <operation UUID>`, within the configured test-playlist scope.
 
 On November 21, 2026 the official current
 [remove items contract](https://developer.spotify.com/documentation/web-api/reference/remove-items-playlist)
@@ -48,8 +49,8 @@ runtime adapter on the strength of documentation or this helper alone.
 
 Before any live run, the orchestrator rereads `.local/config.json`, verifies that
 its disposable test-playlist permission is currently true, confirms the configured
-owner/epoch/targets, and ensures the management token is valid. The token's
-reported 401 on November 21 blocks the cached-data query until renewed. This
+owner/epoch/targets, and ensures the management token is valid. The replacement
+management token was verified with HTTP 200 on November 21. This
 implementation has only synthetic execution evidence; no live result is claimed.
 Do not run concurrent proofs against the same private registry.
 
