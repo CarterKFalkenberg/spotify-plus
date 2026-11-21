@@ -619,12 +619,21 @@ test("missing draft destinations and stale choices for existing memberships have
   ]);
 });
 
-for (const width of [320, 390])
-  test(`review choices and persistent actions reflow at ${width}px with 200% text`, async ({
+for (const { width, font } of [
+  { width: 320, font: "system" },
+  { width: 390, font: "system" },
+  { width: 320, font: "Arial" },
+  { width: 390, font: "Arial" },
+])
+  test(`review choices and persistent actions reflow at ${width}px with 200% ${font} text`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 740 });
     await fixture(page);
+    if (font !== "system")
+      await page.addStyleTag({
+        content: `:root { font-family: ${font}, sans-serif; }`,
+      });
     await page.evaluate(() => {
       const entries = [...document.querySelectorAll("*")]
         .filter((e): e is HTMLElement => e instanceof HTMLElement)
@@ -655,15 +664,22 @@ for (const width of [320, 390])
       .toBe(true);
   });
 
-for (const { width, height } of [
-  { width: 320, height: 740 },
-  { width: 390, height: 844 },
+for (const { width, height, font } of [
+  { width: 320, height: 740, font: "system" },
+  { width: 390, height: 844, font: "system" },
+  { width: 320, height: 740, font: "Arial" },
+  { width: 390, height: 844, font: "Arial" },
 ])
-  test(`phone opening controls and first destination are unobstructed at ${width}px`, async ({
+  test(`phone opening controls and first destination are unobstructed at ${width}px with ${font} font`, async ({
     page,
   }, info) => {
     await page.setViewportSize({ width, height });
     await fixture(page);
+    // Exercise wider sans-serif metrics even on macOS.
+    if (font !== "system")
+      await page.addStyleTag({
+        content: `:root { font-family: ${font}, sans-serif; }`,
+      });
     const playback = page.getByRole("button", { name: "Enable playback" });
     await expect(playback).toBeVisible();
     const firstDestination = page.locator(".review-destination").first();

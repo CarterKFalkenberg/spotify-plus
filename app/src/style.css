@@ -3753,7 +3753,7 @@ dialog::backdrop {
   .review-layout {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
   }
   .review-song {
     position: static;
@@ -3768,6 +3768,7 @@ dialog::backdrop {
   .review-song h3 {
     font-size: 22px;
     margin-top: 0;
+    margin-bottom: 6px;
   }
   .review-song p {
     font-size: 13px;
@@ -3832,6 +3833,7 @@ dialog::backdrop {
   }
   .review-actions > button {
     flex: 1;
+    font-size: 12px;
     padding: 10px 7px;
   }
   .review-actions .primary {
