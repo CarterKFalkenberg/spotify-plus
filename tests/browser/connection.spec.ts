@@ -22,7 +22,10 @@ test("private landing has an accessible connection path and responsive layout", 
     page.getByRole("link", { name: "Connect Spotify" }),
   ).toHaveAttribute("href", "/auth/spotify/start");
   await expect(
-    page.getByText("Your Liked Songs are never changed.", { exact: false }),
+    page.getByText(
+      "Review Done and confirmed Discard unlike the reviewed track.",
+      { exact: false },
+    ),
   ).toBeVisible();
   expect(
     await page.evaluate(

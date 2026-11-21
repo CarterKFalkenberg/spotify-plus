@@ -10,6 +10,7 @@ import { Builder } from "./Builder";
 import { Playlists } from "./Playlists";
 import { Queue } from "./Queue";
 import { Sources } from "./Sources";
+import { Review } from "./Review";
 import { Vocabulary } from "./Vocabulary";
 import type { FastFilter } from "./fast-api";
 import { usePageActivity, useVisiblePolling } from "./useVisiblePolling";
@@ -24,20 +25,14 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
     return () => media.removeEventListener("change", update);
   }, []);
   const [tab, setTab] = useState<
-    "queue" | "library" | "builder" | "playlists" | "vocabulary" | "sources"
-  >(() =>
-    matchMedia("(max-width: 640px)").matches
-      ? "builder"
-      : (() => {
-          try {
-            return localStorage.getItem("tagger-guidance-dismissed") === "yes"
-              ? "queue"
-              : "library";
-          } catch {
-            return "library";
-          }
-        })(),
-  );
+    | "review"
+    | "queue"
+    | "library"
+    | "builder"
+    | "playlists"
+    | "vocabulary"
+    | "sources"
+  >("review");
   const navigation = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const nav = navigation.current;
@@ -231,6 +226,13 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
       )}
       <nav ref={navigation} className="workspace-tabs" aria-label="Workspace">
         <button
+          className="nav-review"
+          aria-pressed={tab === "review"}
+          onClick={() => setTab("review")}
+        >
+          <Icon name="queue" /> Review likes
+        </button>
+        <button
           className="nav-queue"
           aria-pressed={tab === "queue"}
           onClick={() => {
@@ -292,6 +294,16 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
           <Icon name="sources" /> Sources
         </button>
       </nav>
+      <div hidden={tab !== "review"}>
+        {(visited.has("review") || (visible && tab === "review")) && (
+          <Review
+            active={visible && tab === "review"}
+            playbackAllowed={playbackAllowed}
+            refresh={refreshFor("review")}
+            onChanged={() => setRefresh((v) => v + 1)}
+          />
+        )}
+      </div>
       <div hidden={tab !== "sources"}>
         {(visited.has("sources") || (visible && tab === "sources")) && (
           <Sources
