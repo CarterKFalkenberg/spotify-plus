@@ -60,9 +60,15 @@ The stdin JSON fields are `origin` (configured Supabase HTTPS origin),
 privately from the existing ignored `.local` files and never place them in shell
 arguments or logs. Use the existing persisted encrypted owner credentials; no
 bootstrap login, consent, new scopes or track-mutation permission is implied.
-The helper authenticates `/me` with immutable `account_id`, checks the owner HMAC
-and active epoch, and requires the normalized fixture owner's `account_id` to
-match. A legacy-only owner ID that differs blocks this proof.
+The helper authenticates a fresh `/me` response with immutable `account_id`, checks
+the owner HMAC and active epoch, then checks fixture ownership in the matching
+identity namespace. An explicit fixture `owner.account_id` must match that bound
+immutable account. If it is absent, `owner.id` must match the fresh `/me.id`; it
+need not equal `/me.account_id`. A conflicting explicit account ID always blocks,
+even if the legacy profile ID matches. The same checks guard creation, lost-create
+reconciliation and every fixture write/cleanup. Public readback remains separate
+from ownership: creation requires `public:false`, while later contradictory
+readbacks do not relax the marker or noncollaboration checks or establish hiding.
 
 For example, after the orchestrator has privately prepared a mode-600 ignored
 `.local/review-proof-input.json`, run the following with placeholders replaced by
@@ -115,4 +121,5 @@ deno check --no-remote scripts/live/review-proof.ts
 The Node test spawns a Deno child with network denied and only temporary fixture
 write permission, stubs provider/DB behavior with synthetic values, and checks
 actual durable registry recovery for lost append/create/cleanup, unresolved
-creation/cleanup, changed epoch/owner, concurrent lock and stale temporary files.
+creation/cleanup, changed epoch/owner, legacy-only fixture ownership, conflicting
+explicit owner accounts, concurrent lock and stale temporary files.

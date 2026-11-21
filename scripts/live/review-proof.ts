@@ -16,6 +16,7 @@ import {
   type SpotifyPage,
   type SpotifyPlaylist,
   type SpotifyPlaylistItem,
+  spotifyPlaylistOwnedBy,
 } from "../../supabase/functions/_shared/spotify.ts";
 import { retryAfter } from "../../supabase/functions/_shared/retry-after.ts";
 import { pacedRequests } from "./paced-request.ts";
@@ -407,7 +408,7 @@ export async function runReviewProof(input: ReviewProofInput) {
         path: `/playlists/${registry.playlistId}`,
       }) as SpotifyPlaylist;
       check(
-        p.ownerId === identity.accountId && p.collaborative === false &&
+        spotifyPlaylistOwnedBy(p, identity) && p.collaborative === false &&
           p.description?.includes(marker()),
         "fixture_guard",
       );
@@ -476,7 +477,8 @@ export async function runReviewProof(input: ReviewProofInput) {
           p.description?.includes(marker())
         );
         check(
-          matches.length === 1 && matches[0].ownerId === identity.accountId &&
+          matches.length === 1 &&
+            spotifyPlaylistOwnedBy(matches[0], identity) &&
             matches[0].collaborative === false,
           "creation_reconciliation_required",
         );
@@ -544,7 +546,7 @@ export async function runReviewProof(input: ReviewProofInput) {
       },
     }) as SpotifyPlaylist;
     check(
-      created.ownerId === identity.accountId &&
+      spotifyPlaylistOwnedBy(created, identity) &&
         created.collaborative === false &&
         created.public === false && created.description?.includes(marker()),
       "fixture_creation_unconfirmed",

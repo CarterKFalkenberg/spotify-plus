@@ -28,7 +28,8 @@ const r = { version:1, operation:crypto.randomUUID(), epoch:2, ownerFingerprint:
 const input = { origin:'https://'+'a'.repeat(20)+'.supabase.co', serviceKey:'synthetic', clientId:'synthetic', encryptionKey:binding, bindingKey:binding, ownerFingerprint:fingerprint, epoch:2, projectRef:'a'.repeat(20), managementToken:'synthetic', registryPath:path, authorized:true };
 ServiceDatabase.prototype.rpc = (name) => Promise.resolve(name === 'app_pacing_acquire' ? {granted:true,retryAfterMs:0} : true);
 OwnerTokens.prototype.getAccessToken = () => Promise.resolve('synthetic-token');
-const playlist = () => ({ id:r.playlistId, name:'Synthetic', description:'[Tagger review proof '+r.operation+'] Disposable', owner:{id:'legacy', account_id:account}, collaborative:false, public:false, snapshot_id:'synthetic-snapshot', items:{total:0} });
+let playlistAccount = account, playlistProfile = 'legacy', publicReadback = false;
+const playlist = () => ({ id:r.playlistId, name:'Synthetic', description:'[Tagger review proof '+r.operation+'] Disposable', owner:{id:playlistProfile, ...(playlistAccount === undefined ? {} : {account_id:playlistAccount})}, collaborative:false, public:publicReadback, snapshot_id:'synthetic-snapshot', items:{total:0} });
 let present = true, deletes = 0, posts = 0, loseCleanup = false, owner = account;
 const responses = [];
 globalThis.fetch = async (raw, init) => {
@@ -65,6 +66,35 @@ present=false; await reset({...r,playlistId:null,state:'creating',pending:'creat
 try { await runReviewProof(input); throw new Error('Expected create blocker'); } catch(error) { if(reviewProofFailure(error).blocker !== 'review_creation_reconciliation_required') throw error; }
 if(posts!==0) throw new Error('Unresolved create replayed');
 responses.push('unresolved_create_preserved');
+// Fresh immutable owner and profile identifiers deliberately differ. A legacy-only
+// owner can be reconciled and cleaned, including the known contradictory public
+// readback. Recovery must still never issue a second create.
+playlistAccount=undefined; publicReadback=true; present=true;
+await reset({...r,playlistId:null,state:'creating',pending:'create'});
+const beforeLegacy=deletes; const legacyRecovered=await runReviewProof(input);
+if(!legacyRecovered.cleanupConfirmed || posts!==0 || deletes!==beforeLegacy+1) throw new Error('Legacy owner recovery failed');
+responses.push('legacy_owner_lost_create_reconciled');
+// An explicit mismatched account cannot borrow a matching legacy profile ID.
+playlistAccount='other-account'; present=true;
+for(const pendingCreate of [true,false]) {
+ const target=pendingCreate?{...r,playlistId:null,state:'creating',pending:'create'}:r;
+ await reset(target); const beforeMismatch=deletes;
+ try { await runReviewProof(input); throw new Error('Expected explicit account mismatch'); } catch(error) { if(reviewProofFailure(error).blocker !== (pendingCreate?'review_creation_reconciliation_required':'review_fixture_guard')) throw error; }
+ const preserved=JSON.parse(await Deno.readTextFile(path));
+ if(deletes!==beforeMismatch || posts!==0 || JSON.stringify(preserved)!==JSON.stringify(target)) throw new Error('Explicit mismatch changed fixture');
+ responses.push(pendingCreate?'explicit_account_mismatch_create_refused':'explicit_account_mismatch_cleanup_refused');
+}
+playlistAccount=undefined; playlistProfile=account; await reset({...r,playlistId:null,state:'creating',pending:'create'});
+const beforeWrongProfile=deletes;
+try { await runReviewProof(input); throw new Error('Expected profile namespace mismatch'); } catch(error) { if(reviewProofFailure(error).blocker!=='review_creation_reconciliation_required') throw error; }
+if(deletes!==beforeWrongProfile || posts!==0) throw new Error('Immutable account accepted as legacy profile');
+responses.push('legacy_namespace_mismatch_refused');
+// The immutable HMAC remains the first boundary even with a matching profile.
+playlistProfile='legacy'; owner='other'; await reset({...r,playlistId:null,state:'creating',pending:'create'});
+try { await runReviewProof(input); throw new Error('Expected immutable mismatch'); } catch(error) { if(reviewProofFailure(error).blocker!=='review_owner_mismatch') throw error; }
+if(deletes!==beforeWrongProfile || posts!==0) throw new Error('Immutable mismatch changed fixture');
+responses.push('legacy_match_cannot_bypass_immutable_binding');
+owner=account; playlistAccount=account; publicReadback=false;
 await reset({...r,epoch:3});
 try { await runReviewProof(input); throw new Error('Expected owner blocker'); } catch(error) { if(reviewProofFailure(error).blocker !== 'review_recovery_owner_changed') throw error; }
 responses.push('epoch_change_refused');
@@ -99,7 +129,7 @@ console.log(JSON.stringify({passed:true,checks:responses.length}));
       },
     );
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { passed: true, checks: 9 });
+    assert.deepEqual(JSON.parse(result.stdout), { passed: true, checks: 14 });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
