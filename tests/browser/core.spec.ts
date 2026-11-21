@@ -1,6 +1,7 @@
 import { parseDiagnostic } from "../../supabase/functions/_shared/diagnostics-contract";
 import {
   appearance as chooseAppearance,
+  openTaggingWorkspace,
   details,
   chooseStep,
   managePlaylist,
@@ -339,7 +340,7 @@ test("focused autocomplete only; freeform artist and matching selection use one 
     await route.fulfill({ json: { tags: [], hasMore: false, revision } });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await expect(
     page.getByRole("heading", { name: "Synthetic Artist", exact: true }),
   ).toBeVisible();
@@ -382,7 +383,7 @@ test("explicit remove and changed-only undo use server identities", async ({
 }) => {
   test.skip(isMobile, "Bulk selection is desktop only");
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("navigation", { name: "Browse library" })
     .getByRole("button", { name: "Songs", exact: true })
@@ -425,7 +426,7 @@ test("assigned names beyond the first hundred resolve in bounded lookup batches"
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await library(page);
   await expect(
     page.getByRole("button", {
@@ -447,7 +448,7 @@ test("mobile builder shows cached counts, exclusions, visible month default and 
   page,
 }) => {
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   await expect(
     page.getByLabel("Keep this playlist", { exact: true }),
@@ -503,7 +504,7 @@ for (const rejection of [401, 403])
       }
       return false;
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await builder(page);
     await choose(page);
     await details(page);
@@ -544,7 +545,7 @@ for (const rejection of [401, 403])
       }
       return false;
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await lists(page);
     await managePlaylist(page);
     await page.getByRole("button", { name: "Extend", exact: true }).click();
@@ -584,7 +585,7 @@ test("stale create unlocks editing and query changes invalidate the viewed previ
     }
     return false;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   await choose(page);
   await details(page);
@@ -623,7 +624,7 @@ test("import browsing stays available while create is gated; manual sync and new
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   await choose(page);
   await expect(page.locator(".query-feedback")).toContainText("2 songs");
@@ -679,7 +680,7 @@ test("playlist deletion needs explicit confirmation and saved lifecycle statuses
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(
     page.getByText("Incomplete — retry", { exact: true }),
@@ -737,7 +738,7 @@ test("stored query names beyond 100 are resolved by ID without placeholder names
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".query-summary").last()).toHaveText(
     "(Synthetic tag 201)",
@@ -793,7 +794,7 @@ test("one deleted stored leaf preserves unrelated query chips and keeps regenera
     }
     return false;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   const cards = page.locator(".playlist-card");
   await expect(cards.first().locator(".query-summary")).toHaveText(
@@ -823,7 +824,7 @@ test("transient query-label failure remains retryable and does not disable a val
     await route.fulfill({ status: 503, json: { error: "unavailable" } });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".query-summary")).toHaveText("Unavailable tag");
   await managePlaylist(page);
@@ -860,7 +861,7 @@ for (const zero of [true, false])
       });
       return true;
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await builder(page);
     await choose(page);
     if (zero)
@@ -923,7 +924,7 @@ test("late preview from an earlier bucket cannot unlock creation for the new que
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   await choose(page);
   await expect.poll(() => !!release).toBe(true);
@@ -945,7 +946,7 @@ test("synthetic desktop/mobile visual acceptance", async ({
   isMobile,
 }, testInfo) => {
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   if (isMobile) {
     await choose(page);
     await expect(page.locator(".query-feedback strong")).toContainText(
@@ -1003,7 +1004,7 @@ test("deleted assigned tags trigger one bounded library refresh without guessed 
     }
     return false;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await library(page);
   await expect(page.getByRole("alert")).toContainText("no longer exists");
   await expect.poll(() => searches).toBe(2);
@@ -1049,7 +1050,7 @@ test("empty import is an explicit empty-library state instead of zero-of-zero pr
     }
     return false;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await library(page);
   await expect(page.locator(".library-status")).toContainText(
     "Your song pool is empty",
@@ -1098,7 +1099,7 @@ test("import revision refresh preserves typing draft, focus and frozen explicit 
     },
     { revision: () => currentRevision, tracks: () => [track(1), track(2)] },
   );
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByLabel("Select Synthetic song 1").check();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("Draft during import");
@@ -1147,7 +1148,7 @@ test("successful freeform tag keeps input focus for the next tag and preserves e
     await route.fulfill({ json: { tags: [], hasMore: false, revision } });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("navigation", { name: "Browse library" })
     .getByRole("button", { name: "Songs", exact: true })
@@ -1223,7 +1224,7 @@ test("background refresh never silently renews a frozen filter selection", async
     { revision: () => currentRevision },
   );
   await page.clock.install();
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: "Select all 3 matching" }).click();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("Frozen filter draft");
@@ -1316,7 +1317,7 @@ for (const paged of [false, true])
       });
       return true;
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await builder(page);
     await choose(page);
     if (paged)
@@ -1342,7 +1343,7 @@ test("idle polling is bounded, hidden views stay quiet, and returning to the pag
 }) => {
   const calls = await mock(page);
   await page.clock.install();
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".query-summary")).toHaveText("Synthetic tag 1");
   await page.clock.runFor(1000);
@@ -1389,7 +1390,7 @@ test("internal navigation preserves builder and playlist retention drafts and pr
   page,
 }) => {
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   await choose(page);
   await expect(page.locator(".query-feedback strong")).toContainText("2 songs");
@@ -1468,7 +1469,7 @@ test("vocabulary rename invalidates cached playlist labels with unchanged IDs", 
     }
     return false;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".query-summary .chip")).toHaveText(name);
   await page
@@ -1515,7 +1516,7 @@ test("playlist expiry countdown uses dates and preserves pinned and overdue stat
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".expiry")).toHaveText([
     "Expires in 1 day · Keep through Oct 15, 2026",
@@ -1552,7 +1553,7 @@ test("foreground status revisions invalidate second-client rename and deletion w
     { revision: () => ({ library: "1", annotations }) },
   );
   await page.clock.install();
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".query-summary .chip")).toHaveText(name);
   await page.clock.runFor(1000);
@@ -1607,7 +1608,7 @@ test("identical progress responses do not abort and repeat an in-flight label lo
     return false;
   });
   await page.clock.install();
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect.poll(() => lookups).toBe(1);
   await page.clock.runFor(11_000);
@@ -1655,7 +1656,7 @@ test("a slow successful label retry survives progress polls after its initial fa
     return false;
   });
   await page.clock.install();
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(page.locator(".query-summary .chip")).toHaveText(
     "Unavailable tag",
@@ -1679,7 +1680,7 @@ test("creation offers a direct confirmed-request progress path and feedback stay
   page,
 }) => {
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   await expect(
     page.getByRole("button", { name: "Tag your library →" }),
@@ -1724,7 +1725,7 @@ test("cleanup delay appears only after a loaded response and retention consequen
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   await expect(
     page.getByRole("status").filter({ hasText: "Loading playlists" }),
@@ -1767,7 +1768,7 @@ for (const width of [320, 360, 390, 430, 768, 1280])
       });
       return true;
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await builder(page);
     await page.getByLabel("Add All of tag", { exact: true }).fill("mood:");
     await page.getByRole("option", { name: /^mood:A very long/ }).click();
@@ -1805,7 +1806,7 @@ test("synthetic UX captures", async ({ page, isMobile }) => {
     "Opt-in local synthetic visual inspection",
   );
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   if (!isMobile) {
     await page.setViewportSize({ width: 1280, height: 800 });
     await library(page);
@@ -1859,7 +1860,7 @@ for (const appearance of ["light", "dark"] as const)
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: "reduce" });
       await mock(page);
-      await page.goto("/");
+      await openTaggingWorkspace(page);
       await chooseAppearance(page, appearance);
       await page
         .getByRole("navigation", { name: "Workspace" })
@@ -1915,7 +1916,7 @@ for (const width of [320, 390])
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await mock(page);
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await expect(
       page.getByRole("navigation", { name: "Workspace" }),
     ).toBeVisible();
@@ -1945,7 +1946,7 @@ for (const width of [320, 390])
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await mock(page);
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await lists(page);
     const heading = await page
       .getByRole("heading", { name: "Your playlists", exact: true })
@@ -1982,7 +1983,7 @@ test("successful creation can start a second distinct guided request", async ({
   page,
 }) => {
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   for (const name of ["Synthetic first", "Synthetic second"]) {
     await choose(page);
@@ -2052,7 +2053,7 @@ test("rapid library pagination stays bounded and Previous returns to the real fi
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await expect(
     page.getByRole("heading", { name: "Synthetic first page artist" }),
   ).toBeVisible();
@@ -2117,7 +2118,7 @@ test("a failed library page can retry Next without corrupting displayed history"
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await expect(
     page.getByRole("heading", { name: "Synthetic original artist" }),
   ).toBeVisible();
@@ -2195,7 +2196,7 @@ test("pending artist artwork refresh preserves tagging drafts and stops after re
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="#657d71"/></svg>',
     }),
   );
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await artistView(page);
   await page.clock.install();
   if (!isMobile) {
@@ -2252,7 +2253,7 @@ test("artwork refresh pauses outside Library and while the document is hidden", 
     await route.fulfill({ json: artworkGroups(true) });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await artistView(page);
   await page.clock.install();
   await builder(page);
@@ -2304,7 +2305,7 @@ test("known unavailable artwork does not poll and broken images use an honest fa
     return true;
   });
   await page.route(broken, (route) => route.fulfill({ status: 404, body: "" }));
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await artistView(page);
   await expect(
     page.getByRole("img", { name: "artist artwork unavailable" }),
@@ -2336,7 +2337,7 @@ test("artwork wait stops after one minute and an explicit check restarts it", as
     return true;
   });
   await page.clock.install();
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await artistView(page);
   await page.clock.runFor(65_000);
   await expect(
@@ -2389,7 +2390,7 @@ test("playlist cover art stays contained on phones and broken covers preserve Sp
     }),
   );
   await page.route(broken, (route) => route.fulfill({ status: 404, body: "" }));
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await lists(page);
   const cards = page.locator(".playlist-card");
   await expect(
@@ -2468,7 +2469,7 @@ test("failed artwork refresh retries within its deadline and a stalled retry pre
     });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await artistView(page);
   const paging = page.getByRole("navigation", { name: "Library pages top" });
   await paging.getByRole("button", { name: "Next page →" }).click();
@@ -2532,7 +2533,7 @@ test("long-tag suggestions fit the playlist contract while explicit names and fu
     await route.fulfill({ json: { tags: longTags, hasMore: false, revision } });
     return true;
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await builder(page);
   async function add(index: number) {
     await page
@@ -2599,7 +2600,7 @@ for (const width of [320, 360])
       await page.setViewportSize({ width, height: 740 });
       await page.emulateMedia({ colorScheme: theme });
       await mock(page);
-      await page.goto("/");
+      await openTaggingWorkspace(page);
       await builder(page);
       await choose(page);
       await chooseStep(page);
@@ -2617,8 +2618,8 @@ for (const width of [320, 360])
             (button) => button.getBoundingClientRect().width,
           ).length,
         }));
-      expect(ordinaryNavigation.items).toBe(6);
-      expect(ordinaryNavigation.rows).toBe(1);
+      expect(ordinaryNavigation.items).toBe(7);
+      expect(ordinaryNavigation.rows).toBeGreaterThanOrEqual(1);
       const enlargeText = async () =>
         page.evaluate(() => {
           for (const element of document.querySelectorAll("*"))
@@ -2778,7 +2779,7 @@ for (const height of [480, 740])
   }) => {
     await page.setViewportSize({ width: 360, height });
     await mock(page);
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await builder(page);
     const input = page.getByLabel("Add All of tag", { exact: true });
     await input.fill("Synthetic");

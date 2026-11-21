@@ -200,6 +200,12 @@ enabled = false
   // Vendor SQL starts from the reset state; no HTTP probe pre-seeds its expected SHA.
   await sql(
     readFileSync(
+      resolve(fixture, "supabase/tests/database/review.sql"),
+      "utf8",
+    ),
+  );
+  await sql(
+    readFileSync(
       resolve(fixture, "supabase/tests/database/vendor.sql"),
       "utf8",
     ),

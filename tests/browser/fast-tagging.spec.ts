@@ -1,6 +1,7 @@
 import { parseDiagnostic } from "../../supabase/functions/_shared/diagnostics-contract";
 import {
   appearance as chooseAppearance,
+  openTaggingWorkspace,
   syncControls,
   songActions,
 } from "./flows";
@@ -337,7 +338,7 @@ test("queue input letters, number slots, navigation, skip and modified help are 
 }) => {
   test.skip(isMobile, "Desktop shortcuts");
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   const input = page.getByLabel("Tag current song", { exact: true });
   await input.fill("sad");
@@ -377,7 +378,7 @@ test("IME and repeated keys do not submit or consume slots; existing near matche
 }) => {
   test.skip(isMobile, "Desktop keyboard");
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   const input = page.getByLabel("Tag current song", { exact: true });
   await input.dispatchEvent("compositionstart");
@@ -406,7 +407,7 @@ test("pinning is session-scoped and queue order includes stable last-completed-s
 }) => {
   test.skip(isMobile, "Desktop slots and ordering");
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page
     .getByRole("button", { name: "Edit quick tags", exact: true })
@@ -464,7 +465,7 @@ test("browser ranges, tri-state fill/clear and opaque album facets use exact fro
 }) => {
   test.skip(isMobile, "Desktop bulk");
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await browser(page);
   await page
     .getByRole("navigation", { name: "Browse library" })
@@ -518,7 +519,7 @@ test("stale bulk mutations retain the typed draft and original matching revision
 }) => {
   test.skip(isMobile, "Desktop bulk");
   const calls = await mock(page, { failAction: true });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: "Select all 3 matching" }).click();
   const input = page.getByLabel("Add tag to selection", { exact: true });
   await input.fill("fresh");
@@ -539,7 +540,7 @@ test("rename collision offers explicit union preview, commits destination identi
   page,
 }) => {
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await vocabulary(page);
   await page
     .getByRole("button", { name: "Manage chillout", exact: true })
@@ -567,7 +568,7 @@ test("delete confirms retained assignment count, last-used and unused gardening 
   page,
 }) => {
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await vocabulary(page);
   await page.getByLabel("Vocabulary order").selectOption("lastUsed");
   await expect
@@ -602,7 +603,7 @@ test("mobile new badge opens cards and a touch sheet with swipe advance and no b
 }) => {
   test.skip(!isMobile, "Mobile lite mode");
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   await expect(page.locator(".mobile-cards")).toBeVisible();
   await page.locator(".mobile-track").first().click();
@@ -633,13 +634,13 @@ test("mobile new badge opens cards and a touch sheet with swipe advance and no b
     ),
   ).toBe(true);
 });
-test("returning desktop enters queue and first-run guidance leads with largest groups", async ({
+test("explicit tagging navigation retains returning queue and first-run largest-group guidance", async ({
   page,
   isMobile,
 }) => {
   test.skip(isMobile, "Desktop home policy");
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await expect(
     page.getByRole("heading", { name: "Synthetic Artist", exact: true }),
   ).toBeVisible();
@@ -647,6 +648,10 @@ test("returning desktop enters queue and first-run guidance leads with largest g
     .getByRole("button", { name: "Dismiss first-run guidance" })
     .click();
   await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Liked Songs review", exact: true }),
+  ).toBeVisible();
+  await queue(page);
   await expect(
     page.getByRole("heading", { name: "Tagging queue", exact: true }),
   ).toBeVisible();
@@ -667,7 +672,7 @@ test("failed first queue traversal retries the same default order and pinning pr
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Tag queue", exact: true })
@@ -757,7 +762,7 @@ test("membership removals before the focused row keep that song current; delayed
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page
     .getByLabel("Tag current song", { exact: true })
@@ -810,7 +815,7 @@ test("vocabulary page-two mutation and undo reset the revision-bound cursor", as
       return true;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await vocabulary(page);
   await page.getByRole("button", { name: "Next tags" }).click();
   await page
@@ -843,7 +848,7 @@ test("arrival review is an explicit owner mutation; navigation and typing never 
   isMobile,
 }) => {
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   if (isMobile) await page.locator(".mobile-track").first().click();
   else
@@ -938,7 +943,7 @@ for (const action of ["tag", "acknowledge"])
         return false;
       },
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await queue(page);
     if (action === "tag")
       await page.getByLabel("Tag current song", { exact: true }).press("1");
@@ -964,7 +969,7 @@ test("repeating an artist jump reapplies that artist after clearing its browser 
 }) => {
   test.skip(isMobile, "Desktop artist shortcut");
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page.getByLabel("Tag current song", { exact: true }).press("Alt+a");
   await expect(page.getByLabel("Artist", { exact: true })).toHaveValue(
@@ -1018,7 +1023,7 @@ test("global rename updates a pinned quick slot without losing its identity", as
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page
     .getByRole("button", { name: "Edit quick tags", exact: true })
@@ -1119,7 +1124,7 @@ for (const scenario of ["restored", "empty", "skipped", "noop"] as const)
         return false;
       },
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await queue(page);
     await page.getByLabel("Tag current song", { exact: true }).press("1");
     await expect(
@@ -1209,7 +1214,7 @@ test("prefix groups retain keyboard identities, exact Enter choice and tri-state
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("button", { name: "Select all 3 matching", exact: true })
     .click();
@@ -1308,7 +1313,7 @@ test("daily queue keeps input and quick tags visible at 1280 × 800 and slot ran
   await page.addInitScript(() =>
     localStorage.setItem("tagger-guidance-dismissed", "yes"),
   );
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   const input = page.getByLabel("Tag current song", { exact: true });
   await expect(input).toBeFocused();
   const inputBottom = await input.evaluate(
@@ -1350,7 +1355,7 @@ test("mobile native song modal traps background interaction, restores origin, an
 }) => {
   test.skip(!isMobile, "Mobile modal");
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: "New arrivals 2" }).click();
   const origin = page.locator(".mobile-track").nth(1);
   await origin.click();
@@ -1412,7 +1417,7 @@ test("quick-tag failures stay reachable inside the mobile modal and removing its
       return true;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: "New arrivals 2" }).click();
   await page.locator(".mobile-track").first().click();
   const dialog = page.getByRole("dialog", { name: "Tag song", exact: true });
@@ -1468,7 +1473,7 @@ test("deleting a frequent tag leaves its slot empty instead of changing the rema
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await expect(
     page
@@ -1493,7 +1498,7 @@ test("skip link is hidden during normal work and exposed by intentional keyboard
   page,
 }) => {
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   const skip = page.getByRole("link", { name: "Skip to workspace" });
   await expect(skip).not.toBeInViewport();
   await skip.focus();
@@ -1509,7 +1514,7 @@ test("first-run bulk tag action fits the unscrolled desktop workspace", async ({
   test.skip(isMobile, "Desktop backlog flow");
   await page.setViewportSize({ width: 1280, height: 800 });
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   const bulkInput = page.getByRole("button", {
     name: "Tag all 3 songs by Synthetic Artist",
   });
@@ -1556,7 +1561,7 @@ test("new vocabulary fills the next quick slots while keeping earlier number ass
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await expect(page.locator(".quick-slots > div > .chip")).toHaveCount(9);
   await expect(
@@ -1611,7 +1616,7 @@ test("saved feedback follows its action after desktop navigation or reopening a 
       return true;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   if (isMobile) {
     await page
       .getByRole("button", { name: "New arrivals 2", exact: true })
@@ -1693,7 +1698,7 @@ for (const appearance of ["light", "dark"] as const)
     await page.addInitScript(() =>
       localStorage.setItem("tagger-guidance-dismissed", "yes"),
     );
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await chooseAppearance(page, appearance);
     const next = page.getByRole("button", { name: "Next →", exact: true });
     const previous = page.getByRole("button", {
@@ -1743,7 +1748,7 @@ for (const appearance of ["light", "dark"] as const)
   }) => {
     await page.setViewportSize({ width: 320, height: 844 });
     await mock(page, { failAction: true });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await chooseAppearance(page, appearance);
     await page
       .getByRole("navigation", { name: "Workspace" })
@@ -1782,7 +1787,7 @@ for (const appearance of ["light", "dark"] as const)
         .first(),
     ).toBeVisible();
     await assertReadableSurface(page);
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await chooseAppearance(page, appearance);
     await vocabulary(page);
     await expect(page.locator(".vocabulary-list article")).toHaveCount(3);
@@ -1811,7 +1816,7 @@ for (const height of [720, 600])
       test.skip(isMobile, "Desktop tagging interaction");
       await page.setViewportSize({ width: 1280, height });
       const calls = await mock(page);
-      await page.goto("/");
+      await openTaggingWorkspace(page);
       await browser(page);
       await page
         .getByRole("button", {
@@ -1911,7 +1916,7 @@ test("dictionary merge mode keeps selection explicit and previews the full union
   page,
 }) => {
   const calls = await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await vocabulary(page);
   await expect(
     page.getByRole("checkbox", { name: /^Merge source/ }),
@@ -1962,7 +1967,7 @@ for (const width of [1024, 1280, 1440])
     test.skip(isMobile, "Desktop geometry");
     await page.setViewportSize({ width, height: 900 });
     await mock(page);
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     const account = await page
       .locator(".account-details summary")
       .boundingBox();
@@ -1989,7 +1994,7 @@ test("a pointer press outside an in-flow picker preserves its target through cli
 }) => {
   test.skip(isMobile, "Desktop bulk editor");
   await mock(page);
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("button", { name: "Select all 3 matching", exact: true })
     .click();
@@ -2120,7 +2125,7 @@ test("queue listening is explicit, confirms audio, pauses after20s and continues
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await expect.poll(() => tokens).toBe(1);
   await page.clock.install();
@@ -2197,7 +2202,7 @@ test("mobile sheet close disconnects its player and scope upgrade leaves tagging
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   await page
     .getByRole("button", { name: /Synthetic song 1.*Tap to tag/ })
@@ -2269,7 +2274,7 @@ test("leaving the sheet cancels pending playback consent and prevents late navig
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page.getByRole("button", { name: /^(2 new|New arrivals 2)$/ }).click();
   await page.locator(".mobile-track").first().click();
   await page
@@ -2312,7 +2317,7 @@ test("invalid start timing is rejected before showing playback", async ({
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await expect(
@@ -2368,7 +2373,7 @@ test("confirming disconnect stops audio before the server reply", async ({
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await expect(page.getByText("Playing a 20-second listen")).toBeVisible();
@@ -2429,7 +2434,7 @@ test("background grant verification precedes SDK setup and exposes required play
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   release();
   await expect(
@@ -2481,7 +2486,7 @@ test("a definitive unavailable-target response retries once on the same browser 
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await page.getByRole("button", { name: "▶ Play", exact: true }).click();
   await page.getByLabel("Tag current song", { exact: true }).fill("sad");
@@ -2593,7 +2598,7 @@ test("changing a source clears bulk selection and rebuilds queue membership with
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("button", { name: "Select all 3 matching", exact: true })
     .click();
@@ -2711,7 +2716,7 @@ test("another client's source selection stops the current browser player and inv
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await page
     .getByRole("button", { name: "Select all 3 matching", exact: true })
     .click();
@@ -2790,7 +2795,7 @@ for (const action of ["create a free-form tag", "undo a changed tag"] as const)
         return false;
       },
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     await queue(page);
     const input = page.getByLabel("Tag current song", { exact: true });
     if (action === "undo a changed tag") {
@@ -2905,7 +2910,7 @@ test("a ten-thousand-song queue exposes its first batch before delayed prefetch 
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   if (isMobile)
     await page
       .getByRole("button", { name: "New arrivals 2", exact: true })
@@ -2991,7 +2996,7 @@ test("skipping a loaded song places it after unloaded songs; early saves and Pre
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   const input = page.getByLabel("Tag current song", { exact: true });
   await input.press("1");
@@ -3079,7 +3084,7 @@ test("key hydration follows a replacement representative, deduplicates merges an
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await syncControls(page);
   await page.getByRole("button", { name: "Sync now", exact: true }).click();
@@ -3150,7 +3155,7 @@ test("a failed membership refresh keeps the current song fail-closed until queue
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await syncControls(page);
   await page.getByRole("button", { name: "Sync now", exact: true }).click();
@@ -3206,7 +3211,7 @@ test("unknown library status keeps the queue fail-closed without repeating succe
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   const input = page.getByLabel("Tag current song", { exact: true });
   await expect(input).toBeDisabled();
@@ -3273,7 +3278,7 @@ for (const navigation of ["Next →", "Skip · requeue"] as const)
           return false;
         },
       });
-      await page.goto("/");
+      await openTaggingWorkspace(page);
       await page
         .getByRole("button", { name: "New arrivals 2", exact: true })
         .click();
@@ -3344,7 +3349,7 @@ test("warm queue navigation pauses active audio, never autoplays, and releases o
       return false;
     },
   });
-  await page.goto("/");
+  await openTaggingWorkspace(page);
   await queue(page);
   await expect(
     page.getByRole("button", { name: "▶ Play", exact: true }),
@@ -3442,7 +3447,7 @@ for (const failure of ["unavailable", "aborted"] as const) {
           json: { error: "temporarily_unavailable" },
         });
     });
-    await page.goto("/");
+    await openTaggingWorkspace(page);
     if (isMobile) {
       await page
         .getByRole("button", { name: /^(2 new|New arrivals 2)$/ })

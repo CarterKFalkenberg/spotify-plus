@@ -45,7 +45,7 @@ const authErrors: Readonly<Record<string, { title: string; detail: string }>> =
     missing_scopes: {
       title: "Some permissions are missing",
       detail:
-        "Connect again and approve all listed permissions. Library write permission is used only to remove app-managed playlists; your Liked Songs are never changed.",
+        "Connect again and approve all listed permissions. Library write permission supports explicit review Done, confirmed Discard and most-recent Undo, plus app-managed playlist cleanup.",
     },
     temporarily_unavailable: {
       title: "Connection temporarily unavailable",
@@ -303,8 +303,9 @@ function Home() {
               Connect Spotify <span aria-hidden="true">↗</span>
             </a>
             <p className="permission-note">
-              Your Liked Songs are never changed. Library write access is used
-              only to remove playlists this app creates.
+              Review Done and confirmed Discard unlike the reviewed track. Undo
+              restores its like and reverses only safe additions from that
+              action. Library write access also removes app-created playlists.
             </p>
           </>
         )}
@@ -402,7 +403,8 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           <p>
             Authorization credentials stored by the app are encrypted on the
             server. The app caches the track metadata needed for tagging, stores
-            your tags and playlist queries, and keeps three encrypted daily
+            your tags, playlist queries, review destinations, unfinished choices
+            and review recovery state, and keeps three encrypted daily
             annotation backups. Spotify artwork remains hosted by Spotify.
             Spotify content is not sent to AI services.
           </p>
@@ -469,10 +471,13 @@ function Policy({ type }: { type: "privacy" | "terms" }) {
           </p>
           <h2>Your Liked Songs stay yours</h2>
           <p>
-            The app never likes or unlikes tracks. Library write permission is
-            restricted to removing app-managed playlists from Your Library.
-            Removal does not necessarily destroy the Spotify playlist object or
-            its URL.
+            Review Done adds the exact track to your chosen destinations, then
+            unlikes it only after the memberships are confirmed. Confirmed
+            Discard unlikes without adding it. Most-recent Undo restores the
+            like and reverses additions only when safe; the liked date and
+            concurrent playlist edits can limit reversal. Library write
+            permission also removes app-managed playlists from Your Library.
+            Removal does not necessarily destroy the playlist object or its URL.
           </p>
           <h2>Playlist behavior</h2>
           <p>

@@ -46,3 +46,37 @@ export async function songActions(page: Page) {
   if (!(await disclosure.evaluate((el) => (el as HTMLDetailsElement).open)))
     await disclosure.locator("summary").click();
 }
+
+/** Existing tagging regressions explicitly choose their former entry surface. */
+export async function openTaggingWorkspace(page: Page) {
+  await page.route("**/api/review", (route) =>
+    route.fulfill({
+      json: {
+        sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        revision: "1",
+        remaining: 0,
+        skipped: 0,
+        current: null,
+        destinations: [],
+        draft: null,
+        operation: null,
+        undo: null,
+        syncStatus: "ready",
+        discoveryStatus: "ready",
+      },
+    }),
+  );
+  await page.goto("/");
+  const mobile = await page.evaluate(
+    () => matchMedia("(max-width:640px)").matches,
+  );
+  const returning = await page.evaluate(
+    () => localStorage.getItem("tagger-guidance-dismissed") === "yes",
+  );
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", {
+      name: mobile ? "Make a playlist" : returning ? "Tag queue" : /^Library/,
+    })
+    .click();
+}

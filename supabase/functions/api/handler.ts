@@ -1,6 +1,7 @@
 import { parseDiagnostic, UUID } from "../_shared/diagnostics-contract.ts";
 import { reportDiagnostic } from "../_shared/diagnostics.ts";
 import { ContractError } from "../_shared/contracts.ts";
+import { reviewApi } from "../_shared/review-api.ts";
 import { libraryApi } from "./library.ts";
 import { playlistApi } from "../_shared/playlist-api.ts";
 import {
@@ -535,6 +536,12 @@ export function createApi(
           202,
           { "Set-Cookie": cookie(SESSION_COOKIE, "", 0) },
         );
+      }
+      const review = await reviewApi(req, path, session.epoch, db);
+      if (review) {
+        // GET may enqueue read-only membership discovery; cron is the backstop.
+        if (review.ok) startJobs?.();
+        return review;
       }
       const library = await libraryApi(
         req,

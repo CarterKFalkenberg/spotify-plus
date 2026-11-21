@@ -348,6 +348,8 @@ try {
       annotationBox: new SecretBox(TEST_KEY),
       wait: () => Promise.resolve(),
       spotify: () => ({
+        getCurrentUser: () =>
+          Promise.resolve({ accountId: grant.accountId, id: grant.userId }),
         getCurrentUserPlaylistsPage: () =>
           Promise.resolve({
             offset: 0,

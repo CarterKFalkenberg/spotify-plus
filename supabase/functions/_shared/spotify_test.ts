@@ -1117,3 +1117,150 @@ Deno.test("playback command permits exactly one track and an explicit bounded de
     "synthetic-device-1234567890",
   );
 });
+
+Deno.test("review capabilities are denied without durable authorization", async () => {
+  const { client, calls } = harness();
+  const operation = "11111111-1111-4111-8111-111111111111";
+  await fails(
+    () => client.reviewAppend(operation, PLAYLIST, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  await fails(
+    () => client.reviewUnlike(operation, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  await fails(
+    () => client.reviewRestore(operation, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  await fails(
+    () =>
+      client.reviewReverse(
+        operation,
+        PLAYLIST,
+        `spotify:track:${TRACK}`,
+        "appended",
+      ),
+    "guard",
+  );
+  strictEqual(calls.length, 0);
+});
+Deno.test("review exact capabilities preserve standard track write rejection", async () => {
+  const operation = "11111111-1111-4111-8111-111111111111";
+  const authorizations: unknown[] = [];
+  const { client, calls } = harness([new Response(null, { status: 204 })], {
+    authorizeReview: (authorization, request) => {
+      authorizations.push({ authorization, request });
+      return Promise.resolve(
+        authorization.operationId === operation &&
+          authorization.action === "unlike" &&
+          request.uri === `spotify:track:${TRACK}`,
+      );
+    },
+  });
+  await client.reviewUnlike(operation, `spotify:track:${TRACK}`);
+  strictEqual(calls.length, 1);
+  strictEqual(authorizations.length, 2);
+  strictEqual(calls[0].init.method, "DELETE");
+  await fails(
+    () =>
+      client.request({
+        method: "DELETE",
+        path: "/me/library",
+        query: { uris: `spotify:track:${TRACK}` },
+      }),
+    "guard",
+  );
+  await fails(
+    () => client.reviewRestore(operation, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  strictEqual(calls.length, 1);
+});
+Deno.test("review append timeout remains ambiguous and is never retried", async () => {
+  const { client, calls } = harness([() => {
+    throw new Error("synthetic interruption");
+  }], { authorizeReview: () => Promise.resolve(true) });
+  await fails(
+    () =>
+      client.reviewAppend(
+        "11111111-1111-4111-8111-111111111111",
+        PLAYLIST,
+        `spotify:track:${TRACK}`,
+      ),
+    "network",
+    true,
+  );
+  strictEqual(calls.length, 1);
+});
+Deno.test("review reversal capability binds one exact URI and acknowledged snapshot", async () => {
+  const operation = "11111111-1111-4111-8111-111111111111";
+  const seen: unknown[] = [];
+  const { client, calls } = harness([json({ snapshot_id: "removed" })], {
+    authorizeReview: (authorization, request) => {
+      seen.push({ authorization, request });
+      return Promise.resolve(
+        authorization.action === "reverse" && request.snapshotId === "appended",
+      );
+    },
+  });
+  await fails(
+    () =>
+      client.reviewReverse(
+        operation,
+        PLAYLIST,
+        `spotify:track:${TRACK}`,
+        "different",
+      ),
+    "guard",
+  );
+  strictEqual(calls.length, 0);
+  deepStrictEqual(
+    await client.reviewReverse(
+      operation,
+      PLAYLIST,
+      `spotify:track:${TRACK}`,
+      "appended",
+    ),
+    { snapshotId: "removed" },
+  );
+  strictEqual(calls.length, 1);
+  strictEqual(calls[0].init.method, "DELETE");
+  deepStrictEqual(JSON.parse(calls[0].init.body as string), {
+    items: [{ uri: `spotify:track:${TRACK}` }],
+    snapshot_id: "appended",
+  });
+  strictEqual(
+    (seen.at(-1) as { request: { snapshotId: string } }).request.snapshotId,
+    "appended",
+  );
+});
+Deno.test("review reversal rejects occurrence-position tricks and never replays ambiguous removal", async () => {
+  const operationId = "11111111-1111-4111-8111-111111111111";
+  const { client, calls } = harness([() => {
+    throw new Error("synthetic lost removal response");
+  }], { authorizeReview: () => Promise.resolve(true) });
+  await fails(() =>
+    client.request({
+      method: "DELETE",
+      path: `/playlists/${PLAYLIST}/items`,
+      body: {
+        items: [{ uri: `spotify:track:${TRACK}`, positions: [0] }],
+        snapshot_id: "appended",
+      },
+      reviewAuthorization: { operationId, action: "reverse" },
+    }), "guard");
+  strictEqual(calls.length, 0);
+  await fails(
+    () =>
+      client.reviewReverse(
+        operationId,
+        PLAYLIST,
+        `spotify:track:${TRACK}`,
+        "appended",
+      ),
+    "network",
+    true,
+  );
+  strictEqual(calls.length, 1);
+});

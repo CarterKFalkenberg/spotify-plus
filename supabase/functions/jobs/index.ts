@@ -1,3 +1,4 @@
+import { reviewJobs } from "../_shared/review-runner.ts";
 import { createSourcesRunner } from "../_shared/sources.ts";
 import { artworkJobs } from "../_shared/artwork.ts";
 import {
@@ -19,6 +20,11 @@ Deno.serve(
   createJobs({
     db,
     background: (task) => EdgeRuntime.waitUntil(task),
+    review: reviewJobs(
+      db,
+      new SecretBox(config.tokenEncryptionKey),
+      config.clientId,
+    ),
     playlist: playlistJobs(
       db,
       new SecretBox(config.tokenEncryptionKey),

@@ -12,6 +12,7 @@ import {
   SpotifyError,
   type SpotifyPage,
   type SpotifyPlaylistItem,
+  spotifyPlaylistOwnedBy,
   type SpotifySavedTrack,
 } from "./spotify.ts";
 interface Checkpoint {
@@ -66,7 +67,10 @@ export function createSourcesRunner(input: {
     epoch: number,
   ) => Pick<
     SpotifyClient,
-    "getCurrentUserPlaylistsPage" | "getPlaylist" | "getPlaylistItemsPage"
+    | "getCurrentUser"
+    | "getCurrentUserPlaylistsPage"
+    | "getPlaylist"
+    | "getPlaylistItemsPage"
   >;
   now?: () => number;
   wait?: (ms: number) => Promise<void>;
@@ -108,6 +112,12 @@ export function createSourcesRunner(input: {
       `annotation-key:${epoch}`,
     );
     try {
+      const identity = checkpoint.sourceId
+        ? null
+        : await client.getCurrentUser();
+      if (identity && identity.accountId !== checkpoint.accountId) {
+        throw new SpotifyError("guard");
+      }
       let snapshot: string | null = null;
       if (checkpoint.sourceId) {
         const before = await client.getPlaylist(checkpoint.sourceId);
@@ -153,7 +163,8 @@ export function createSourcesRunner(input: {
                 name: p.name,
                 artworkUrl: p.artworkUrl ?? null,
                 total: p.total,
-                eligible: p.ownerId === checkpoint!.accountId ||
+                owned: spotifyPlaylistOwnedBy(p, identity!),
+                eligible: spotifyPlaylistOwnedBy(p, identity!) ||
                   p.collaborative,
               })),
             },

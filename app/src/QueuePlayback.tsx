@@ -144,7 +144,7 @@ export function QueuePlayback({
   return (
     <div
       className="queue-playback"
-      aria-label="Listen while tagging"
+      aria-label="Listen to current song"
       onMouseDown={(event) => {
         if (!matchMedia("(max-width:640px)").matches) event.preventDefault();
       }}
