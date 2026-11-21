@@ -262,12 +262,12 @@ export function Review({
   const desired =
     selected.length > 0 ||
     !!data?.destinations.some(
-      (d) => d.configured && d.membership === "present",
+      (d) => d.configured && d.available && d.membership === "present",
     );
   const membershipsReady =
     !!data &&
     data.destinations
-      .filter((d) => d.configured)
+      .filter((d) => d.configured && d.available)
       .every(
         (d) => d.membership !== "unknown" && d.membership !== "checking",
       ) &&

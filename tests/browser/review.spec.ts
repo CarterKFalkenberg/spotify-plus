@@ -367,6 +367,11 @@ test("unknown memberships and unavailable selected destinations never unlock Don
   const f = await fixture(page);
   f.data().destinations.forEach((d) => (d.membership = "absent"));
   f.data().destinations[1]!.membership = "checking";
+  f.data().draft = {
+    trackKey,
+    revision: "1",
+    destinationIds: [destination(3).id],
+  };
   await page.reload();
   await expect(
     page.getByRole("button", { name: "Done", exact: true }),
@@ -392,6 +397,46 @@ test("unknown memberships and unavailable selected destinations never unlock Don
     page.getByRole("button", { name: "Done", exact: true }),
   ).toBeDisabled();
   expect(f.calls.some((c) => c.path.endsWith("/done"))).toBe(false);
+});
+
+test("ineligible unselected destinations do not block a healthy choice after explicit draft removal", async ({
+  page,
+}) => {
+  const f = await fixture(page, { rejectInvalidDrafts: true });
+  f.data().destinations.forEach((d) => (d.membership = "absent"));
+  // The DTO folds unavailable, unowned and generated eligibility into available.
+  f.data().destinations[0]!.available = false;
+  f.data().destinations[0]!.membership = "unknown";
+  f.data().destinations[1]!.available = false;
+  f.data().destinations[1]!.membership = "checking";
+  f.data().draft = {
+    trackKey,
+    revision: "1",
+    destinationIds: [destination(1).id, destination(3).id],
+  };
+  await page.reload();
+  const done = page.getByRole("button", { name: "Done", exact: true });
+  await expect(done).toBeDisabled();
+  await page
+    .getByRole("button", {
+      name: "Remove saved choice for Synthetic destination 1",
+    })
+    .click();
+  await expect(done).toBeEnabled();
+  for (const index of [0, 1])
+    await expect(
+      page.locator(".review-destination").nth(index).getByRole("checkbox"),
+    ).toBeDisabled();
+  await expect(
+    page.locator(".review-destination").nth(2).getByRole("checkbox"),
+  ).toBeChecked();
+  await done.click();
+  await expect
+    .poll(() => f.calls.some((c) => c.path.endsWith("/done")))
+    .toBe(true);
+  expect(
+    f.calls.find((c) => c.path.endsWith("/draft"))?.body.destinationIds,
+  ).toEqual([destination(3).id]);
 });
 
 test("in-flight progress survives reload and incomplete work offers truthful recovery", async ({
