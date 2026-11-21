@@ -13,6 +13,7 @@ const job = {
 } as Job;
 function fixture() {
   const events: string[] = [];
+  const observations: Record<string, unknown>[] = [];
   const state: ReviewWorkerState = {
     accountId: "owner",
     trackKey: "1".repeat(64),
@@ -42,10 +43,17 @@ function fixture() {
   let reverseError: unknown;
   let liked = true;
   let ownerProfile = "profile";
+  let remoteUris: string[] = [];
+  let itemReads = 0;
+  let metadataTotal: number | null = null;
+  let pageTotal: number | null = null;
   const db = {
     rpc: (_name: string, args: Record<string, unknown>) => {
       if (_name === "app_review_worker") return Promise.resolve(state);
       events.push(String(args.p_event ?? "scan"));
+      if (_name === "app_review_scan") {
+        observations.push(args.p_observation as Record<string, unknown>);
+      }
       return Promise.resolve(allowed);
     },
   } as Database;
@@ -58,21 +66,31 @@ function fixture() {
         ownerAccountId: null,
         ownerProfileId: ownerProfile,
         snapshotId: "before",
-        total: 0,
+        total: metadataTotal ?? remoteUris.length,
         id: playlist,
         name: "Synthetic playlist",
         description: null,
         public: false,
         collaborative: false,
       }),
-    getPlaylistItemsPage: () =>
-      Promise.resolve({
-        items: [],
-        total: 0,
+    getPlaylistItemsPage: (
+      _id: string,
+      query?: { offset?: number; limit?: number },
+    ) => {
+      itemReads++;
+      return Promise.resolve({
+        items: remoteUris.map((uri) => ({
+          uri,
+          addedAt: null,
+          isLocal: false,
+          type: "track" as const,
+        })),
+        total: pageTotal ?? remoteUris.length,
         nextOffset: null,
-        offset: 0,
+        offset: query?.offset ?? 0,
         limit: 50,
-      }),
+      });
+    },
     containsTracks: () => {
       events.push("contains");
       return Promise.resolve([liked]);
@@ -113,6 +131,11 @@ function fixture() {
   return {
     state,
     events,
+    observations,
+    itemReads: () => itemReads,
+    setItems: (uris: string[]) => remoteUris = uris,
+    setMetadataTotal: (value: number) => metadataTotal = value,
+    setPageTotal: (value: number) => pageTotal = value,
     run: () => run(job, 200000),
     deny: () => allowed = false,
     fail: (error: unknown) => appendError = error,
@@ -167,7 +190,7 @@ Deno.test("review restores liked membership using durable intent and later verif
   await f.run();
   deepStrictEqual(f.events, ["contains", "restore_intent", "restored"]);
 });
-Deno.test("review unlike pending rechecks changed destination snapshot before unliking", async () => {
+Deno.test("review unlike pending requires an item read from its final round before unliking", async () => {
   const f = fixture();
   f.state.operation!.phase = "unlike_pending";
   f.state.items[0].state = "confirmed";
@@ -176,8 +199,9 @@ Deno.test("review unlike pending rechecks changed destination snapshot before un
   await f.run();
   deepStrictEqual(f.events, ["contains", "scan"]);
 });
-Deno.test("review unlike pending only sends after every fresh destination version matches", async () => {
+Deno.test("review unlike pending only sends after every destination is confirmed in its final round", async () => {
   const f = fixture();
+  f.state.operation!.verification_started_at = new Date(0).toISOString();
   f.state.operation!.phase = "unlike_pending";
   f.state.items[0].state = "confirmed";
   f.state.memberships[0].status = "present";
@@ -296,4 +320,101 @@ Deno.test("Undo removal acknowledgement alone cannot complete; read absence is r
   f.state.items[0].state = "reversed";
   await f.run();
   deepStrictEqual(f.events, ["undone"]);
+});
+
+Deno.test("review reads changed items even when a ready cache and GET snapshot are unchanged", async () => {
+  for (const nowPresent of [true, false]) {
+    const f = fixture();
+    f.state.items[0].state = "confirmed";
+    f.state.memberships = [];
+    f.state.cache = [{
+      playlist_id: playlist,
+      status: "ready",
+      snapshot_id: "before",
+      next_offset: 0,
+      observed: nowPresent ? 0 : 1,
+      occurrences: nowPresent ? 0 : 1,
+      total: nowPresent ? 0 : 1,
+      checked_at: new Date(0).toISOString(),
+    }];
+    f.setItems(nowPresent ? [uri] : []);
+    f.setMetadataTotal(nowPresent ? 0 : 1);
+    await f.run();
+    strictEqual(f.itemReads(), 1);
+    strictEqual(f.observations[0].status, nowPresent ? "present" : "absent");
+    strictEqual(f.observations[0].occurrences, nowPresent ? 1 : 0);
+    strictEqual(f.observations[0].reset, true);
+  }
+});
+Deno.test("a final round with twenty slow destinations keeps its early observations valid", async () => {
+  const f = fixture();
+  f.state.operation!.phase = "unlike_pending";
+  f.state.operation!.verification_started_at = new Date(0).toISOString();
+  f.state.items = Array.from(
+    { length: 20 },
+    (_, n) => ({
+      playlist_id: String(n).padStart(22, "p"),
+      state: "preexisting",
+      snapshot_id: null,
+    }),
+  );
+  f.state.destinations = f.state.items.map((i) => i.playlist_id);
+  f.state.memberships = f.state.items.map((i, n) => ({
+    playlist_id: i.playlist_id,
+    status: "present",
+    snapshot_id: "unchanged",
+    next_offset: 0,
+    observed: 1,
+    occurrences: 1,
+    total: 1,
+    checked_at: new Date(n * 1000).toISOString(),
+  }));
+  await f.run();
+  deepStrictEqual(f.events, [
+    "contains",
+    "unlike_intent",
+    "unlike",
+    "unlike_check",
+  ]);
+  strictEqual(f.itemReads(), 0);
+});
+Deno.test("prior-round presence cannot authorize unlike even when already unliked remotely", async () => {
+  const f = fixture();
+  f.setLiked(false);
+  f.state.operation!.phase = "unlike_pending";
+  f.state.operation!.verification_started_at = new Date(150000).toISOString();
+  f.state.items[0].state = "preexisting";
+  f.state.memberships[0].status = "present";
+  await f.run();
+  deepStrictEqual(f.events, ["contains", "scan"]);
+});
+Deno.test("uncertain unlike retries begin a new round before any second dispatch", async () => {
+  const f = fixture();
+  f.state.operation!.phase = "unlike_check";
+  await f.run();
+  deepStrictEqual(f.events, ["contains", "unlike_retry"]);
+});
+
+Deno.test("review invalidates a partial walk when item-page totals change despite unchanged metadata", async () => {
+  const f = fixture();
+  f.state.items[0].state = "confirmed";
+  f.state.memberships = [];
+  f.state.cache = [{
+    playlist_id: playlist,
+    status: "checking",
+    snapshot_id: "before",
+    next_offset: 50,
+    observed: 50,
+    occurrences: 0,
+    total: 100,
+    checked_at: null,
+  }];
+  f.setItems([uri]);
+  f.setPageTotal(51);
+  f.setMetadataTotal(100);
+  await f.run();
+  strictEqual(f.observations[0].status, "checking");
+  strictEqual(f.observations[0].offset, 0);
+  strictEqual(f.observations[0].observed, 0);
+  strictEqual(f.observations[0].reset, true);
 });

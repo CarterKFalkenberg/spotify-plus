@@ -29,6 +29,7 @@ interface Operation {
   status: string;
   phase: string;
   kind: string;
+  verification_started_at?: string | null;
 }
 export interface ReviewWorkerState {
   accountId: string;
@@ -125,22 +126,12 @@ export function createReviewRunner(input: {
         if (!spotifyPlaylistOwnedBy(playlist, identity)) {
           return await missing("destination_not_owned");
         }
+        // Metadata snapshots can remain unchanged after item changes. Only an
+        // unfinished scan checkpoint may resume; ready indexes prove no freshness.
         const cache = state.cache.find((c) =>
-          c.playlist_id === id && c.snapshot_id === playlist.snapshotId
+          c.playlist_id === id && c.snapshot_id === playlist.snapshotId &&
+          c.status === "checking"
         );
-        if (cache?.status === "ready") {
-          const status = cache.occurrences > 0 ? "present" : "absent";
-          await observe(id, {
-            status,
-            snapshotId: playlist.snapshotId,
-            offset: cache.next_offset,
-            observed: cache.observed,
-            occurrences: cache.occurrences,
-            total: cache.total,
-            errorCode: null,
-          });
-          return status;
-        }
         let offset = cache?.next_offset ?? 0;
         const fromOffset = offset;
         let observed = cache?.observed ?? 0;
@@ -151,21 +142,28 @@ export function createReviewRunner(input: {
           offset,
           limit: 50,
         });
+        const consistentTotal = !cache || cache.total === null ||
+          cache.total === page.total;
         observed += page.items.length;
         occurrences += page.items.filter((item) =>
           item.uri === state.uri
         ).length;
         let uris = page.items.flatMap((item) => item.uri ? [item.uri] : []);
         let status = "checking";
-        if (page.nextOffset === null) {
+        if (!consistentTotal) {
+          offset = 0;
+          observed = 0;
+          occurrences = 0;
+          uris = [];
+          reset = true;
+        } else if (page.nextOffset === null) {
           await wait(550);
           const after = await client.getPlaylist(id);
           if (!spotifyPlaylistOwnedBy(after, identity)) {
             return await missing("destination_not_owned");
           }
           if (
-            after.snapshotId === playlist.snapshotId &&
-            after.total === page.total && observed === page.total
+            after.snapshotId === playlist.snapshotId && observed === page.total
           ) status = occurrences > 0 ? "present" : "absent";
           else {
             offset = 0;
@@ -217,6 +215,36 @@ export function createReviewRunner(input: {
       const restoring = o.phase.startsWith("restore_");
       const liked = (await client.containsTracks([state.uri]))[0];
       const satisfied = restoring ? liked : !liked;
+      if (!restoring && o.phase.endsWith("pending")) {
+        // Each destination is read completely once in the server-owned final
+        // round. A rolling TTL makes slow rounds expire their own early reads.
+        // This sequential pass is not an atomic remote snapshot.
+        for (const item of state.items) {
+          if (!state.destinations.includes(item.playlist_id)) {
+            return await attention("destination_unavailable");
+          }
+          const membership = state.memberships.find((m) =>
+            m.playlist_id === item.playlist_id
+          );
+          if (
+            !membership ||
+            ["unknown", "checking"].includes(membership.status) ||
+            !membership.checked_at || !o.verification_started_at ||
+            Date.parse(membership.checked_at) <
+              Date.parse(o.verification_started_at)
+          ) {
+            await scan(item.playlist_id);
+            return { done: false, retryMs: 1000 };
+          }
+          if (membership.status !== "present") {
+            return await attention(
+              membership.status === "unavailable"
+                ? "destination_unavailable"
+                : "membership_changed",
+            );
+          }
+        }
+      }
       if (satisfied) {
         // Even an already satisfied pending command traverses the durable intent
         // state before finalization; no raw HTTP acknowledgement is assumed.
@@ -234,42 +262,6 @@ export function createReviewRunner(input: {
         await transition(restoring ? "restore_retry" : "unlike_retry");
         return { done: false, retryMs: 1000 };
       }
-      if (!restoring) {
-        // Recheck every destination version immediately before dispatch, also
-        // on retries after an interruption. Earlier page observations can age
-        // while other destinations are processed. This cannot fence Spotify
-        // edits made after these reads, but avoids using stale local presence.
-        for (const item of state.items) {
-          const membership = state.memberships.find((m) =>
-            m.playlist_id === item.playlist_id
-          );
-          if (membership?.status === "unavailable") {
-            return await attention("destination_unavailable");
-          }
-          if (
-            membership?.status === "absent" && membership.checked_at &&
-            Date.parse(membership.checked_at) >= now() - 60000
-          ) return await attention("membership_changed");
-          if (
-            !membership || membership.status !== "present" ||
-            !membership.checked_at ||
-            Date.parse(membership.checked_at) < now() - 60000
-          ) {
-            await scan(item.playlist_id);
-            return { done: false, retryMs: 1000 };
-          }
-          if (now() >= deadline - 20000) return { done: false, retryMs: 1000 };
-          const live = await client.getPlaylist(item.playlist_id);
-          if (!spotifyPlaylistOwnedBy(live, identity)) {
-            return await attention("destination_unavailable");
-          }
-          if (live.snapshotId !== membership.snapshot_id) {
-            await scan(item.playlist_id);
-            return { done: false, retryMs: 1000 };
-          }
-          await wait(550);
-        }
-      }
       if (!await transition(restoring ? "restore_intent" : "unlike_intent")) {
         return null;
       }
@@ -282,8 +274,14 @@ export function createReviewRunner(input: {
         // by containment in a later bounded invocation, including after crash.
         if (
           error instanceof SpotifyError &&
-          ["forbidden", "not_found"].includes(error.kind)
-        ) return await attention("spotify_forbidden");
+          ["forbidden", "not_found", "guard"].includes(error.kind)
+        ) {
+          return await attention(
+            error.kind === "guard"
+              ? "destination_unavailable"
+              : "spotify_forbidden",
+          );
+        }
         throw error;
       }
       await transition(restoring ? "restore_check" : "unlike_check");
@@ -389,13 +387,17 @@ export function createReviewRunner(input: {
     // Revalidate every selected destination, including acknowledged additions,
     // before permitting unlike. Present is never inferred from a missing cache.
     for (const item of state.items) {
+      if (!state.destinations.includes(item.playlist_id)) {
+        return await attention("destination_unavailable");
+      }
       const membership = state.memberships.find((m) =>
         m.playlist_id === item.playlist_id
       );
       if (
         !membership || membership.status === "unknown" ||
         membership.status === "checking" || !membership.checked_at ||
-        Date.parse(membership.checked_at) < now() - 60000
+        (item.state === "pending" &&
+          Date.parse(membership.checked_at) < now() - 60000)
       ) {
         await scan(item.playlist_id, membership);
         return { done: false, retryMs: 1000 };

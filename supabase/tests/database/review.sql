@@ -21,19 +21,26 @@ insert into app.review_destinations(epoch,id,name,owned,configured) values(1,rep
 -- Already-added-only Done is valid without a saved draft, but cached labels
 -- cannot authorize an unlike or include an ineligible destination.
 savepoint already_added_only;
-do $$ declare oid uuid; jid uuid; lease uuid:='77777777-7777-4777-8777-777777777777'; begin
+do $$ declare oid uuid; jid uuid; lease uuid:='77777777-7777-4777-8777-777777777777'; check_job uuid:=gen_random_uuid(); begin
  begin perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId',gen_random_uuid())); raise exception 'empty_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
  insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,checked_at) values(1,repeat('1',64),repeat('q',22),'present','cached',now());
  update app.review_destinations set owned=false where id=repeat('q',22);
  begin perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId',gen_random_uuid())); raise exception 'unowned_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
  update app.review_destinations set owned=true where id=repeat('q',22);
+ insert into app.jobs(id,epoch,kind,state,lease_token,lease_until,payload) values(check_job,1,'review_check','running',lease,now()+interval '1 hour',jsonb_build_object('trackKey',repeat('1',64)));
+ perform public.app_review_scan(1,check_job,lease,repeat('q',22),jsonb_build_object('status','present','snapshotId','unchanged','offset',1,'observed',1,'occurrences',1,'total',1,'uris',jsonb_build_array('spotify:track:'||repeat('1',22)),'reset',true,'initial',true,'fromOffset',0));
+ perform pg_temp.assert(public.app_review_scan(1,check_job,lease,repeat('q',22),jsonb_build_object('status','absent','snapshotId','unchanged','offset',0,'observed',0,'occurrences',0,'total',0,'uris','[]'::jsonb,'reset',true,'initial',true,'fromOffset',0)),'fresh complete scan may replace ready cache with unchanged metadata snapshot');
+ perform pg_temp.assert(not exists(select 1 from app.review_playlist_uris where playlist_id=repeat('q',22)),'unchanged snapshot cannot retain old URI membership');
+ perform public.app_review_scan(1,check_job,lease,repeat('q',22),jsonb_build_object('status','present','snapshotId','unchanged','offset',1,'observed',1,'occurrences',1,'total',1,'uris',jsonb_build_array('spotify:track:'||repeat('1',22)),'reset',true,'initial',true,'fromOffset',0));
  perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId',gen_random_uuid()));
  select s.active_id into oid from app.review_state s;
  select job_id into jid from app.review_operations where id=oid;
+ perform pg_temp.assert(not exists(select 1 from app.review_playlist_cache where playlist_id=repeat('q',22)),'Done admission invalidates preexisting ready playlist cache');
+ perform pg_temp.assert(not public.app_review_scan(1,check_job,lease,repeat('q',22),jsonb_build_object('status','present','snapshotId','unchanged','offset',1,'observed',1,'occurrences',1,'total',1)),'pre-admission background read cannot republish stale proof');
  perform pg_temp.assert((select count(*)=1 and bool_and(playlist_id=repeat('q',22) and state='pending') from app.review_operation_items where operation_id=oid),'already-added-only Done freezes its eligible destination for revalidation');
- -- Command completion enqueues read-only checks and creates fresh unknown
- -- placeholders. Those rows must carry none of the prior presence proof.
- perform pg_temp.assert((select count(*)=2 and bool_and(status='unknown' and snapshot_id is null and checked_at is null and observed=0 and occurrences=0) from app.review_memberships where epoch=1 and track_key=repeat('1',64)),'cached presence proof is cleared before worker confirmation');
+ -- Admission clears prior proof; active operations exclusively own their
+ -- confirmations rather than racing background review-check workers.
+ perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=repeat('1',64) and (status<>'unknown' or snapshot_id is not null or checked_at is not null or observed<>0 or occurrences<>0)),'cached presence proof is cleared before worker confirmation');
  update app.jobs set state='running',lease_token=lease,lease_until=now()+interval '1 hour' where id=jid;
  perform pg_temp.assert(not public.app_review_authorize(1,jid,lease,oid,'unlike','DELETE','/me/library','spotify:track:'||repeat('1',22)),'already-added label never directly authorizes unlike');
  begin perform public.app_review_transition(1,jid,lease,'unlike_prepare'); raise exception 'unverified_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
@@ -71,6 +78,9 @@ do $$ declare o app.review_operations; j uuid; lease uuid:='22222222-2222-4222-8
  -- Reconcile presence, never infer dispatch attribution from it.
  perform public.app_review_scan(1,j,lease,repeat('p',22),jsonb_build_object('status','present','snapshotId','after','offset',1,'observed',1,'occurrences',1,'total',1));
  perform public.app_review_transition(1,j,lease,'unlike_prepare');
+ begin perform public.app_review_transition(1,j,lease,'unlike_intent'); raise exception 'prior_round_unlike_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ perform public.app_review_scan(1,j,lease,repeat('p',22),jsonb_build_object('status','present','snapshotId','before','offset',1,'observed',1,'occurrences',1,'total',1));
+ perform public.app_review_scan(1,j,lease,repeat('q',22),jsonb_build_object('status','present','snapshotId','preexisting','offset',1,'observed',1,'occurrences',1,'total',1));
  perform public.app_review_transition(1,j,lease,'unlike_intent');
  perform pg_temp.assert(public.app_review_authorize(1,j,lease,o.id,'unlike','DELETE','/me/library',o.uri),'Done can unlike only matching URI');
  perform pg_temp.assert(not public.app_review_authorize(1,j,lease,o.id,'unlike','DELETE','/me/library','spotify:track:'||repeat('2',22)),'other version remains guarded');
@@ -138,6 +148,37 @@ do $$ declare o app.review_operations; lease uuid:='22222222-2222-4222-8222-2222
 end $$;
 select pg_temp.assert(public.app_library_page_commit(1,id,'33333333-3333-4333-8333-333333333333',pass,0,0,0,null,'[]',0,'{}') is null,'stale scan cannot erase Undo') from stale_sync;
 select pg_temp.assert(exists(select 1 from app.source_memberships where source_id='liked' and track_key=repeat('1',64)),'stale scan leaves restored membership');
+-- A slow sequential final round may span many bounded jobs. Its first reads
+-- remain valid for that round; an older round can never authorize a retry.
+savepoint slow_final_round;
+do $$ declare oid uuid; jid uuid; lease uuid:=gen_random_uuid(); started timestamptz:=clock_timestamp()-interval '2 hours'; ids jsonb; begin
+ insert into app.review_destinations(epoch,id,name,owned,configured) select 1,repeat('d',20)||lpad(n::text,2,'0'),'Synthetic slow destination',true,true from generate_series(1,18) n;
+ select jsonb_agg(id order by id) into ids from app.review_destinations where epoch=1 and configured;
+ perform public.app_review_command(1,'draft',jsonb_build_object('revision',(select revision::text from app.review_state),'trackKey',app.review_current(1),'destinationIds',ids));
+ perform public.app_review_command(1,'done',jsonb_build_object('revision',(select revision::text from app.review_state),'trackKey',app.review_current(1),'requestId',gen_random_uuid()));
+ select active_id into oid from app.review_state;
+ select job_id into jid from app.review_operations where id=oid;
+ update app.jobs set state='running',lease_token=lease,lease_until=now()+interval '1 hour' where id=jid;
+ update app.review_operation_items set state='preexisting' where operation_id=oid;
+ insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,checked_at) select 1,o.track_key,i.playlist_id,'present','unchanged',clock_timestamp() from app.review_operation_items i join app.review_operations o on o.id=i.operation_id where o.id=oid;
+ perform public.app_review_transition(1,jid,lease,'unlike_prepare');
+ perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=app.review_current(1)),'final round begins without prior proof');
+ update app.review_operations set verification_started_at=started where id=oid;
+ insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,checked_at)
+  select 1,o.track_key,i.playlist_id,'present','unchanged',started+interval '1 minute'*(row_number() over(order by i.playlist_id)) from app.review_operation_items i join app.review_operations o on o.id=i.operation_id where o.id=oid;
+ update app.review_memberships set checked_at=started-interval '1 minute' where playlist_id=repeat('p',22);
+ begin perform public.app_review_transition(1,jid,lease,'unlike_intent'); raise exception 'prior_round_slow_unlike_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ update app.review_memberships set checked_at=started+interval '1 minute' where playlist_id=repeat('p',22);
+ perform public.app_review_transition(1,jid,lease,'unlike_intent');
+ perform pg_temp.assert((select count(*)=20 from app.review_operation_items where operation_id=oid),'slow round covers twenty destinations');
+ perform pg_temp.assert(public.app_review_authorize(1,jid,lease,oid,'unlike','DELETE','/me/library','spotify:track:'||repeat('1',22)),'slow round retains early confirmed memberships without rolling expiration');
+ perform public.app_review_transition(1,jid,lease,'unlike_check');
+ perform public.app_review_transition(1,jid,lease,'unlike_retry');
+ perform pg_temp.assert((select verification_started_at>started from app.review_operations where id=oid),'uncertain unlike retry creates a new server round');
+ perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=app.review_current(1)),'uncertain retry clears preceding round proof');
+ begin perform public.app_review_transition(1,jid,lease,'unlike_intent'); raise exception 'retry_reused_round_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+end $$;
+rollback to slow_final_round;
 -- Definitively settled failures can return to their saved draft. Ambiguous
 -- sends and a live worker lease cannot expose cancellation.
 savepoint cancellation;

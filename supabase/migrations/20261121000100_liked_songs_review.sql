@@ -44,6 +44,7 @@ create table app.review_operations (
  status text not null default 'queued' check(status in ('queued','adding','unliking','completed','undoing','undone','cancelled','needs_attention')),
  phase text not null default 'adding' check(phase in ('adding','unlike_pending','unlike_sending','unlike_check','restore_pending','restore_sending','restore_check','reversing','terminal')),
  error_code text,
+ verification_started_at timestamptz,
  job_id uuid references app.jobs(id) on delete set null,
  undo_request_id uuid,
  reversal_incomplete boolean not null default false,
@@ -82,8 +83,8 @@ create table app.review_memberships (
  checked_at timestamptz,
  primary key(epoch,track_key,playlist_id)
 );
--- Exact-URI index for a completely read playlist version. Reused between
--- reviewed tracks, without loading unrelated playlist metadata into the model.
+-- Durable exact-URI scan checkpoints. A completed cache is not a freshness
+-- proof: observed Spotify metadata snapshots can lag actual item changes.
 create table app.review_playlist_cache (
  epoch bigint not null, playlist_id text not null, snapshot_id text not null,
  status text not null check(status in ('checking','ready')),
@@ -141,7 +142,7 @@ $$;
 create function app.review_enqueue_checks(p_epoch bigint) returns void language plpgsql set search_path='' as $$
  declare key text:=app.review_current(p_epoch);
  begin
-  if key is null then return; end if;
+  if key is null or exists(select 1 from app.review_state where epoch=p_epoch and active_id is not null) then return; end if;
   insert into app.review_memberships(epoch,track_key,playlist_id)
    select p_epoch,key,id from app.review_destinations where epoch=p_epoch and configured on conflict do nothing;
   if exists(select 1 from app.review_memberships m join app.review_destinations d on d.epoch=m.epoch and d.id=m.playlist_id where m.epoch=p_epoch and m.track_key=key and d.configured and (m.checked_at is null or m.checked_at<now()-interval '5 minutes'))
@@ -244,6 +245,8 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    -- Every operation starts from fresh membership observations, independently
    -- of the UI's cached membership labels.
    delete from app.review_memberships where epoch=p_epoch and track_key=key;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select value from jsonb_array_elements_text(ids));
+   update app.jobs set state='cancelled',lease_token=null,lease_until=null where epoch=p_epoch and kind='review_check' and state in ('queued','running','parked');
   elsif p_command='undo' then
    oid:=(p_input->>'operationId')::uuid;
    if oid is distinct from s.undo_id or rid is null then raise exception 'unknown_action'; end if;
@@ -253,6 +256,9 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    insert into app.review_receipts values(p_epoch,rid,p_command,o.track_key,oid);
    update app.review_operations set status='undoing',phase='restore_pending',undo_request_id=rid,job_id=jid,error_code=null where id=oid;
    update app.review_state set active_id=oid,last_id=oid where epoch=p_epoch;
+   delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=oid);
+   update app.jobs set state='cancelled',lease_token=null,lease_until=null where epoch=p_epoch and kind='review_check' and state in ('queued','running','parked');
   elsif p_command='cancel' then
    oid:=(p_input->>'operationId')::uuid;
    if oid is distinct from s.active_id then raise exception 'unknown_action'; end if;
@@ -272,6 +278,8 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    update app.jobs set state='queued',retry_at=now(),last_error=null where id=o.job_id and state<>'running';
    -- An unconfirmed append is deliberately retained. Retry reconciles only.
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=oid);
+   if o.phase='unlike_pending' then update app.review_operations set verification_started_at=clock_timestamp() where id=oid; end if;
   end if;
   update app.review_state set revision=revision+1 where epoch=p_epoch;
   perform app.review_enqueue_checks(p_epoch);
@@ -295,7 +303,7 @@ create function public.app_review_worker(p_epoch bigint,p_job uuid,p_lease uuid)
    'uri',coalesce(o.uri,(select 'spotify:track:'||spotify_id from app.track_metadata where track_key=key)),
    'operation',case when o.id is null then null else to_jsonb(o) end,
    'items',coalesce((select jsonb_agg(to_jsonb(i) order by i.playlist_id) from app.review_operation_items i where i.operation_id=o.id),'[]'),
-   'destinations',coalesce((select jsonb_agg(d.id order by d.id) from app.review_destinations d where d.epoch=p_epoch and d.configured),'[]'),
+   'destinations',coalesce((select jsonb_agg(d.id order by d.id) from app.review_destinations d where d.epoch=p_epoch and d.configured and d.owned and d.available and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id)),'[]'),
    'cache',coalesce((select jsonb_agg(to_jsonb(c)||jsonb_build_object('occurrences',coalesce((select u.occurrences from app.review_playlist_uris u where u.epoch=c.epoch and u.playlist_id=c.playlist_id and u.uri=coalesce(o.uri,(select 'spotify:track:'||spotify_id from app.track_metadata where track_key=key))),0))) from app.review_playlist_cache c where c.epoch=p_epoch),'[]'),
    'memberships',coalesce((select jsonb_agg(to_jsonb(m)) from app.review_memberships m where m.epoch=p_epoch and m.track_key=key),'[]'));
  end;
@@ -310,7 +318,7 @@ create function public.app_review_scan(p_epoch bigint,p_job uuid,p_lease uuid,p_
   if jsonb_typeof(p_observation->'uris')='array' then
    select * into old from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist for update;
    if found and old.snapshot_id=p_observation->>'snapshotId' then
-    if coalesce((p_observation->>'initial')::boolean,false) then return false; end if;
+    if coalesce((p_observation->>'initial')::boolean,false) and old.status='checking' then return false; end if;
     if not coalesce((p_observation->>'reset')::boolean,false) and old.next_offset<>(p_observation->>'fromOffset')::integer then return false; end if;
    end if;
    if not found or old.snapshot_id is distinct from p_observation->>'snapshotId' or coalesce((p_observation->>'reset')::boolean,false) then
@@ -326,7 +334,7 @@ create function public.app_review_scan(p_epoch bigint,p_job uuid,p_lease uuid,p_
     next_offset=(p_observation->>'offset')::integer,observed=(p_observation->>'observed')::integer,total=(p_observation->>'total')::integer where epoch=p_epoch and playlist_id=p_playlist;
   end if;
   insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,next_offset,observed,occurrences,total,error_code,checked_at)
-   values(p_epoch,key,p_playlist,p_observation->>'status',p_observation->>'snapshotId',(p_observation->>'offset')::integer,(p_observation->>'observed')::integer,(p_observation->>'occurrences')::integer,(p_observation->>'total')::integer,p_observation->>'errorCode',case when p_observation->>'status'<>'checking' then now() else null end)
+   values(p_epoch,key,p_playlist,p_observation->>'status',p_observation->>'snapshotId',(p_observation->>'offset')::integer,(p_observation->>'observed')::integer,(p_observation->>'occurrences')::integer,(p_observation->>'total')::integer,p_observation->>'errorCode',case when p_observation->>'status'<>'checking' then clock_timestamp() else null end)
    on conflict(epoch,track_key,playlist_id) do update set status=excluded.status,snapshot_id=excluded.snapshot_id,next_offset=excluded.next_offset,observed=excluded.observed,occurrences=excluded.occurrences,total=excluded.total,error_code=excluded.error_code,checked_at=excluded.checked_at;
   return true;
  end;
@@ -355,29 +363,43 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    if item_row.state<>'pending' or not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=p_playlist and m.status='absent' and m.checked_at>now()-interval '1 minute') then raise exception 'invalid_action'; end if;
    if not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=p_playlist and d.configured and d.owned and d.available) or exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=p_playlist) then raise exception 'unknown_playlist'; end if;
    update app.review_operation_items set state='sending' where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
+   delete from app.review_memberships where epoch=p_epoch and playlist_id=p_playlist;
    update app.review_operations set status='adding' where id=o.id;
   elsif p_event='append_confirmed' then
    if item_row.state<>'sending' or p_snapshot is null or length(p_snapshot)=0 then raise exception 'invalid_action'; end if;
    update app.review_operation_items set state='confirmed',snapshot_id=p_snapshot where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
   elsif p_event='append_uncertain' then
    if item_row.state<>'sending' then raise exception 'invalid_action'; end if;
    update app.review_operation_items set state='unconfirmed' where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
   elsif p_event='append_rejected' then
    if item_row.state<>'sending' then raise exception 'invalid_action'; end if;
    update app.review_operation_items set state='pending' where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
   elsif p_event in ('unlike_prepare','unlike_intent') then
    if (p_event='unlike_prepare' and o.phase<>'adding') or (p_event='unlike_intent' and o.phase<>'unlike_pending') or exists(select 1 from app.review_operation_items where operation_id=o.id and state not in ('confirmed','preexisting','unconfirmed'))
-    or exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>now()-interval '1 minute')) then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase=case when p_event='unlike_prepare' then 'unlike_pending' else 'unlike_sending' end,status='unliking' where id=o.id;
+    or exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=i.playlist_id and d.configured and d.owned and d.available and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id)))
+    or (p_event='unlike_prepare' and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at is not null)))
+    or (p_event='unlike_intent' and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>=o.verification_started_at))) then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase=case when p_event='unlike_prepare' then 'unlike_pending' else 'unlike_sending' end,status='unliking',
+    verification_started_at=case when p_event='unlike_prepare' then clock_timestamp() else verification_started_at end where id=o.id;
+   if p_event='unlike_prepare' then
+    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
+    delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=o.id);
+   end if;
   elsif p_event='unlike_check' then
    if o.phase not in ('unlike_sending','unlike_check') then raise exception 'invalid_action'; end if;
    update app.review_operations set phase='unlike_check' where id=o.id;
   elsif p_event='unlike_retry' then
    if o.phase not in ('unlike_sending','unlike_check') then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase='unlike_pending' where id=o.id;
+   update app.review_operations set phase='unlike_pending',verification_started_at=clock_timestamp() where id=o.id;
+   delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=o.id);
   elsif p_event='completed' then
    if o.phase not in ('unlike_sending','unlike_check') then raise exception 'invalid_action'; end if;
    update app.review_operations set phase='terminal',status='completed',completed_at=now(),error_code=null where id=o.id;
@@ -411,10 +433,13 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    if not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=p_playlist and d.owned and d.available)
     or exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=p_playlist) then raise exception 'unknown_playlist'; end if;
    update app.review_operation_items set state='reverse_sending' where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
   elsif p_event='reverse_check' then
    if o.phase<>'reversing' or item_row.state<>'reverse_sending' then raise exception 'invalid_action'; end if;
    update app.review_operation_items set state='reverse_check',reverse_snapshot_id=p_snapshot where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
+   delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
   elsif p_event='reversed' then
    if o.phase<>'reversing' or item_row.state<>'reverse_check'
     or not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=p_playlist
@@ -447,7 +472,9 @@ create function public.app_review_authorize(p_epoch bigint,p_job uuid,p_lease uu
   worker_state:=public.app_review_worker(p_epoch,p_job,p_lease); if worker_state is null then return false; end if;
   select * into o from app.review_operations where id=p_operation and job_id=p_job and epoch=p_epoch;
   if not found or o.uri is distinct from p_uri or o.status='needs_attention' or o.id is distinct from (select active_id from app.review_state where epoch=p_epoch) then return false; end if;
-  if p_action='unlike' then return o.phase='unlike_sending' and p_method='DELETE' and p_path='/me/library'; end if;
+  if p_action='unlike' then return o.phase='unlike_sending' and p_method='DELETE' and p_path='/me/library'
+   and not exists(select 1 from app.review_operation_items i where i.operation_id=o.id and (not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>=o.verification_started_at)
+    or not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=i.playlist_id and d.configured and d.owned and d.available and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id)))); end if;
   if p_action='restore' then return o.phase='restore_sending' and o.status='undoing' and o.id=(select undo_id from app.review_state where epoch=p_epoch) and p_method='PUT' and p_path='/me/library'; end if;
   if p_action='append' and p_method='POST' then
    pid:=substring(p_path from '^/playlists/([A-Za-z0-9]{22})/items$');
