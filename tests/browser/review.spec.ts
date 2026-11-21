@@ -55,6 +55,7 @@ async function fixture(
     ambiguous?: boolean;
     conflict?: boolean;
     incompleteUndo?: boolean;
+    rejectInvalidDrafts?: boolean;
   } = {},
 ) {
   let data = initial(),
@@ -110,6 +111,24 @@ async function fixture(
         discoveryStatus: "ready",
       };
     else if (path.startsWith("/api/review/")) {
+      if (
+        options.rejectInvalidDrafts &&
+        path.endsWith("/draft") &&
+        body.destinationIds.some(
+          (id: string) =>
+            !data.destinations.some(
+              (d) =>
+                d.id === id &&
+                d.configured &&
+                d.available &&
+                d.membership !== "unavailable",
+            ),
+        )
+      )
+        return route.fulfill({
+          status: 409,
+          json: { error: "unknown_playlist" },
+        });
       if (options.conflict && path.endsWith("/draft"))
         return route.fulfill({
           status: 409,
@@ -474,6 +493,131 @@ for (const canCancel of [false, true])
       },
     ]);
   });
+
+test("after returning to review, multiple invalid draft choices can be removed without losing intermediate removals or existing memberships", async ({
+  page,
+}) => {
+  const f = await fixture(page, { rejectInvalidDrafts: true });
+  const invalidUnavailable = f.data().destinations[2]!;
+  invalidUnavailable.available = false;
+  invalidUnavailable.membership = "unavailable";
+  const invalidUnconfigured = f.data().destinations[3]!;
+  invalidUnconfigured.configured = false;
+  f.data().draft = {
+    trackKey,
+    revision: "1",
+    destinationIds: [
+      destination(2).id,
+      invalidUnavailable.id,
+      invalidUnconfigured.id,
+    ],
+  };
+  f.data().operation = {
+    id: uuid,
+    trackKey,
+    kind: "done",
+    status: "needs_attention",
+    errorCode: "destination_unavailable",
+    completedDestinations: 1,
+    totalDestinations: 3,
+    reversalIncomplete: false,
+    canCancel: true,
+  };
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Return to review", exact: true })
+    .click();
+  const unavailable = page
+    .locator(".review-destination")
+    .nth(2)
+    .getByRole("checkbox");
+  const unconfigured = page
+    .locator(".review-destination")
+    .nth(3)
+    .getByRole("checkbox");
+  await expect(unavailable).toBeEnabled();
+  await expect(unconfigured).toBeEnabled();
+  await unavailable.uncheck();
+  await expect(unavailable).not.toBeChecked();
+  await expect(unconfigured).toBeChecked();
+  await expect(
+    page.getByRole("button", { name: "Done", exact: true }),
+  ).toBeDisabled();
+  expect(f.calls.filter((c) => c.path.endsWith("/draft"))).toHaveLength(0);
+  await unconfigured.uncheck();
+  await expect(
+    page.getByText("Choices saved. Spotify changes only after Done."),
+  ).toBeVisible();
+  await expect(unavailable).not.toBeChecked();
+  await expect(unconfigured).not.toBeChecked();
+  await expect(unavailable).toBeDisabled();
+  await expect(unconfigured).toBeDisabled();
+  for (const index of [0, 1]) {
+    const present = page
+      .locator(".review-destination")
+      .nth(index)
+      .getByRole("checkbox");
+    await expect(present).toBeChecked();
+    await expect(present).toBeDisabled();
+  }
+  await expect(
+    page.getByRole("button", { name: "Done", exact: true }),
+  ).toBeEnabled();
+  expect(
+    f.calls
+      .filter((c) => c.path.endsWith("/draft"))
+      .map((c) => c.body.destinationIds),
+  ).toEqual([[destination(2).id]]);
+  expect(
+    f.calls
+      .filter((c) => c.body && c.path.startsWith("/api/review/"))
+      .map((c) => c.path),
+  ).toEqual(["/api/review/cancel", "/api/review/draft"]);
+});
+
+test("missing draft destinations and stale choices for existing memberships have explicit removal without playlist removal", async ({
+  page,
+}) => {
+  const f = await fixture(page, { rejectInvalidDrafts: true });
+  f.data().destinations[0]!.configured = false;
+  f.data().draft = {
+    trackKey,
+    revision: "1",
+    destinationIds: [destination(1).id, destination(99).id],
+  };
+  await page.reload();
+  const present = page
+    .locator(".review-destination")
+    .first()
+    .getByRole("checkbox");
+  await expect(present).toBeChecked();
+  await expect(present).toBeDisabled();
+  await page
+    .getByRole("button", {
+      name: "Remove saved choice for Synthetic destination 1",
+      exact: true,
+    })
+    .click();
+  await expect(present).toBeChecked();
+  await expect(present).toBeDisabled();
+  expect(f.calls.filter((c) => c.path.endsWith("/draft"))).toHaveLength(0);
+  await page
+    .getByRole("button", { name: /^Remove saved choice for Saved destination/ })
+    .click();
+  await expect(
+    page.getByText("Choices saved. Spotify changes only after Done."),
+  ).toBeVisible();
+  await expect(present).toBeChecked();
+  await expect(present).toBeDisabled();
+  expect(
+    f.calls.filter((c) => c.body && c.path.startsWith("/api/review/")),
+  ).toEqual([
+    {
+      path: "/api/review/draft",
+      body: { revision: "1", trackKey, destinationIds: [] },
+    },
+  ]);
+});
 
 for (const width of [320, 390])
   test(`review choices and persistent actions reflow at ${width}px with 200% text`, async ({

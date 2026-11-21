@@ -30,6 +30,17 @@ function restorePending(): Pending | null {
     return null;
   }
 }
+function invalidDraftChoices(data: ReviewDTO | null, ids: string[]) {
+  return ids.filter((id) => {
+    const destination = data?.destinations.find((d) => d.id === id);
+    return (
+      !destination ||
+      !destination.configured ||
+      !destination.available ||
+      destination.membership === "unavailable"
+    );
+  });
+}
 export function Review({
   active,
   playbackAllowed,
@@ -116,6 +127,10 @@ export function Review({
   });
   async function saveDraft(): Promise<boolean> {
     if (savingRef.current) return false;
+    // The server rejects a draft containing any invalid destination. Keep
+    // intermediate local removals until the whole remaining draft is valid.
+    if (invalidDraftChoices(latest.current, choices.current).length)
+      return false;
     epoch.current++;
     savingRef.current = true;
     setSaving(true);
@@ -243,18 +258,24 @@ export function Review({
   const locked = busy || saving || conflict || !!pending || operating;
   const current = data?.current,
     metadata = current?.metadata;
+  const invalidSelected = invalidDraftChoices(data, selected);
   const desired =
     selected.length > 0 ||
-    !!data?.destinations.some((d) => d.membership === "present");
+    !!data?.destinations.some(
+      (d) => d.configured && d.membership === "present",
+    );
   const membershipsReady =
     !!data &&
-    data.destinations.every(
-      (d) => d.membership !== "unknown" && d.membership !== "checking",
-    ) &&
+    data.destinations
+      .filter((d) => d.configured)
+      .every(
+        (d) => d.membership !== "unknown" && d.membership !== "checking",
+      ) &&
     selected.every((id) =>
       data.destinations.some(
         (d) =>
           d.id === id &&
+          d.configured &&
           d.available &&
           ["present", "absent"].includes(d.membership),
       ),
@@ -493,6 +514,32 @@ export function Review({
                       ? "Choices need saving."
                       : "Choices saved. Spotify changes only after Done."}
                 </p>
+                {invalidSelected.length > 0 && (
+                  <div className="notice" role="status">
+                    <p>
+                      Remove unavailable or unconfigured saved choices to
+                      continue. Choices will save after all of these are
+                      removed. Existing playlist memberships stay intact.
+                    </p>
+                    {invalidSelected.map((id, index) => {
+                      const name =
+                        data.destinations.find((d) => d.id === id)?.name ??
+                        `Saved destination ${index + 1}`;
+                      return (
+                        <div key={id}>
+                          <strong>{name}</strong>{" "}
+                          <button
+                            disabled={locked}
+                            onClick={() => toggle(id)}
+                            aria-label={`Remove saved choice for ${name}`}
+                          >
+                            Remove saved choice
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="review-destinations">
                   {data.destinations.map((d) => (
                     <label
@@ -505,7 +552,12 @@ export function Review({
                           d.membership === "present" || selected.includes(d.id)
                         }
                         disabled={
-                          locked || d.membership !== "absent" || !d.available
+                          locked ||
+                          d.membership === "present" ||
+                          (!selected.includes(d.id) &&
+                            (d.membership !== "absent" ||
+                              !d.available ||
+                              !d.configured))
                         }
                         onChange={() => toggle(d.id)}
                       />
@@ -513,13 +565,19 @@ export function Review({
                       <span>
                         {d.membership === "present"
                           ? "Already added"
-                          : !d.available || d.membership === "unavailable"
-                            ? "Unavailable · refresh or check Spotify"
-                            : ["unknown", "checking"].includes(d.membership)
-                              ? "Checking membership…"
-                              : selected.includes(d.id)
-                                ? "Selected"
-                                : "Add"}
+                          : !d.configured
+                            ? selected.includes(d.id)
+                              ? "No longer configured · remove the saved choice"
+                              : "No longer configured"
+                            : !d.available || d.membership === "unavailable"
+                              ? selected.includes(d.id)
+                                ? "Unavailable · remove the saved choice or check Spotify"
+                                : "Unavailable · check Spotify"
+                              : ["unknown", "checking"].includes(d.membership)
+                                ? "Checking membership…"
+                                : selected.includes(d.id)
+                                  ? "Selected"
+                                  : "Add"}
                       </span>
                     </label>
                   ))}
