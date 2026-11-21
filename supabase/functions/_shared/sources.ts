@@ -153,6 +153,7 @@ export function createSourcesRunner(input: {
                 name: p.name,
                 artworkUrl: p.artworkUrl ?? null,
                 total: p.total,
+                owned: p.ownerId === checkpoint!.accountId,
                 eligible: p.ownerId === checkpoint!.accountId ||
                   p.collaborative,
               })),

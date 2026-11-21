@@ -4,7 +4,7 @@ The user started the native build goal on October 11, 2026, waived the remaining
 
 ## Native goal and ownership
 
-Following the later October 11 human correction, the main chat uses `gpt-6-astra` to orchestrate the goal. Implementation tasks use `gpt-6.1-sol`; independent per-PR Standards/Spec reviewers and the scheduled reviewer use `gpt-6-astra`. All roles use Medium reasoning effort. Each implementation task has a coherent issue, explicit ownership/dependencies and an isolated `codex/...` worktree. Define shared interfaces before parallel work. Symlink the primary ignored `.local` directory into each worktree; never copy secrets.
+Following the later October 11 human correction, the main chat uses `gpt-6-astra` to orchestrate the goal. Implementation tasks use `gpt-6.1-sol`; independent per-PR Standards/Spec reviewers use `gpt-6-astra`. All roles use Medium reasoning effort. Each implementation task has a coherent issue, explicit ownership/dependencies and an isolated `codex/...` worktree. Define shared interfaces before parallel work. Symlink the primary ignored `.local` directory into each worktree; never copy secrets.
 
 The orchestrator integrates, independently verifies and merges. It centrally owns shared migration ordering, deployments and Spotify mutations, assigning at most one operator for a shared external action. Subagents prepare implementation and synthetic evidence within their scope. Reports must be inspected and never substitute for human approval. [Delivery rules](agents/delivery.md#native-goal-ownership-and-continuity) define durable ownership and evidence in GitHub issues and `.local/build-coordination/state.json`.
 
@@ -14,17 +14,17 @@ After feature verification, complete independent architecture/repository review 
 
 ## Independent build review
 
-The temporary automation **`spotify-plus-build-review`** is now an **ACTIVE five-minute heartbeat** in the existing dedicated review chat `01a12ce4-03c8-7100-b8c3-f6faf1b10368`. It replaces the earlier standalone cron that created a new chat per run. Its model inherits that dedicated chat setting, which the orchestrator set to `gpt-6-astra` with Medium reasoning effort through the supported tool after the later October 11 human correction. Its prompt connects it to the orchestrator chat recorded in `.local/build-coordination/state.json`. This records verified schedule configuration, not a claim that a review ran or that every wall-clock interval is guaranteed. Consult actual automation state and the ledger when resuming. Local tasks require the computer and app to remain running with the project available. [Official scheduled-task documentation](https://learn.chatgpt.com/docs/automations).
+The [November 21 human instruction](DECISIONS.md#reviews-after-meaningful-chunks--november-21-2026) replaces the earlier five-minute heartbeat with reviews after meaningful implementation chunks. The orchestrator verified `spotify-plus-playback-review` is **PAUSED**. Earlier references to an active `spotify-plus-build-review` heartbeat describe historical configuration. Do not restart periodic review without a new user instruction. Mandatory independent per-PR Standards/Spec review remains required.
 
-The scheduled reviewer must:
+Chunk reviewers retain the following snapshot, privacy and evidence rules:
 
 1. Acquire `.local/build-review/run.lock` atomically, recording its PID/run identity. Skip while a live reviewer owns it; release in `finally`. Recover stale locks only after checking that the owner is no longer active. Never overlap runs.
 2. Inspect coordination/issues, open PRs, active branches and relevant working diffs. Capture a stable snapshot outside active worktrees, excluding `.local`, credentials and real Spotify content. Include nonignored untracked code in the diff fingerprint. Compare fingerprints before and after inspection; changed files make the review partial rather than a claim about the latest tree.
 3. Atomically maintain `.local/build-review/ledger.json`, keyed by branch, with base/head/merge-base, reviewed SHAs, snapshot/diff fingerprints, complete/partial status, findings and verified fixes. Review since the last successful snapshot with surrounding context. Detect rebases, force updates and changed bases, expanding to a full comparison when needed. Missing entries mean unreviewed work.
 4. Report actionable bugs, regressions, security/privacy risks, races, spec gaps, weak tests and maintainability problems with severity, snapshot SHA/fingerprint, file/line, consequence and suggested correction. Deduplicate findings, verify fixes, post durable findings to the relevant issue/PR and message the orchestrator for delivery to the owning agent. Stay quiet when nothing actionable changed.
-5. Never edit active worktrees, merge, deploy, mutate Spotify or run destructive tests. Periodic review supplements the mandatory independent per-PR Standards/Spec gate.
+5. Never edit active worktrees, merge, deploy, mutate Spotify or run destructive tests. Chunk review supplements the mandatory independent per-PR Standards/Spec gate.
 
-The orchestrator must disable/delete this automation through the supported scheduling tool after final cleanup and completion verification, verify shutdown and record it in coordination/handoff. If the goal ends early, stop the automation and preserve incomplete work and blockers. The reviewer should also stop itself when durable coordination records completion or shutdown. Do not leave it running after the goal ends.
+Review automation is paused under the November 21 instruction. The orchestrator must verify that it remains stopped and record shutdown in coordination/handoff after final cleanup and completion verification. If the goal ends early, stop the automation and preserve incomplete work and blockers. The reviewer should also stop itself when durable coordination records completion or shutdown. Do not leave it running after the goal ends.
 
 ## Optional shell runner
 

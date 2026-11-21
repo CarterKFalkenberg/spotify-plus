@@ -1117,3 +1117,69 @@ Deno.test("playback command permits exactly one track and an explicit bounded de
     "synthetic-device-1234567890",
   );
 });
+
+Deno.test("review capabilities are denied without durable authorization", async () => {
+  const { client, calls } = harness();
+  const operation = "11111111-1111-4111-8111-111111111111";
+  await fails(
+    () => client.reviewAppend(operation, PLAYLIST, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  await fails(
+    () => client.reviewUnlike(operation, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  await fails(
+    () => client.reviewRestore(operation, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  strictEqual(calls.length, 0);
+});
+Deno.test("review exact capabilities preserve standard track write rejection", async () => {
+  const operation = "11111111-1111-4111-8111-111111111111";
+  const authorizations: unknown[] = [];
+  const { client, calls } = harness([new Response(null, { status: 204 })], {
+    authorizeReview: (authorization, request) => {
+      authorizations.push({ authorization, request });
+      return Promise.resolve(
+        authorization.operationId === operation &&
+          authorization.action === "unlike" &&
+          request.uri === `spotify:track:${TRACK}`,
+      );
+    },
+  });
+  await client.reviewUnlike(operation, `spotify:track:${TRACK}`);
+  strictEqual(calls.length, 1);
+  strictEqual(authorizations.length, 2);
+  strictEqual(calls[0].init.method, "DELETE");
+  await fails(
+    () =>
+      client.request({
+        method: "DELETE",
+        path: "/me/library",
+        query: { uris: `spotify:track:${TRACK}` },
+      }),
+    "guard",
+  );
+  await fails(
+    () => client.reviewRestore(operation, `spotify:track:${TRACK}`),
+    "guard",
+  );
+  strictEqual(calls.length, 1);
+});
+Deno.test("review append timeout remains ambiguous and is never retried", async () => {
+  const { client, calls } = harness([() => {
+    throw new Error("synthetic interruption");
+  }], { authorizeReview: () => Promise.resolve(true) });
+  await fails(
+    () =>
+      client.reviewAppend(
+        "11111111-1111-4111-8111-111111111111",
+        PLAYLIST,
+        `spotify:track:${TRACK}`,
+      ),
+    "network",
+    true,
+  );
+  strictEqual(calls.length, 1);
+});

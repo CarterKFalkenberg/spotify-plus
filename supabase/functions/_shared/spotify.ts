@@ -79,6 +79,10 @@ export interface SpotifyDependencies {
   // Consult durable, current-account managed ownership, never a client claim.
   // Caller also serializes playlist lifecycle work and checks the account epoch.
   isManagedPlaylist(id: string): Promise<boolean>;
+  authorizeReview?: (
+    authorization: ReviewAuthorization,
+    request: { method: string; path: string; uri: string },
+  ) => Promise<boolean>;
   fetch?: typeof fetch;
   now?: () => number;
   timeoutMs?: number;
@@ -137,7 +141,12 @@ export interface SpotifyPlaylist {
   artworkUrl?: string | null;
 }
 
+export interface ReviewAuthorization {
+  operationId: string;
+  action: "append" | "unlike" | "restore" | "reverse";
+}
 export interface SpotifyRequest {
+  reviewAuthorization?: ReviewAuthorization;
   method: "GET" | "POST" | "PUT" | "DELETE";
   // Canonical relative path only. Query is separate; no caller-provided URLs.
   path: string;
@@ -159,7 +168,11 @@ type Operation =
   | "description"
   | "contains"
   | "remove"
-  | "play";
+  | "play"
+  | "review_append"
+  | "review_reverse"
+  | "review_unlike"
+  | "review_restore";
 type Result =
   | { artworkUrl: string | null }
   | { accountId: string; id: string }
@@ -171,6 +184,12 @@ type Result =
   | boolean[]
   | void;
 interface Prepared {
+  review?: {
+    authorization: ReviewAuthorization;
+    method: string;
+    path: string;
+    uri: string;
+  };
   operation: Operation;
   method: SpotifyRequest["method"];
   url: string;
@@ -212,6 +231,7 @@ function prepare(input: SpotifyRequest): Prepared {
     "path",
     "query",
     "body",
+    "reviewAuthorization",
   ]);
   const { method, path } = input;
   requireGuard(["GET", "POST", "PUT", "DELETE"].includes(method));
@@ -226,9 +246,72 @@ function prepare(input: SpotifyRequest): Prepared {
   let offset = 0;
   let limit = 50;
   let serialized: string | undefined;
+  let review: Prepared["review"];
+  const authorization = input.reviewAuthorization;
   const match = /^\/playlists\/([A-Za-z0-9]{22})(\/items)?$/.exec(path);
 
-  if (method === "GET") {
+  if (authorization !== undefined) {
+    requireGuard(record(authorization));
+    keys(authorization as unknown as Record<string, unknown>, [
+      "operationId",
+      "action",
+    ]);
+    requireGuard(
+      text(authorization.operationId) &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+          authorization.operationId,
+        ),
+    );
+    let uri: string;
+    if (
+      path === "/me/library" &&
+      ((method === "DELETE" && authorization.action === "unlike") ||
+        (method === "PUT" && authorization.action === "restore"))
+    ) {
+      keys(query, ["uris"]);
+      requireGuard(
+        body === undefined && text(query.uris) && TRACK_URI.test(query.uris),
+      );
+      uri = query.uris;
+      params.set("uris", uri);
+      operation = method === "PUT" ? "review_restore" : "review_unlike";
+    } else if (
+      match?.[2] &&
+      ((method === "POST" && authorization.action === "append") ||
+        (method === "DELETE" && authorization.action === "reverse"))
+    ) {
+      keys(query, []);
+      requireGuard(record(body));
+      if (method === "POST") {
+        keys(body, ["uris"]);
+        requireGuard(
+          Array.isArray(body.uris) && body.uris.length === 1 &&
+            text(body.uris[0]) && TRACK_URI.test(body.uris[0]),
+        );
+        uri = body.uris[0];
+        serialized = JSON.stringify({ uris: [uri] });
+        operation = "review_append";
+      } else {
+        keys(body, ["items", "snapshot_id"]);
+        requireGuard(
+          Array.isArray(body.items) && body.items.length === 1 &&
+            record(body.items[0]),
+        );
+        keys(body.items[0], ["uri"]);
+        requireGuard(
+          text(body.items[0].uri) && TRACK_URI.test(body.items[0].uri) &&
+            text(body.snapshot_id) && body.snapshot_id.length > 0,
+        );
+        uri = body.items[0].uri;
+        serialized = JSON.stringify({
+          items: [{ uri }],
+          snapshot_id: body.snapshot_id,
+        });
+        operation = "review_reverse";
+      }
+    } else throw new SpotifyError("guard");
+    review = { authorization: { ...authorization }, method, path, uri };
+  } else if (method === "GET") {
     requireGuard(body === undefined);
     if (path === "/me") operation = "identity";
     else if (path === "/me/tracks") operation = "saved";
@@ -325,7 +408,12 @@ function prepare(input: SpotifyRequest): Prepared {
     requireGuard(text(query.uris));
     const uris = query.uris.split(",");
     requireGuard(uris.length >= 1 && uris.length <= 40);
-    requireGuard(uris.every((uri) => PLAYLIST_URI.test(uri)));
+    requireGuard(
+      uris.every((uri) =>
+        PLAYLIST_URI.test(uri) ||
+        (operation === "contains" && TRACK_URI.test(uri))
+      ),
+    );
     uriCount = uris.length;
     if (operation === "remove") {
       managedIds = [...new Set(uris.map((uri) => uri.slice(17)))];
@@ -334,6 +422,7 @@ function prepare(input: SpotifyRequest): Prepared {
   }
   const search = params.toString();
   return {
+    review,
     operation,
     method,
     url: API + path + (search ? `?${search}` : ""),
@@ -371,10 +460,29 @@ export class SpotifyClient {
       }
       requireGuard(managed === true);
     }
+    if (request.review) {
+      let authorized = false;
+      try {
+        authorized = await this.#dependencies.authorizeReview?.(
+          request.review.authorization,
+          request.review,
+        ) === true;
+      } catch {
+        throw new SpotifyError("control_unavailable");
+      }
+      requireGuard(authorized);
+    }
     let token = await this.#token();
     // Only the read-only unauthorized response is retried, at most once. POST
     // create/append are never replayed, including after timeouts or bad JSON.
     for (let attempt = 0; attempt < 2; attempt++) {
+      if (
+        request.review &&
+        !await this.#dependencies.authorizeReview?.(
+          request.review.authorization,
+          request.review,
+        )
+      ) throw new SpotifyError("guard");
       await this.#acquire();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
@@ -444,9 +552,12 @@ export class SpotifyClient {
           );
         }
         const empty = request.operation === "description" ||
-          request.operation === "remove" || request.operation === "play";
+          request.operation === "remove" || request.operation === "play" ||
+          request.operation === "review_unlike" ||
+          request.operation === "review_restore";
         const status =
-          request.operation === "create" || request.operation === "append"
+          request.operation === "create" || request.operation === "append" ||
+            request.operation === "review_append"
             ? 201
             : 200;
         requireSchema(
@@ -527,6 +638,53 @@ export class SpotifyClient {
     }
   }
 
+  containsTracks(uris: readonly string[]) {
+    requireGuard(
+      Array.isArray(uris) && uris.every((uri) => TRACK_URI.test(uri)),
+    );
+    return this.request({
+      method: "GET",
+      path: "/me/library/contains",
+      query: { uris: uris.join(",") },
+    }) as Promise<boolean[]>;
+  }
+  reviewAppend(operationId: string, id: string, uri: string) {
+    return this.request({
+      method: "POST",
+      path: `/playlists/${id}/items`,
+      body: { uris: [uri] },
+      reviewAuthorization: { operationId, action: "append" },
+    }) as Promise<{ snapshotId: string }>;
+  }
+  reviewUnlike(operationId: string, uri: string) {
+    return this.request({
+      method: "DELETE",
+      path: "/me/library",
+      query: { uris: uri },
+      reviewAuthorization: { operationId, action: "unlike" },
+    }) as Promise<void>;
+  }
+  reviewRestore(operationId: string, uri: string) {
+    return this.request({
+      method: "PUT",
+      path: "/me/library",
+      query: { uris: uri },
+      reviewAuthorization: { operationId, action: "restore" },
+    }) as Promise<void>;
+  }
+  reviewReverse(
+    operationId: string,
+    id: string,
+    uri: string,
+    snapshotId: string,
+  ) {
+    return this.request({
+      method: "DELETE",
+      path: `/playlists/${id}/items`,
+      body: { items: [{ uri }], snapshot_id: snapshotId },
+      reviewAuthorization: { operationId, action: "reverse" },
+    }) as Promise<{ snapshotId: string }>;
+  }
   startPlayback(deviceId: string, uri: string, positionMs: number) {
     return this.request({
       method: "PUT",
@@ -691,7 +849,11 @@ function normalize(data: unknown, request: Prepared): Result {
     }
     return playlist;
   }
-  if (request.operation === "replace" || request.operation === "append") {
+  if (
+    ["replace", "append", "review_append", "review_reverse"].includes(
+      request.operation,
+    )
+  ) {
     requireSchema(text(data.snapshot_id) && data.snapshot_id.length > 0);
     return { snapshotId: data.snapshot_id };
   }

@@ -20,6 +20,7 @@ export interface JobContext {
   library?: FeatureJob;
   sources?: FeatureJob;
   playlist?: FeatureJob;
+  review?: FeatureJob;
   annotationBackup?: FeatureJob;
   artwork?: FeatureJob;
 }
@@ -165,6 +166,20 @@ export async function drainJobs(
         }
       } else if (job.kind === "annotation_backup" && context.annotationBackup) {
         const result = await context.annotationBackup(job, deadline);
+        if (!result) continue;
+        if (!result.done) {
+          await db.rpc("app_job_finish", {
+            p_id: job.id,
+            p_lease: job.leaseToken,
+            p_outcome: "queued",
+            p_retry_ms: result.retryMs ?? 1000,
+          });
+          continue;
+        }
+      } else if (
+        ["review", "review_check"].includes(job.kind) && context.review
+      ) {
+        const result = await context.review(job, deadline);
         if (!result) continue;
         if (!result.done) {
           await db.rpc("app_job_finish", {

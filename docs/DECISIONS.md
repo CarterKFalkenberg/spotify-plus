@@ -116,3 +116,9 @@ This narrowly supersedes the original blanket track-write prohibition and manage
 Undo restores membership but cannot promise Spotify's original liked date/order. When external changes make safe playlist reversal uncertain, preserve those entries and report incomplete Undo. These limitations were included in the final confirmation. Safe recovery and honest outcomes are engineering requirements, not repeated human questions.
 
 Specification acceptance does not establish implementation, deployment, live API proof or phone usability acceptance. Existing privacy, $0 hosting, durable-job, review and separately scoped live-test authorizations remain in force. In particular, this documentation task does not authorize operator tests to mutate real liked tracks.
+
+## Reviews after meaningful chunks — November 21, 2026
+
+The user instructed: **“dont do the 5 minute build review, can u just do reviews after each meaningful chunk?”** Review completed, meaningful implementation chunks instead of running a five-minute review heartbeat. Mandatory independent per-PR Standards and Spec reviews, exact-head checks and autonomous reviewed delivery remain in force. This supersedes the October 11 periodic-review cadence; that earlier decision above is historical.
+
+The orchestrator verified automation `spotify-plus-playback-review` is **PAUSED** on November 21. The earlier `spotify-plus-build-review` entry is historical, not a current active schedule. Do not restart periodic review without a new user instruction.
