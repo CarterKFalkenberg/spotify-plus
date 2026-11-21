@@ -183,3 +183,164 @@ and never authorizes a repeated append. A stale atomic-write temporary file stil
 requires operator reconciliation. The receipt preserves the most recent operation,
 not a replay log or idempotency guarantee. The older baseline mismatch did not
 record these values and cannot be reconstructed from later stable content.
+
+## Separate ACK-targeted removal observation (#88)
+
+`scripts/live/review-ack-proof.ts` is a separate operator entrypoint. It does not
+replace or alter the original four-case experiment's exact ACK/GET snapshot
+assertions, which remain required there. This diagnostic asks whether historical
+and latest **write acknowledgements** produce different URI-removal outcomes in a
+controlled fixture despite unresolved metadata GET version consistency. It does
+not enable production Undo or pass an existing stage gate.
+
+The stdin shape and private runner are unchanged. Only the orchestrator runs it
+after reviewing the exact code and scoped test-playlist authorization:
+
+```sh
+node .local/run-review-proof.mjs scripts/live/review-ack-proof.ts
+```
+
+A/B below represent the same two privately selected cached URIs, never logged
+identifiers. One newly registered disposable fixture holds both observations:
+
+| Observation | Acknowledged preparation | Single removal | Desired observed sequence |
+| --- | --- | --- | --- |
+| Historical ACK | Confirm empty; POST A → S1; confirm A; POST B,A → S2; confirm A,B,A | A against S1 | B,A |
+| Latest ACK control | Reconfirm previous observed content; PUT A → S3; confirm A; POST B,A → S4; confirm A,B,A | A against S4 | B |
+
+Removal acknowledgements are also retained; there are six item-write ACKs in all.
+Each ACK must be a bounded nonempty opaque string distinct from the initial empty read
+version and every earlier write ACK in this experiment. This is an equality check, never decoded ordering or
+proof that a write version advanced semantically. Every write dispatches once.
+No URI occurrence identifier, position, undocumented route or remote-write replay
+is introduced.
+
+Each content confirmation permits at most four read attempts with 500/1,000/2,000
+millisecond waits **between** requests, outside adapter fetch timeouts. It requires
+two consecutive identical exact expected sequences, complete bounded pages and
+unchanged before/after metadata snapshot values within each read. Metadata bracket
+equality rejects observed changes; it does not establish atomic pagination or
+read-after-write version consistency. This separate mode does not require a GET
+snapshot to equal a write ACK. Metadata ownership, immutable HMAC/epoch binding,
+fixture marker and noncollaboration remain checked; original proof gates are
+unchanged.
+
+After removal, two consecutive identical complete observations must contain only
+known A/B URIs, with at most three items. Before the control PUT, the exact
+historical observed sequence is confirmed twice again. Null, unknown, incomplete,
+changing or unconfirmed content blocks reset; ownership/marker/noncollaboration
+failure blocks mutation. Negative historical results can receive the matched
+latest-ACK control only within these fixture guards. The normal registered
+playlist cleanup and two-source absence confirmation finish the diagnostic.
+
+Output contains fixed case names, counts, exact-sequence booleans and opaque
+version-equality booleans only. `passed:true` means the diagnostic completed and
+cleanup was confirmed, regardless of favorable or negative observed sequences.
+`originalProofPassed:false`, `readVersionConsistencyVerified:false` and
+`historicalSnapshotGuarantee:false` remain fixed on completion/recovery/failure
+through this entrypoint. The private receipt retains at most six item-write ACKs
+and the latest four read brackets; no opaque value or real track metadata enters
+stdout. Previous registries remain readable. A receipt failure stops and preserves
+cleanup-only recovery.
+
+A historical B,A result paired with latest B would distinguish those particular
+observations from removing the first matching URI regardless of target version.
+It would not prove universal historical-occurrence selection, exclude external
+concurrent replacements, establish occurrence identity or make ambiguous writes
+attributable. Negative results can rule out the tested candidate behavior for that
+run. Favorable results remain bounded semantic evidence requiring separate review;
+neither outcome changes the original proof result or production Undo preconditions.
+
+Focused synthetic verification includes the actual entrypoint/lifecycle, historical
+versus latest targeting, all-current and generic-first-occurrence counterexamples,
+content/bracket/unknown-item guards, ACK-chain bounds, no replay after lost
+create/append/removal responses, cleanup ambiguity/refusal and owner-guard/error
+redaction. Tests deny network access and use temporary synthetic registries:
+
+```sh
+deno test --no-prompt --deny-net --no-remote scripts/live/review-proof_test.ts
+node --test tests/review-ack-proof.test.mjs tests/review-proof.test.mjs
+deno check --no-remote scripts/live/review-ack-proof.ts
+```
+
+## Final bounded ACK-attribution cases (#88)
+
+`scripts/live/review-attribution-proof.ts` is a separate operator entrypoint for
+three final attribution observations. The original four-case proof, the two-case
+historical/latest comparison and every runtime gate remain unchanged. Use the
+same private runner/stdin shape only after exact-head review and authorization:
+
+```sh
+node .local/run-review-proof.mjs scripts/live/review-attribution-proof.ts
+```
+
+One newly registered fixture performs these cases sequentially, without any PUT
+or reset. A/B are conceptual labels for the two privately selected cached URIs:
+
+| Case | Preparation and removal | Desired content observation |
+| --- | --- | --- |
+| Unique addition | Confirm empty; POST A → S1; confirm A; DELETE A against S1 | empty |
+| Later unrelated edit | From confirmed empty, POST A → S2; confirm A; POST B → S3; confirm A,B; DELETE A against S2 | B |
+| Deleted then replaced addition | Retain confirmed B; POST A → S4; confirm B,A; DELETE A against S4; confirm B; POST A → S5; confirm B,A; DELETE A against old S4 | B,A remains |
+
+The last case distinguishes preserving a later replacement of the same URI from
+removing whatever matching occurrence currently exists. There are at most nine
+item-write dispatches (five appends and four removals), each sent once. Earlier
+removal ACKs also occupy the private chain; the S labels describe conceptual
+preparation versions, not a numeric decoding of real snapshots.
+
+Before every subsequent write, the exact expected content must appear in two
+consecutive eligible reads within at most four attempts. Eligible reads contain
+complete bounded pages, no null/unexpected URI, at most two known A/B items and
+unchanged before/after metadata versions. All read waits occur between requests,
+outside fetch timeouts. Owner/HMAC/epoch, marker, noncollaboration, durable pending
+markers and cleanup-only recovery remain required. Preparation ACKs are distinct
+bounded opaque strings. No GET/ACK equality or atomic-read guarantee is inferred.
+
+A known stable negative result in either early case stops the remaining cases,
+reports `candidateReady:false`/`allCasesCompleted:false` and cleans the registered
+fixture. The first removal in the replacement case must also leave B before the
+replacement is appended. Unknown, unavailable, changing or incomplete content is a
+blocker; it is never overwritten to force the experiment forward.
+
+Only the **final** deletion against consumed S4 may return an unchanged valid ACK
+or a definitive HTTP 400/404/409/422 rejection as an observation. The output records
+only the fixed status/category and version-equality booleans; response bodies are
+never decoded for rejection details or emitted. The current removal documentation
+does not promise these rejection statuses: they are allowed diagnostic outcomes,
+not a product error contract. HTTP 401/403, rate/quota limits, 408/5xx, network loss
+and malformed successes remain blocking failures. No rejection or ambiguity causes
+a second dispatch. After an admitted final result, two consecutive eligible
+content observations determine whether B,A was preserved. A negative preservation
+result is reported honestly and still receives fixture cleanup.
+
+The new mode alone permits at most nine ACK entries in the mode-600 private atomic
+receipt (eight if the final deletion is rejected); older modes retain their
+six-entry bound. A final repeated ACK is retained without pretending a new version
+was created. The latest four read brackets remain private. Receipt-write failure
+preserves pending state and cleanup-only recovery, never a repeated append/removal.
+
+`passed:true` denotes completed observations plus confirmed cleanup, including
+negative outcomes. `candidateReady` describes only these three observed conditions.
+`originalProofPassed:false`, `readVersionConsistencyVerified:false` and
+`historicalSnapshotGuarantee:false` stay fixed. Even favorable outcomes do not
+establish universal occurrence identity, safe reversal after arbitrary concurrent
+replacement, or attribution of an ambiguous write. They do not replace a failed
+original proof or broaden production Undo preconditions.
+
+Stop experimentation after these three cases and assess the runtime candidate
+against the accepted safety constraints and existing evidence. Do not automatically
+add cases, repeat mutations or create more fixtures to obtain a favorable result.
+
+Synthetic coverage uses the actual entrypoint, network-denied transport and
+isolated temporary registries. It models separate same-URI occurrences internally
+without sending undocumented occurrence identifiers. It covers preserved/replaced
+occurrences, no-op and definitive rejection, early negative cleanup, ambiguous
+final removal with no replay, failed content/owner guards, receipt bounds and
+redacted failure output:
+
+```sh
+deno test --no-prompt --deny-net --no-remote scripts/live/review-proof_test.ts
+node --test tests/review-attribution-proof.test.mjs
+deno check --no-remote scripts/live/review-attribution-proof.ts
+```
