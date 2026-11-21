@@ -42,6 +42,21 @@ export interface ReviewRegistry {
   playlistId: string | null;
   state: "creating" | "created" | "cleanup_pending" | "removed";
   pending: string | null;
+  // Private opaque versions only; never project this field to stdout.
+  receipt?: ReviewSnapshotReceipt;
+}
+interface ReviewSnapshotReceipt {
+  experiment: "historical_removal" | "append_ack";
+  operation: "empty" | "replace" | "append" | "remove_items";
+  case: typeof reviewCases[number]["name"];
+  initialEmptySnapshotId: string | null;
+  acknowledgedSnapshotId: string | null;
+  readbacks: {
+    beforeSnapshotId: string;
+    afterSnapshotId: string;
+    stable: boolean;
+    count: number;
+  }[];
 }
 interface ReadbackEvidence {
   stage: "baseline" | "later_edit" | "removal";
@@ -96,6 +111,32 @@ export function parseReviewRegistry(value: unknown): ReviewRegistry {
     value.state === "creating" || value.playlistId !== null,
     "registry_invalid",
   );
+  if (value.receipt !== undefined) {
+    const r = value.receipt;
+    const version = (v: unknown) =>
+      typeof v === "string" && v.length > 0 && v.length <= 2048;
+    check(
+      record(r) &&
+        ["historical_removal", "append_ack"].includes(String(r.experiment)) &&
+        ["empty", "replace", "append", "remove_items"].includes(
+          String(r.operation),
+        ) &&
+        reviewCases.some((item) => item.name === r.case) &&
+        (r.initialEmptySnapshotId === null ||
+          version(r.initialEmptySnapshotId)) &&
+        (r.acknowledgedSnapshotId === null ||
+          version(r.acknowledgedSnapshotId)) &&
+        Array.isArray(r.readbacks) && r.readbacks.length <= 4 &&
+        r.readbacks.every((item) =>
+          record(item) && version(item.beforeSnapshotId) &&
+          version(item.afterSnapshotId) &&
+          typeof item.stable === "boolean" &&
+          Number.isSafeInteger(item.count) && Number(item.count) >= 0 &&
+          Number(item.count) <= 50
+        ),
+      "registry_invalid",
+    );
+  }
   return value as unknown as ReviewRegistry;
 }
 export async function writeReviewRegistry(path: string, value: ReviewRegistry) {
@@ -339,7 +380,68 @@ export async function runReviewExperiment(deps: {
   return observations;
 }
 
-export async function runReviewProof(input: ReviewProofInput) {
+export async function runReviewAppendExperiment(deps: {
+  uri: string;
+  append: () => Promise<string>;
+  read: () => Promise<
+    { snapshotId: string; items: (string | null)[]; stable?: boolean }
+  >;
+  wait?: (ms: number) => Promise<void>;
+}) {
+  check(
+    /^spotify:track:[A-Za-z0-9]{22}$/.test(deps.uri),
+    "cached_tracks_required",
+  );
+  const wait = deps.wait ??
+    ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  let emptyConfirmed = false;
+  let initialSnapshot = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const empty = await deps.read();
+    if (empty.stable !== false && empty.items.length === 0) {
+      emptyConfirmed = true;
+      initialSnapshot = empty.snapshotId;
+      break;
+    }
+    if (attempt < 3) await wait(500 * 2 ** attempt);
+  }
+  check(emptyConfirmed, "append_initial_empty_unconfirmed");
+  const acknowledged = await deps.append();
+  let last;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const observed = await deps.read();
+    last = {
+      attempts: attempt + 1,
+      stableReadback: observed.stable !== false,
+      sequenceMatches: observed.items.length === 1 &&
+        observed.items[0] === deps.uri,
+      observedCount: observed.items.length,
+      ackSnapshotMatches: observed.snapshotId === acknowledged,
+      ackMatchesInitialSnapshot: acknowledged === initialSnapshot,
+      observedSnapshotChangedFromInitial:
+        observed.snapshotId !== initialSnapshot,
+    };
+    if (
+      last.stableReadback && last.sequenceMatches && last.ackSnapshotMatches
+    ) break;
+    if (attempt < 3) await wait(500 * 2 ** attempt);
+  }
+  check(
+    last?.stableReadback && last.sequenceMatches,
+    "append_sequence_unconfirmed",
+  );
+  // This is a measured mismatch, not permission to relax production assertions.
+  return last;
+}
+
+export async function runReviewProof(
+  input: ReviewProofInput,
+  experiment: "historical_removal" | "append_ack" = "historical_removal",
+) {
+  check(
+    experiment === "historical_removal" || experiment === "append_ack",
+    "input_invalid",
+  );
   check(input.authorized === true, "authorization_required");
   check(
     /^[a-z0-9]{20}$/.test(input.projectRef) &&
@@ -596,7 +698,11 @@ export async function runReviewProof(input: ReviewProofInput) {
         name: `Tagger API test review ${registry.operation}`,
         public: false,
         collaborative: false,
-        description: `${marker()} Disposable snapshot-removal experiment.`,
+        description: `${marker()} Disposable ${
+          experiment === "append_ack"
+            ? "append acknowledgement"
+            : "snapshot-removal"
+        } experiment.`,
       },
     }) as SpotifyPlaylist;
     check(
@@ -610,25 +716,116 @@ export async function runReviewProof(input: ReviewProofInput) {
     registry.pending = null;
     await writeReviewRegistry(input.registryPath, registry);
     const path = `/playlists/${created.id}/items`;
-    const write = async <T>(kind: string, action: () => Promise<T>) => {
+    let caseIndex = -1;
+    const write = async (
+      kind: "replace" | "append" | "remove_items",
+      action: () => Promise<string>,
+    ) => {
       await validateFixture();
       registry!.pending = kind;
       await writeReviewRegistry(input.registryPath, registry!);
       const result = await action();
+      registry!.receipt = {
+        experiment,
+        operation: kind,
+        case: reviewCases[Math.max(0, caseIndex)].name,
+        initialEmptySnapshotId: registry!.receipt?.initialEmptySnapshotId ??
+          null,
+        acknowledgedSnapshotId: result,
+        readbacks: [],
+      };
+      // Persist the opaque acknowledgement while the mutation is still pending.
+      // Failure leaves recovery cleanup-only; it can never dispatch append again.
+      await writeReviewRegistry(input.registryPath, registry!);
       registry!.pending = null;
       await writeReviewRegistry(input.registryPath, registry!);
       return result;
     };
+    // Both entrypoints share the exact registry, owner and cleanup lifecycle.
+    const read = async () => {
+      const before = await request({
+        method: "GET",
+        path: `/playlists/${created.id}`,
+      }) as SpotifyPlaylist;
+      const page = await request({
+        method: "GET",
+        path,
+        query: { limit: 50, offset: 0 },
+      }) as SpotifyPage<SpotifyPlaylistItem>;
+      const after = await request({
+        method: "GET",
+        path: `/playlists/${created.id}`,
+      }) as SpotifyPlaylist;
+      const stable = before.snapshotId === after.snapshotId &&
+        page.total <= 4 &&
+        page.total === page.items.length && page.nextOffset === null &&
+        page.items.every((item) => item.uri !== null);
+      check(registry!.receipt, "receipt_required");
+      registry!.receipt.readbacks.push({
+        beforeSnapshotId: before.snapshotId,
+        afterSnapshotId: after.snapshotId,
+        stable,
+        count: page.items.length,
+      });
+      if (
+        registry!.receipt.operation === "empty" && stable &&
+        page.items.length === 0
+      ) {
+        registry!.receipt.initialEmptySnapshotId = after.snapshotId;
+      }
+      await writeReviewRegistry(input.registryPath, registry!);
+      return {
+        stable,
+        snapshotId: after.snapshotId,
+        items: page.items.map((item) => item.uri),
+      };
+    };
+    if (experiment === "append_ack") {
+      registry.receipt = {
+        experiment,
+        operation: "empty",
+        case: "unique",
+        initialEmptySnapshotId: null,
+        acknowledgedSnapshotId: null,
+        readbacks: [],
+      };
+      await writeReviewRegistry(input.registryPath, registry);
+      const observation = await runReviewAppendExperiment({
+        uri: uris[0],
+        read,
+        append: () =>
+          write(
+            "append",
+            async () =>
+              (await request({
+                method: "POST",
+                path,
+                body: { uris: [uris[0]] },
+              }) as { snapshotId: string }).snapshotId,
+          ),
+      });
+      await cleanup();
+      return {
+        recoveredFixture: false,
+        freshExperiment: true,
+        cleanupConfirmed: true,
+        experiment: "append_ack",
+        observation,
+        historicalSnapshotGuarantee: false,
+      };
+    }
     const observations = await runReviewExperiment({
       uris,
-      replace: (target) =>
-        write(
+      replace: (target) => {
+        caseIndex++;
+        return write(
           "replace",
           async () =>
             (await request({ method: "PUT", path, body: { uris: target } }) as {
               snapshotId: string;
             }).snapshotId,
-        ),
+        );
+      },
       append: (target) =>
         write(
           "append",
@@ -653,28 +850,7 @@ export async function runReviewProof(input: ReviewProofInput) {
                 await authorize(id),
             }),
         ),
-      read: async () => {
-        const before = await request({
-          method: "GET",
-          path: `/playlists/${created.id}`,
-        }) as SpotifyPlaylist;
-        const page = await request({
-          method: "GET",
-          path,
-          query: { limit: 50, offset: 0 },
-        }) as SpotifyPage<SpotifyPlaylistItem>;
-        const after = await request({
-          method: "GET",
-          path: `/playlists/${created.id}`,
-        }) as SpotifyPlaylist;
-        return {
-          stable: before.snapshotId === after.snapshotId && page.total <= 4 &&
-            page.total === page.items.length && page.nextOffset === null &&
-            page.items.every((item) => item.uri !== null),
-          snapshotId: after.snapshotId,
-          items: page.items.map((item) => item.uri),
-        };
-      },
+      read,
     });
     await cleanup();
     return {

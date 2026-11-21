@@ -3,6 +3,7 @@ import {
   parseReviewRegistry,
   removeReviewItems,
   reviewProofFailure,
+  runReviewAppendExperiment,
   runReviewExperiment,
   runReviewProof,
 } from "./review-proof.ts";
@@ -509,4 +510,116 @@ Deno.test("append acknowledgement must advance even when readback snapshot and s
   equal(result.evidence?.attempts, 4);
   equal(appends, 1);
   equal(removals, 2);
+});
+
+Deno.test("append observation retains mismatched acknowledgement without asserting an Undo guarantee", async () => {
+  let appended = 0, reads = 0;
+  const waits: number[] = [];
+  const observation = await runReviewAppendExperiment({
+    uri: uris[0],
+    append: () => {
+      appended++;
+      return Promise.resolve("opaque-ack");
+    },
+    read: () => {
+      reads++;
+      return Promise.resolve(
+        appended === 0
+          ? { snapshotId: "opaque-empty", items: [] }
+          : { snapshotId: "opaque-other", items: [uris[0]] },
+      );
+    },
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
+    },
+  });
+  equal(appended, 1);
+  equal(reads, 5);
+  equal(waits, [500, 1000, 2000]);
+  equal(observation.ackSnapshotMatches, false);
+  equal(observation.sequenceMatches, true);
+  equal(observation.ackMatchesInitialSnapshot, false);
+  equal(observation.observedSnapshotChangedFromInitial, true);
+  equal(JSON.stringify(observation).includes("opaque"), false);
+  equal(JSON.stringify(observation).includes(uris[0]), false);
+});
+
+Deno.test("append observation refuses nonempty baseline and wrong sequence without repeating append", async () => {
+  for (const stop of ["empty", "sequence"]) {
+    let appended = 0, reads = 0;
+    const code = await failure(() =>
+      runReviewAppendExperiment({
+        uri: uris[0],
+        append: () => {
+          appended++;
+          return Promise.resolve("opaque-ack");
+        },
+        read: () => {
+          reads++;
+          return Promise.resolve({
+            snapshotId: "opaque-ack",
+            items: stop === "empty" || appended > 0 ? [uris[1]] : [],
+          });
+        },
+        wait: () => Promise.resolve(),
+      })
+    );
+    equal(
+      code,
+      stop === "empty"
+        ? "review_append_initial_empty_unconfirmed"
+        : "review_append_sequence_unconfirmed",
+    );
+    equal(appended, stop === "empty" ? 0 : 1);
+    equal(reads, stop === "empty" ? 4 : 5);
+  }
+});
+
+Deno.test("optional private snapshot receipts preserve old registries and reject unbounded versions", async () => {
+  const registry = {
+    version: 1,
+    operation: crypto.randomUUID(),
+    epoch: 2,
+    ownerFingerprint: "a".repeat(64),
+    playlistId: "p".repeat(22),
+    state: "created",
+    pending: null,
+  };
+  const readback = {
+    beforeSnapshotId: "opaque-before",
+    afterSnapshotId: "opaque-after",
+    stable: true,
+    count: 1,
+  };
+  const receipt = {
+    experiment: "append_ack",
+    operation: "append",
+    case: "unique",
+    initialEmptySnapshotId: "opaque-empty",
+    acknowledgedSnapshotId: "opaque-ack",
+    readbacks: [readback],
+  };
+  equal(parseReviewRegistry(registry).receipt, undefined);
+  equal(
+    parseReviewRegistry({ ...registry, receipt }).receipt
+      ?.acknowledgedSnapshotId,
+    "opaque-ack",
+  );
+  for (
+    const invalid of [
+      { ...receipt, experiment: "unknown" },
+      { ...receipt, acknowledgedSnapshotId: "x".repeat(2049) },
+      { ...receipt, readbacks: Array.from({ length: 5 }, () => readback) },
+      { ...receipt, readbacks: [{ ...readback, beforeSnapshotId: "" }] },
+      { ...receipt, readbacks: [{ ...readback, count: -1 }] },
+    ]
+  ) {
+    equal(
+      await failure(() =>
+        parseReviewRegistry({ ...registry, receipt: invalid })
+      ),
+      "review_registry_invalid",
+    );
+  }
 });

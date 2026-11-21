@@ -134,3 +134,114 @@ console.log(JSON.stringify({passed:true,checks:responses.length}));
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("separate append entrypoint observes one POST and never replays after ambiguity or receipt failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spotify-append-proof-"));
+  try {
+    const root = process.cwd();
+    const imports = (file) =>
+      JSON.stringify(pathToFileURL(join(root, file)).href);
+    const code = `
+import { runReviewAppendProof } from ${imports("scripts/live/review-append-proof.ts")};
+import { reviewProofFailure, runReviewProof } from ${imports("scripts/live/review-proof.ts")};
+import { ServiceDatabase } from ${imports("supabase/functions/_shared/database.ts")};
+import { OwnerTokens } from ${imports("supabase/functions/_shared/tokens.ts")};
+import { ownerFingerprint } from ${imports("supabase/functions/_shared/crypto.ts")};
+const path=${JSON.stringify(join(dir, "registry.json"))};
+const binding=btoa('s'.repeat(32)), account='synthetic-account';
+const fingerprint=await ownerFingerprint(account,binding);
+const input={origin:'https://'+'a'.repeat(20)+'.supabase.co',serviceKey:'synthetic',clientId:'synthetic',encryptionKey:binding,bindingKey:binding,ownerFingerprint:fingerprint,epoch:2,projectRef:'a'.repeat(20),managementToken:'synthetic',registryPath:path,authorized:true};
+ServiceDatabase.prototype.rpc=(name)=>Promise.resolve(name==='app_pacing_acquire'?{granted:true,retryAfterMs:0}:true);
+OwnerTokens.prototype.getAccessToken=()=>Promise.resolve('synthetic-token');
+const uri='spotify:track:'+'a'.repeat(22), id='p'.repeat(22);
+let present=false, description='', items=[], mode='mismatch', appends=0, creates=0, cleanups=0;
+const verbs=[];
+const playlist=(creating=false)=>({id,name:'Synthetic',description,owner:{id:'profile'},collaborative:false,public:!creating,snapshot_id:items.length?'opaque-read-after':'opaque-empty-before',items:{total:items.length}});
+globalThis.fetch=async(raw,init)=>{
+ const url=new URL(String(raw)), method=init?.method??'GET';
+ if(url.hostname==='api.supabase.com') {
+  if(method!=='POST'||JSON.parse(init.body).read_only!==true)throw new Error('Unexpected management write');
+  return Response.json([{playable_uri:uri},{playable_uri:'spotify:track:'+'b'.repeat(22)}]);
+ }
+ verbs.push({method,path:url.pathname});
+ if(url.pathname==='/v1/me')return Response.json({id:'profile',account_id:account});
+ if(url.pathname==='/v1/me/playlists'&&method==='POST'){
+  creates++; present=true;items=[];description=JSON.parse(init.body).description;
+  return Response.json(playlist(true),{status:201});
+ }
+ if(url.pathname==='/v1/playlists/'+id+'/items'&&method==='PUT'&&mode==='baseline'){items=[...JSON.parse(init.body).uris];return Response.json({snapshot_id:'opaque-replace-ack'});}
+ if(url.pathname==='/v1/playlists/'+id+'/items'&&method==='POST'){
+  appends++; const body=JSON.parse(init.body); if(body.uris.length!==1||body.uris[0]!==uri)throw new Error('Unexpected append');
+  items.push(uri);
+  if(mode==='lost')throw new Error('Synthetic lost acknowledgement');
+  if(mode==='receipt')await Deno.writeTextFile(path+'.tmp','synthetic interruption');
+  return Response.json({snapshot_id:'opaque-append-ack'},{status:201});
+ }
+ if(url.pathname==='/v1/playlists/'+id&&method==='GET')return Response.json(playlist());
+ if(url.pathname==='/v1/playlists/'+id+'/items'&&method==='GET')return Response.json({items:items.map(value=>({added_at:null,is_local:false,item:{type:'track',uri:value}})),total:items.length,offset:0,limit:50,next:null});
+ if(url.pathname==='/v1/me/library'&&method==='DELETE'){cleanups++;present=false;return new Response(null,{status:204});}
+ if(url.pathname==='/v1/me/library/contains')return Response.json([present]);
+ if(url.pathname==='/v1/me/playlists'&&method==='GET')return Response.json({items:present?[playlist()]:[],total:present?1:0,offset:0,limit:50,next:null});
+ throw new Error('Unexpected request');
+};
+const result=await runReviewAppendProof(input);
+if(!result.cleanupConfirmed||result.experiment!=='append_ack'||result.observation.ackSnapshotMatches!==false||result.observation.sequenceMatches!==true||result.historicalSnapshotGuarantee!==false||appends!==1||creates!==1||cleanups!==1)throw new Error('Wrong append observation');
+const receipt=JSON.parse(await Deno.readTextFile(path)).receipt;
+if(receipt.initialEmptySnapshotId!=='opaque-empty-before'||receipt.acknowledgedSnapshotId!=='opaque-append-ack'||receipt.readbacks.length!==4||receipt.readbacks.some(r=>r.afterSnapshotId!=='opaque-read-after'))throw new Error('Missing private versions');
+if(/opaque|spotify:|snapshotId/.test(JSON.stringify(result)))throw new Error('Private versions escaped output');
+mode='lost';
+try{await runReviewAppendProof(input);throw new Error('Expected lost append');}catch(error){if(reviewProofFailure(error).blocker!=='spotify_network')throw error;}
+let pending=JSON.parse(await Deno.readTextFile(path));
+if(pending.state!=='created'||pending.pending!=='append')throw new Error('Lost append not pending');
+let before=appends;
+const recovered=await runReviewAppendProof(input);
+if(!recovered.recoveredFixture||!recovered.cleanupConfirmed||appends!==before)throw new Error('Lost append replayed');
+mode='receipt';
+try{await runReviewAppendProof(input);throw new Error('Expected receipt failure');}catch(error){if(reviewProofFailure(error).blocker!=='review_proof_failed')throw error;}
+pending=JSON.parse(await Deno.readTextFile(path));
+if(pending.state!=='created'||pending.pending!=='append')throw new Error('Receipt failure not pending');
+before=appends;
+try{await runReviewAppendProof(input);throw new Error('Expected temp blocker');}catch(error){if(reviewProofFailure(error).blocker!=='review_operator_temp_requires_recovery')throw error;}
+if(appends!==before)throw new Error('Receipt failure replayed');
+await Deno.remove(path+'.tmp');
+await runReviewAppendProof(input);
+if(appends!==before||creates!==3||cleanups!==3||verbs.some(v=>v.method==='PUT'||(v.method==='DELETE'&&v.path.endsWith('/items'))))throw new Error('Unexpected mutation or replay');
+// The original four-case proof still rejects an exact sequence with a different
+// acknowledged snapshot; its private receipt retains both versions.
+mode='baseline';
+try{await runReviewProof(input);throw new Error('Expected original baseline blocker');}catch(error){const safe=reviewProofFailure(error);if(safe.blocker!=='review_baseline_unconfirmed'||safe.evidence?.snapshotMatches!==false||safe.evidence?.sequenceMatches!==true)throw error;}
+const baselineReceipt=JSON.parse(await Deno.readTextFile(path)).receipt;
+if(baselineReceipt.acknowledgedSnapshotId!=='opaque-replace-ack'||baselineReceipt.readbacks.length!==4||baselineReceipt.readbacks.some(r=>r.afterSnapshotId!=='opaque-read-after'))throw new Error('Original receipt missing');
+await runReviewAppendProof(input);
+if(appends!==3||creates!==4||cleanups!==4||verbs.filter(v=>v.method==='PUT').length!==1)throw new Error('Original proof replayed mutation');
+console.log(JSON.stringify({passed:true,creates,appends,cleanups}));
+`;
+    const result = spawnSync(
+      "deno",
+      [
+        "run",
+        "--no-remote",
+        "--deny-net",
+        `--allow-read=${root},${dir}`,
+        `--allow-write=${dir}`,
+        "-",
+      ],
+      {
+        cwd: root,
+        input: code,
+        encoding: "utf8",
+        env: { ...process.env, DENO_NO_PROMPT: "1" },
+        timeout: 30000,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      passed: true,
+      creates: 4,
+      appends: 3,
+      cleanups: 4,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

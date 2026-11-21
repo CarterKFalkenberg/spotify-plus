@@ -143,3 +143,43 @@ explicit owner accounts, concurrent lock and stale temporary files. Deno tests
 also cover delayed read convergence, persistent snapshot/sequence/bracket
 mismatches, unchanged append acknowledgements, bounded waits and unchanged
 mutation dispatch counts.
+
+## Separate append acknowledgement observation
+
+`scripts/live/review-append-proof.ts` is a separate operator entrypoint using the
+same private stdin fields, registry lock, immutable owner/epoch binding, marked
+owned noncollaborative fixture guards and confirmed cleanup lifecycle. With the
+existing private launcher, the orchestrator may select this entrypoint explicitly.
+It creates one disposable empty playlist, confirms a stable empty readback, sends
+exactly one `POST /playlists/{id}/items` containing the first cached URI, and makes
+at most four bracketed readback attempts. It sends no item replacement or removal.
+Recovery only cleans; it never repeats the append.
+
+Completion requires a stable exact one-item readback and confirmed playlist
+cleanup. Its `observation.ackSnapshotMatches` reports whether that readback version
+matches the append acknowledgement; false remains an observation in a completed
+diagnostic. `ackMatchesInitialSnapshot` and `observedSnapshotChangedFromInitial`
+compare each version with the confirmed empty playlist version using exact opaque
+string equality. These booleans do not decode version values or explain their
+meaning. `passed:true` denotes completion of this separate observation, and
+`historicalSnapshotGuarantee:false` remains fixed. A completed diagnostic with a
+mismatch does not pass the original four-case contract experiment, weaken any of
+its exact assertions, or establish a safe production Undo contract.
+
+Both entrypoints now save an optional private `receipt` inside the existing
+mode-600 atomic registry. It contains fixed experiment/operation/case labels, the
+exact opaque acknowledgement snapshot, up to four before/after snapshot pairs,
+and only readback stability/count information. The append observation also keeps
+the confirmed initial empty snapshot across the append. It stores no track URI,
+track metadata or playlist name. Old registries without receipts remain valid.
+Opaque values are bounded to 2,048 characters and readbacks to four. Receipts must
+never be printed, uploaded, committed or put into model context; a future private
+read-only check may compare them and emit only counts/booleans. No opaque value is
+decoded or coerced.
+
+The acknowledgement receipt is persisted before clearing the mutation's pending
+marker. A receipt-write failure stops immediately, preserves cleanup-only recovery
+and never authorizes a repeated append. A stale atomic-write temporary file still
+requires operator reconciliation. The receipt preserves the most recent operation,
+not a replay log or idempotency guarantee. The older baseline mismatch did not
+record these values and cannot be reconstructed from later stable content.
