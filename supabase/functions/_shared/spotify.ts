@@ -132,6 +132,8 @@ export interface SpotifyPlaylist {
   public: boolean | null;
   collaborative: boolean;
   ownerId: string;
+  ownerAccountId?: string | null;
+  ownerProfileId?: string | null;
   snapshotId: string;
   total: number;
   artworkUrl?: string | null;
@@ -790,6 +792,10 @@ function normalizePlaylist(value: unknown): SpotifyPlaylist {
     typeof value.collaborative === "boolean" && record(value.owner) &&
       text(value.owner.id),
   );
+  requireSchema(
+    value.owner.account_id === undefined || value.owner.account_id === null ||
+      text(value.owner.account_id),
+  );
   requireSchema(text(value.snapshot_id) && value.snapshot_id.length > 0);
   // Current `items` takes precedence, including null/malformed values; do not
   // mask a changed current contract with a stale deprecated `tracks` field.
@@ -806,6 +812,10 @@ function normalizePlaylist(value: unknown): SpotifyPlaylist {
     ownerId: text(value.owner.account_id)
       ? value.owner.account_id
       : value.owner.id,
+    ownerAccountId: text(value.owner.account_id)
+      ? value.owner.account_id
+      : null,
+    ownerProfileId: value.owner.id,
     snapshotId: value.snapshot_id,
     total: collection.total,
     artworkUrl: imageArtwork(value.images).artworkUrl,
@@ -908,4 +918,20 @@ function normalizeTrack(value: unknown): SpotifyTrack {
     isPlayable: uri !== null && value.is_playable !== false &&
       !record(value.restrictions),
   };
+}
+
+// Callers must first verify identity.accountId against the bound owner. Playlist
+// owner.id is a different identity namespace from /me.account_id. An explicit
+// owner.account_id always takes precedence, including a conflicting value.
+export function spotifyPlaylistOwnedBy(
+  playlist: Pick<SpotifyPlaylist, "ownerAccountId" | "ownerProfileId">,
+  identity: { accountId: string; id: string },
+): boolean {
+  if (typeof playlist.ownerAccountId === "string") {
+    return playlist.ownerAccountId.length > 0 &&
+      playlist.ownerAccountId === identity.accountId;
+  }
+  return typeof playlist.ownerProfileId === "string" &&
+    playlist.ownerProfileId.length > 0 &&
+    playlist.ownerProfileId === identity.id;
 }
