@@ -9,7 +9,7 @@ npm test
 npm run build
 npm run test:browser
 deno task check
-deno check --no-remote scripts/restore-annotations.ts supabase/tests/database/rest-backups.ts scripts/live/spotify-proof.ts scripts/live/core-proof.ts scripts/live/review-proof.ts supabase/tests/database/rest.ts
+deno check --no-remote scripts/restore-annotations.ts supabase/tests/database/rest-backups.ts scripts/live/spotify-proof.ts scripts/live/core-proof.ts scripts/live/review-proof.ts scripts/live/review-append-proof.ts supabase/tests/database/rest.ts
 deno test --no-prompt --deny-net --no-remote scripts/live/paced-request_test.ts scripts/live/core-proof_test.ts scripts/live/review-proof_test.ts
 deno task test
 deno lint supabase/functions scripts/restore-annotations.ts scripts/live/*.ts supabase/tests/database/rest*.ts
