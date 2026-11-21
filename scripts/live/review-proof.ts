@@ -46,9 +46,13 @@ export interface ReviewRegistry {
   receipt?: ReviewSnapshotReceipt;
 }
 interface ReviewSnapshotReceipt {
-  experiment: "historical_removal" | "append_ack";
+  experiment: "historical_removal" | "append_ack" | "ack_targeted_removal";
   operation: "empty" | "replace" | "append" | "remove_items";
-  case: typeof reviewCases[number]["name"];
+  case: typeof reviewCases[number]["name"] | "ack_historical" | "ack_latest";
+  acknowledgements?: {
+    operation: "replace" | "append" | "remove_items";
+    snapshotId: string;
+  }[];
   initialEmptySnapshotId: string | null;
   acknowledgedSnapshotId: string | null;
   readbacks: {
@@ -117,11 +121,22 @@ export function parseReviewRegistry(value: unknown): ReviewRegistry {
       typeof v === "string" && v.length > 0 && v.length <= 2048;
     check(
       record(r) &&
-        ["historical_removal", "append_ack"].includes(String(r.experiment)) &&
+        ["historical_removal", "append_ack", "ack_targeted_removal"].includes(
+          String(r.experiment),
+        ) &&
         ["empty", "replace", "append", "remove_items"].includes(
           String(r.operation),
         ) &&
-        reviewCases.some((item) => item.name === r.case) &&
+        (reviewCases.some((item) => item.name === r.case) ||
+          r.case === "ack_historical" || r.case === "ack_latest") &&
+        (r.acknowledgements === undefined ||
+          Array.isArray(r.acknowledgements) && r.acknowledgements.length <= 6 &&
+            r.acknowledgements.every((ack) =>
+              record(ack) &&
+              ["replace", "append", "remove_items"].includes(
+                String(ack.operation),
+              ) && version(ack.snapshotId)
+            )) &&
         (r.initialEmptySnapshotId === null ||
           version(r.initialEmptySnapshotId)) &&
         (r.acknowledgedSnapshotId === null ||
@@ -434,12 +449,137 @@ export async function runReviewAppendExperiment(deps: {
   return last;
 }
 
+// This separate observation follows opaque write ACKs. It does not replace the
+// original experiment's strict ACK/GET equality assertions above.
+export async function runReviewAckExperiment(deps: {
+  uris: string[];
+  append: (uris: string[]) => Promise<string>;
+  replace: (uris: string[]) => Promise<string>;
+  remove: (uri: string, snapshotId: string) => Promise<string>;
+  read: () => Promise<
+    {
+      snapshotId: string;
+      items: (string | null)[];
+      stable: boolean;
+      contentComplete: boolean;
+    }
+  >;
+  selectCase: (selected: "ack_historical" | "ack_latest") => void;
+  wait?: (ms: number) => Promise<void>;
+}) {
+  check(
+    deps.uris.length === 2 && deps.uris[0] !== deps.uris[1] &&
+      deps.uris.every((uri) => /^spotify:track:[A-Za-z0-9]{22}$/.test(uri)),
+    "cached_tracks_required",
+  );
+  const wait = deps.wait ??
+    ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const exact = (a: (string | null)[], b: (string | null)[]) =>
+    JSON.stringify(a) === JSON.stringify(b);
+  const confirm = async (expected: (string | null)[] | null) => {
+    let previous: Awaited<ReturnType<typeof deps.read>> | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const observed = await deps.read();
+      const eligible = observed.stable && observed.contentComplete &&
+        observed.items.length <= 3 && observed.items.every((uri) =>
+          uri !== null && deps.uris.includes(uri)
+        ) && (expected === null || exact(observed.items, expected));
+      if (eligible && previous && exact(previous.items, observed.items)) {
+        return {
+          ...observed,
+          consecutiveReadVersionsEqual:
+            previous.snapshotId === observed.snapshotId,
+        };
+      }
+      previous = eligible ? observed : null;
+      if (attempt < 3) {
+        await wait(500 * 2 ** attempt);
+      }
+    }
+    throw new ReviewFailure("ack_content_unconfirmed");
+  };
+  deps.selectCase("ack_historical");
+  const empty = await confirm([]);
+  let previousAck = empty.snapshotId;
+  const seenAcknowledgements = new Set([empty.snapshotId]);
+  const acknowledge = async (action: () => Promise<string>) => {
+    const acknowledged = await action();
+    check(
+      acknowledged.length > 0 && acknowledged.length <= 2048 &&
+        acknowledged !== previousAck && !seenAcknowledgements.has(acknowledged),
+      "ack_version_not_advanced",
+    );
+    previousAck = acknowledged;
+    seenAcknowledgements.add(acknowledged);
+    return acknowledged;
+  };
+  const [a, b] = deps.uris;
+  const historicalTarget = await acknowledge(() => deps.append([a]));
+  await confirm([a]);
+  const historicalLatest = await acknowledge(() => deps.append([b, a]));
+  await confirm([a, b, a]);
+  const historicalRemoved = await acknowledge(() =>
+    deps.remove(a, historicalTarget)
+  );
+  const historical = await confirm(null);
+  const observation = (
+    name: "ack_historical" | "ack_latest",
+    read: typeof historical,
+    target: string,
+    latest: string,
+    removed: string,
+  ) => ({
+    case: name,
+    remainingCount: read.items.length,
+    targetRemainingCount: read.items.filter((uri) => uri === a).length,
+    unrelatedRemainingCount: read.items.filter((uri) => uri === b).length,
+    historicalSequenceObserved: exact(read.items, [b, a]),
+    latestSequenceObserved: exact(read.items, [b]),
+    laterOccurrenceRemovedSequenceObserved: exact(read.items, [a, b]),
+    unchangedSequenceObserved: exact(read.items, [a, b, a]),
+    targetAckMatchesLatestAck: target === latest,
+    removalAckDiffersFromLatestAck: removed !== latest,
+    removalAckMatchesReadSnapshot: removed === read.snapshotId,
+    readSnapshotMatchesTargetAck: read.snapshotId === target,
+    readSnapshotMatchesLatestAck: read.snapshotId === latest,
+    consecutiveReadVersionsEqual: read.consecutiveReadVersionsEqual,
+  });
+  // Reconfirm the exact observed known-URI content before overwriting this test
+  // fixture. Unknown/unavailable/incomplete/changing content blocks the reset.
+  await confirm(historical.items);
+  deps.selectCase("ack_latest");
+  await acknowledge(() => deps.replace([a]));
+  await confirm([a]);
+  const latestTarget = await acknowledge(() => deps.append([b, a]));
+  await confirm([a, b, a]);
+  const latestRemoved = await acknowledge(() => deps.remove(a, latestTarget));
+  const latest = await confirm(null);
+  return [
+    observation(
+      "ack_historical",
+      historical,
+      historicalTarget,
+      historicalLatest,
+      historicalRemoved,
+    ),
+    observation(
+      "ack_latest",
+      latest,
+      latestTarget,
+      latestTarget,
+      latestRemoved,
+    ),
+  ];
+}
+
 export async function runReviewProof(
   input: ReviewProofInput,
-  experiment: "historical_removal" | "append_ack" = "historical_removal",
+  experiment: "historical_removal" | "append_ack" | "ack_targeted_removal" =
+    "historical_removal",
 ) {
   check(
-    experiment === "historical_removal" || experiment === "append_ack",
+    experiment === "historical_removal" || experiment === "append_ack" ||
+      experiment === "ack_targeted_removal",
     "input_invalid",
   );
   check(input.authorized === true, "authorization_required");
@@ -717,6 +857,7 @@ export async function runReviewProof(
     await writeReviewRegistry(input.registryPath, registry);
     const path = `/playlists/${created.id}/items`;
     let caseIndex = -1;
+    let ackCase: "ack_historical" | "ack_latest" = "ack_historical";
     const write = async (
       kind: "replace" | "append" | "remove_items",
       action: () => Promise<string>,
@@ -728,7 +869,17 @@ export async function runReviewProof(
       registry!.receipt = {
         experiment,
         operation: kind,
-        case: reviewCases[Math.max(0, caseIndex)].name,
+        case: experiment === "ack_targeted_removal"
+          ? ackCase
+          : reviewCases[Math.max(0, caseIndex)].name,
+        ...(experiment === "ack_targeted_removal"
+          ? {
+            acknowledgements: [...(registry!.receipt?.acknowledgements ?? []), {
+              operation: kind,
+              snapshotId: result,
+            }],
+          }
+          : {}),
         initialEmptySnapshotId: registry!.receipt?.initialEmptySnapshotId ??
           null,
         acknowledgedSnapshotId: result,
@@ -756,11 +907,27 @@ export async function runReviewProof(
         method: "GET",
         path: `/playlists/${created.id}`,
       }) as SpotifyPlaylist;
+      if (experiment === "ack_targeted_removal") {
+        for (const p of [before, after]) {
+          check(
+            p.id === created.id && spotifyPlaylistOwnedBy(p, identity) &&
+              p.collaborative === false && p.description?.includes(marker()),
+            "fixture_guard",
+          );
+        }
+      }
+      const contentComplete = page.total <= 4 &&
+        page.total === page.items.length && page.nextOffset === null &&
+        page.items.every((item) => item.uri !== null);
       const stable = before.snapshotId === after.snapshotId &&
         page.total <= 4 &&
         page.total === page.items.length && page.nextOffset === null &&
         page.items.every((item) => item.uri !== null);
       check(registry!.receipt, "receipt_required");
+      if (
+        experiment === "ack_targeted_removal" &&
+        registry!.receipt.readbacks.length === 4
+      ) registry!.receipt.readbacks.shift();
       registry!.receipt.readbacks.push({
         beforeSnapshotId: before.snapshotId,
         afterSnapshotId: after.snapshotId,
@@ -776,10 +943,73 @@ export async function runReviewProof(
       await writeReviewRegistry(input.registryPath, registry!);
       return {
         stable,
+        contentComplete,
         snapshotId: after.snapshotId,
         items: page.items.map((item) => item.uri),
       };
     };
+    if (experiment === "ack_targeted_removal") {
+      registry.receipt = {
+        experiment,
+        operation: "empty",
+        case: ackCase,
+        initialEmptySnapshotId: null,
+        acknowledgedSnapshotId: null,
+        acknowledgements: [],
+        readbacks: [],
+      };
+      await writeReviewRegistry(input.registryPath, registry);
+      const observations = await runReviewAckExperiment({
+        uris,
+        read,
+        selectCase: (selected) => {
+          ackCase = selected;
+        },
+        append: (target) =>
+          write(
+            "append",
+            async () =>
+              (await request({
+                method: "POST",
+                path,
+                body: { uris: target },
+              }) as { snapshotId: string }).snapshotId,
+          ),
+        replace: (target) =>
+          write(
+            "replace",
+            async () =>
+              (await request({
+                method: "PUT",
+                path,
+                body: { uris: target },
+              }) as { snapshotId: string }).snapshotId,
+          ),
+        remove: (uri, snapshotId) =>
+          write(
+            "remove_items",
+            () =>
+              removeReviewItems({ playlistId: created.id, uri, snapshotId }, {
+                tokens,
+                pacing,
+                authorize: async (id) =>
+                  (await current()).pending === "remove_items" &&
+                  await authorize(id),
+              }),
+          ),
+      });
+      await cleanup();
+      return {
+        recoveredFixture: false,
+        freshExperiment: true,
+        cleanupConfirmed: true,
+        experiment: "ack_targeted_removal",
+        observations,
+        originalProofPassed: false,
+        readVersionConsistencyVerified: false,
+        historicalSnapshotGuarantee: false,
+      };
+    }
     if (experiment === "append_ack") {
       registry.receipt = {
         experiment,

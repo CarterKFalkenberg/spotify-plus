@@ -1,8 +1,10 @@
+import { runReviewAckProof } from "./review-ack-proof.ts";
 import {
   observeReviewCase,
   parseReviewRegistry,
   removeReviewItems,
   reviewProofFailure,
+  runReviewAckExperiment,
   runReviewAppendExperiment,
   runReviewExperiment,
   runReviewProof,
@@ -618,6 +620,206 @@ Deno.test("optional private snapshot receipts preserve old registries and reject
     equal(
       await failure(() =>
         parseReviewRegistry({ ...registry, receipt: invalid })
+      ),
+      "review_registry_invalid",
+    );
+  }
+});
+
+Deno.test("ACK-targeted observation distinguishes historical selection from current/all and generic first occurrence", async () => {
+  for (const behavior of ["historical", "all_current", "first_occurrence"]) {
+    let items: string[] = [], revision = 0;
+    const versions = new Map<string, string[]>();
+    const writes: string[] = [];
+    const save = (method: string) => {
+      writes.push(method);
+      const ack = "opaque-write-" + ++revision;
+      versions.set(ack, [...items]);
+      return Promise.resolve(ack);
+    };
+    const result = await runReviewAckExperiment({
+      uris,
+      selectCase: () => {},
+      wait: () => Promise.resolve(),
+      append: (target) => {
+        items.push(...target);
+        return save("POST");
+      },
+      replace: (target) => {
+        items = [...target];
+        return save("PUT");
+      },
+      remove: (uri, ack) => {
+        let left = behavior === "all_current"
+          ? Infinity
+          : behavior === "first_occurrence"
+          ? 1
+          : versions.get(ack)!.filter((item) => item === uri).length;
+        items = items.filter((item) => item !== uri || left-- <= 0);
+        return save("DELETE");
+      },
+      read: () =>
+        Promise.resolve({
+          snapshotId: "opaque-unchanged-read",
+          items: [...items],
+          stable: true,
+          contentComplete: true,
+        }),
+    });
+    equal(writes, ["POST", "POST", "DELETE", "PUT", "POST", "DELETE"]);
+    equal(result[0].historicalSequenceObserved, behavior !== "all_current");
+    equal(result[1].latestSequenceObserved, behavior !== "first_occurrence");
+    equal(result[0].targetAckMatchesLatestAck, false);
+    equal(result[1].targetAckMatchesLatestAck, true);
+    equal(result.every((r) => r.removalAckMatchesReadSnapshot === false), true);
+    equal(/opaque|spotify:/.test(JSON.stringify(result)), false);
+  }
+});
+
+Deno.test("ACK-targeted content guards require consecutive complete bracketed known-item reads before destruction", async () => {
+  for (
+    const bad of [
+      "sequence",
+      "incomplete",
+      "bracket",
+      "null",
+      "unknown",
+      "after_removal",
+    ]
+  ) {
+    let items: (string | null)[] = [], revision = 0, removes = 0, replaces = 0;
+    let stage = "empty";
+    const code = await failure(() =>
+      runReviewAckExperiment({
+        uris,
+        selectCase: () => {},
+        wait: () => Promise.resolve(),
+        append: (target) => {
+          items.push(...target);
+          stage = target.length === 1 ? "first" : "later";
+          return Promise.resolve("ack" + ++revision);
+        },
+        replace: (target) => {
+          replaces++;
+          items = [...target];
+          return Promise.resolve("ack" + ++revision);
+        },
+        remove: () => {
+          removes++;
+          items = [uris[1], uris[0]];
+          stage = "removed";
+          return Promise.resolve("ack" + ++revision);
+        },
+        read: () => {
+          const fail = bad === "after_removal"
+            ? stage === "removed"
+            : stage === "later";
+          return Promise.resolve({
+            snapshotId: "unchanged",
+            items: fail && bad === "sequence"
+              ? [uris[0]]
+              : fail && bad === "null"
+              ? [null]
+              : fail && (bad === "unknown" || bad === "after_removal")
+              ? ["spotify:track:" + "z".repeat(22)]
+              : [...items],
+            stable: !(fail && bad === "bracket"),
+            contentComplete: !(fail && bad === "incomplete"),
+          });
+        },
+      })
+    );
+    equal(code, "review_ack_content_unconfirmed");
+    equal(removes, bad === "after_removal" ? 1 : 0);
+    equal(replaces, 0);
+  }
+});
+
+Deno.test("ACK-targeted writes must advance every acknowledgement and are never repeated", async () => {
+  for (let stop = 1; stop <= 6; stop++) {
+    let items: string[] = [], writes = 0, previous = "empty";
+    const ack = () => {
+      writes++;
+      if (writes !== stop) previous = "ack" + writes;
+      return Promise.resolve(previous);
+    };
+    equal(
+      await failure(() =>
+        runReviewAckExperiment({
+          uris,
+          selectCase: () => {},
+          wait: () => Promise.resolve(),
+          append: (target) => {
+            items.push(...target);
+            return ack();
+          },
+          replace: (target) => {
+            items = [...target];
+            return ack();
+          },
+          remove: () => {
+            items = [uris[1]];
+            return ack();
+          },
+          read: () =>
+            Promise.resolve({
+              snapshotId: "empty",
+              items: [...items],
+              stable: true,
+              contentComplete: true,
+            }),
+        })
+      ),
+      "review_ack_version_not_advanced",
+    );
+    equal(writes, stop);
+  }
+});
+
+Deno.test("ACK-targeted entrypoint rejects authorization before provider calls and receipt chain is bounded", async () => {
+  equal(
+    await failure(() =>
+      runReviewAckProof(
+        { authorized: false } as Parameters<typeof runReviewAckProof>[0],
+      )
+    ),
+    "review_authorization_required",
+  );
+  const r = {
+    version: 1,
+    operation: crypto.randomUUID(),
+    epoch: 1,
+    ownerFingerprint: "a".repeat(64),
+    playlistId: "p".repeat(22),
+    state: "created",
+    pending: null,
+    receipt: {
+      experiment: "ack_targeted_removal",
+      operation: "append",
+      case: "ack_historical",
+      initialEmptySnapshotId: "empty",
+      acknowledgedSnapshotId: "ack",
+      readbacks: [],
+      acknowledgements: [{ operation: "append", snapshotId: "ack" }],
+    },
+  };
+  equal(parseReviewRegistry(r).receipt?.acknowledgements?.length, 1);
+  for (
+    const acknowledgements of [
+      Array.from(
+        { length: 7 },
+        () => ({ operation: "append", snapshotId: "ack" }),
+      ),
+      [{ operation: "append", snapshotId: "x".repeat(2049) }],
+      [{ operation: "unknown", snapshotId: "ack" }],
+    ]
+  ) {
+    equal(
+      await failure(() =>
+        parseReviewRegistry({
+          ...r,
+          receipt: { ...r.receipt, acknowledgements },
+        })
       ),
       "review_registry_invalid",
     );

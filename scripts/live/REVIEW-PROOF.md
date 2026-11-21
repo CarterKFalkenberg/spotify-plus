@@ -183,3 +183,82 @@ and never authorizes a repeated append. A stale atomic-write temporary file stil
 requires operator reconciliation. The receipt preserves the most recent operation,
 not a replay log or idempotency guarantee. The older baseline mismatch did not
 record these values and cannot be reconstructed from later stable content.
+
+## Separate ACK-targeted removal observation (#88)
+
+`scripts/live/review-ack-proof.ts` is a separate operator entrypoint. It does not
+replace or alter the original four-case experiment's exact ACK/GET snapshot
+assertions, which remain required there. This diagnostic asks whether historical
+and latest **write acknowledgements** produce different URI-removal outcomes in a
+controlled fixture despite unresolved metadata GET version consistency. It does
+not enable production Undo or pass an existing stage gate.
+
+The stdin shape and private runner are unchanged. Only the orchestrator runs it
+after reviewing the exact code and scoped test-playlist authorization:
+
+```sh
+node .local/run-review-proof.mjs scripts/live/review-ack-proof.ts
+```
+
+A/B below represent the same two privately selected cached URIs, never logged
+identifiers. One newly registered disposable fixture holds both observations:
+
+| Observation | Acknowledged preparation | Single removal | Desired observed sequence |
+| --- | --- | --- | --- |
+| Historical ACK | Confirm empty; POST A → S1; confirm A; POST B,A → S2; confirm A,B,A | A against S1 | B,A |
+| Latest ACK control | Reconfirm previous observed content; PUT A → S3; confirm A; POST B,A → S4; confirm A,B,A | A against S4 | B |
+
+Removal acknowledgements are also retained; there are six item-write ACKs in all.
+Each ACK must be a bounded nonempty opaque string distinct from the initial empty read
+version and every earlier write ACK in this experiment. This is an equality check, never decoded ordering or
+proof that a write version advanced semantically. Every write dispatches once.
+No URI occurrence identifier, position, undocumented route or remote-write replay
+is introduced.
+
+Each content confirmation permits at most four read attempts with 500/1,000/2,000
+millisecond waits **between** requests, outside adapter fetch timeouts. It requires
+two consecutive identical exact expected sequences, complete bounded pages and
+unchanged before/after metadata snapshot values within each read. Metadata bracket
+equality rejects observed changes; it does not establish atomic pagination or
+read-after-write version consistency. This separate mode does not require a GET
+snapshot to equal a write ACK. Metadata ownership, immutable HMAC/epoch binding,
+fixture marker and noncollaboration remain checked; original proof gates are
+unchanged.
+
+After removal, two consecutive identical complete observations must contain only
+known A/B URIs, with at most three items. Before the control PUT, the exact
+historical observed sequence is confirmed twice again. Null, unknown, incomplete,
+changing or unconfirmed content blocks reset; ownership/marker/noncollaboration
+failure blocks mutation. Negative historical results can receive the matched
+latest-ACK control only within these fixture guards. The normal registered
+playlist cleanup and two-source absence confirmation finish the diagnostic.
+
+Output contains fixed case names, counts, exact-sequence booleans and opaque
+version-equality booleans only. `passed:true` means the diagnostic completed and
+cleanup was confirmed, regardless of favorable or negative observed sequences.
+`originalProofPassed:false`, `readVersionConsistencyVerified:false` and
+`historicalSnapshotGuarantee:false` remain fixed on completion/recovery/failure
+through this entrypoint. The private receipt retains at most six item-write ACKs
+and the latest four read brackets; no opaque value or real track metadata enters
+stdout. Previous registries remain readable. A receipt failure stops and preserves
+cleanup-only recovery.
+
+A historical B,A result paired with latest B would distinguish those particular
+observations from removing the first matching URI regardless of target version.
+It would not prove universal historical-occurrence selection, exclude external
+concurrent replacements, establish occurrence identity or make ambiguous writes
+attributable. Negative results can rule out the tested candidate behavior for that
+run. Favorable results remain bounded semantic evidence requiring separate review;
+neither outcome changes the original proof result or production Undo preconditions.
+
+Focused synthetic verification includes the actual entrypoint/lifecycle, historical
+versus latest targeting, all-current and generic-first-occurrence counterexamples,
+content/bracket/unknown-item guards, ACK-chain bounds, no replay after lost
+create/append/removal responses, cleanup ambiguity/refusal and owner-guard/error
+redaction. Tests deny network access and use temporary synthetic registries:
+
+```sh
+deno test --no-prompt --deny-net --no-remote scripts/live/review-proof_test.ts
+node --test tests/review-ack-proof.test.mjs tests/review-proof.test.mjs
+deno check --no-remote scripts/live/review-ack-proof.ts
+```
