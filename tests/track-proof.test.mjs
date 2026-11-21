@@ -22,7 +22,7 @@ const timer=globalThis.setTimeout;
 globalThis.setTimeout=(fn,ms,...args)=>timer(fn,[500,1000,2000,2100].includes(ms)?0:ms,...args);
 if(!validAddedAt('2026-01-01T00:00:00Z')||!validAddedAt('2026-01-01T00:00:00.12Z')||validAddedAt('2026-02-30T00:00:00Z')||validAddedAt('2026-01-01T00:00:00+00:00'))fail('Date precision validation');
 let scenarios=0;
-for(const mode of ['normal','equal','pagination','liked','target','cache','consent','head','scope','owner','epoch','lost1','lost2','lost3','lost4','lost_cleanup','cleanup_not_applied','schema','date','scan_bound','page_schema','guard','intent_crash']){
+for(const mode of ['normal','equal','pagination','liked','target','cache','consent','head','scope','owner','epoch','lost1','lost2','lost3','lost4','lost_cleanup','cleanup_not_applied','schema','date','scan_bound','page_schema','guard','intent_crash','delayed_after_false','delayed_after_cleanup']){
  let liked=mode==='liked',writes=[],likes=0,readCalls=0,active=true,lose=true;
  const input={origin:'https://'+'a'.repeat(20)+'.supabase.co',serviceKey:'private-service',clientId:'private-client',encryptionKey:binding,bindingKey:binding,ownerFingerprint:await ownerFingerprint(account,binding),epoch:2,projectRef:'a'.repeat(20),managementToken:'private-management',registryPath:dir+'/'+mode+'.json',executionHead:'b'.repeat(40),operation:'11111111-1111-4111-8111-111111111111',targetUri:uri,consent:null};
  input.consent={approved:mode!=='consent',purpose:'one-unliked-track-date-proof',operation:input.operation,ownerFingerprint:input.ownerFingerprint,epoch:2,reviewedHead:mode==='head'?'c'.repeat(40):input.executionHead,targetFingerprint:await ownerFingerprint('track-proof:'+uri,binding),registryPath:input.registryPath,maxWrites:4,restoreUnliked:true,expiresAt:new Date(Date.now()+3600000).toISOString()};
@@ -44,11 +44,11 @@ for(const mode of ['normal','equal','pagination','liked','target','cache','conse
    if(u.searchParams.get('uris')!==uri||[...u.searchParams].length!==1||init.body!==undefined)fail('Broadened track write');
    const r=JSON.parse(await Deno.readTextFile(input.registryPath));
    if(r.writes.length!==writes.length+1||r.writes.at(-1).acknowledged!==false)fail('Intent not durable');
-   if(mode==='intent_crash'&&writes.length===0){ // Simulate failure after intent but before remote effect.
+   if(['intent_crash','delayed_after_false'].includes(mode)&&writes.length===0){ // Simulate failure after intent but before remote effect.
     writes.push(method);throw new Error('private-loss');
    }
    writes.push(method);if(mode==='cleanup_not_applied'&&writes.length===2)throw new Error('private-loss');liked=method==='PUT';if(liked)likes++;
-   if((mode==='lost'+writes.length&&lose)||(['lost_cleanup','cleanup_not_applied'].includes(mode)&&[1,2].includes(writes.length))) {if(mode!=='lost_cleanup')lose=false;throw new Error('private-loss');}
+   if((mode==='lost'+writes.length&&lose)||(mode==='delayed_after_cleanup'&&writes.length===1)||(['lost_cleanup','cleanup_not_applied'].includes(mode)&&[1,2].includes(writes.length))) {if(mode!=='lost_cleanup')lose=false;throw new Error('private-loss');}
    return new Response(mode==='schema'&&writes.length===1?'private-body':null,{status:200});
   }
   if(u.pathname==='/v1/me/tracks'){
@@ -67,12 +67,36 @@ for(const mode of ['normal','equal','pagination','liked','target','cache','conse
  if(['normal','equal','pagination'].includes(mode)){
   if(!result.passed||!result.cleanupConfirmed||result.writeCount!==4||liked||writes.join(',')!=='PUT,DELETE,PUT,DELETE'||result.datesEqual!==(mode==='equal')||result.secondDateLater!==(mode!=='equal'))fail('Four-write result wrong');
  }else if(result.passed)fail('Failure passed');
+ const ambiguousLike=['lost1','lost3','lost_cleanup','cleanup_not_applied','schema','intent_crash','delayed_after_false','delayed_after_cleanup'].includes(mode);
+ if(ambiguousLike){
+  const r=JSON.parse(await Deno.readTextFile(input.registryPath));
+  if(r.complete||result.cleanupConfirmed||!r.writes.some(w=>['first_like','second_like'].includes(w.phase)&&!w.acknowledged))fail('Ambiguous like was consumed');
+ }
+ if(mode.startsWith('delayed_')){
+  // The original unacknowledged PUT takes effect only after false observations
+  // (or after the distinct cleanup DELETE) have already finished.
+  liked=true;
+  const before=writes.length;
+  const recovered=await run();
+  const r=JSON.parse(await Deno.readTextFile(input.registryPath));
+  const expected=mode==='delayed_after_false'?before+1:before;
+  if(writes.length!==expected||r.complete||recovered.cleanupConfirmed||recovered.alreadyConsumed)fail('Delayed PUT uncertainty erased');
+  const again=await run();
+  if(writes.length!==expected||again.cleanupConfirmed||JSON.parse(await Deno.readTextFile(input.registryPath)).complete)fail('Delayed cleanup replayed or consumed');
+  // Refuse a consumed receipt produced by older code; its pending PUT still wins.
+  const stale=JSON.parse(await Deno.readTextFile(input.registryPath));stale.complete=true;
+  await Deno.writeTextFile(input.registryPath,JSON.stringify(stale));
+  const consumed=await run();
+  if(consumed.blocker!=='write_reconciliation_required'||consumed.alreadyConsumed||consumed.cleanupConfirmed||writes.length!==expected)fail('Consumed guard hid ambiguous PUT');
+  scenarios++;continue;
+ }
  const before=writes.length;
  if(!zero){
   const registry=JSON.parse(await Deno.readTextFile(input.registryPath));
   if(registry.writes.length>4||registry.writes.length!==writes.length)fail('Budget mismatch');
   if(['normal','equal','pagination'].includes(mode))liked=true; // A later human like must survive a consumed registry.
-  if(!['guard'].includes(mode))await run();
+  const recovered=!['guard'].includes(mode)?await run():null;
+  if(ambiguousLike&&(recovered?.cleanupConfirmed||recovered?.alreadyConsumed||JSON.parse(await Deno.readTextFile(input.registryPath)).complete))fail('Recovery erased ambiguous like');
   if(['normal','equal','pagination'].includes(mode)&&!liked)fail('Consumed registry removed later membership');
   if(writes.length!==before)fail('Restart replayed a write');
   if(['lost1','lost3','schema','date','scan_bound','page_schema'].includes(mode)&&liked)fail('Distinct cleanup not performed');
@@ -119,7 +143,7 @@ console.log(JSON.stringify({scenarios,passed:true}));
     );
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.deepEqual(JSON.parse(result.stdout.trim()), {
-      scenarios: 23,
+      scenarios: 25,
       passed: true,
     });
   } finally {

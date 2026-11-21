@@ -67,13 +67,22 @@ Offsets and repeated observations do not establish an atomic library snapshot.
 
 On failure, only a distinct cleanup DELETE may consume an unused slot after a
 possible own PUT and two current liked observations. A pending/acknowledged
-DELETE is never repeated. A restart is always cleanup-only: two unliked reads can
-finish restoration; true after the last DELETE, no attributable own PUT, expired
-consent, exhausted budget, stale epoch or wrong owner blocks mutation. A consumed
-registry is never used to delete a subsequent human like. The root operator must
-inspect every non-success and reconcile cleanup explicitly. Fixed failure output
-is conservative (`cleanupMayBeRequired:true`) even when automatic cleanup worked;
-the recovery invocation can confirm it without repeating the experiment.
+DELETE is never repeated. **Any unacknowledged PUT intent requires manual
+reconciliation indefinitely:** two unliked reads, a successful compensating
+DELETE, or a later restart cannot prove that the original PUT will not apply
+later. Such a registry remains incomplete, retains its original intent and never
+reports `cleanupConfirmed` or `alreadyConsumed`. The helper cannot resolve that
+uncertainty automatically; do not erase it or recreate the experiment.
+
+A restart is always cleanup-only. Two unliked reads can finish restoration only
+when all previous PUTs were acknowledged. True after the last DELETE, no
+attributable own PUT, expired consent, exhausted budget, stale epoch or wrong
+owner blocks mutation. If an unresolved PUT takes effect after false reads, at
+most one distinct cleanup may use an unused slot; if cleanup was already
+attempted, it is never repeated. A consumed registry is never used to delete a
+subsequent human like. The root operator must inspect every non-success and
+reconcile cleanup explicitly. Fixed failure output remains conservative
+(`cleanupMayBeRequired:true`) even when current observations are unliked.
 
 Successful output contains only fixed booleans and a write count: both timestamp
 receipts validated, whether their parsed instants equal or the second is later,

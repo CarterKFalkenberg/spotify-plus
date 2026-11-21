@@ -54,6 +54,11 @@ interface Registry {
   firstAddedAt: string | null;
   secondAddedAt: string | null;
 }
+function unresolvedLike(registry: Registry) {
+  return registry.writes.some((write) =>
+    !write.acknowledged && ["first_like", "second_like"].includes(write.phase)
+  );
+}
 const phases: Phase[] = [
   "first_like",
   "first_unlike",
@@ -149,7 +154,12 @@ async function readRegistry(input: TrackProofInput): Promise<Registry | null> {
         (r.secondAddedAt === null || validAddedAt(r.secondAddedAt)),
       "registry_invalid",
     );
-    return r as unknown as Registry;
+    const registry = r as unknown as Registry;
+    check(
+      !registry.complete || !unresolvedLike(registry),
+      "write_reconciliation_required",
+    );
+    return registry;
   } catch (error) {
     if (error instanceof Deno.errors.NotFound) return null;
     if (error instanceof Failure) throw error;
@@ -368,6 +378,9 @@ export async function runTrackProof(raw: TrackProofInput) {
     const finish = async () => {
       await guard();
       await membership(false);
+      // Negative reads and a later DELETE cannot settle an earlier in-flight PUT.
+      // Preserve its intent indefinitely for manual reconciliation.
+      check(!unresolvedLike(registry!), "write_reconciliation_required");
       registry!.complete = true;
       await save(input.registryPath, registry!);
     };
