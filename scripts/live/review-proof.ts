@@ -46,9 +46,19 @@ export interface ReviewRegistry {
   receipt?: ReviewSnapshotReceipt;
 }
 interface ReviewSnapshotReceipt {
-  experiment: "historical_removal" | "append_ack" | "ack_targeted_removal";
+  experiment:
+    | "historical_removal"
+    | "append_ack"
+    | "ack_targeted_removal"
+    | "ack_attribution";
   operation: "empty" | "replace" | "append" | "remove_items";
-  case: typeof reviewCases[number]["name"] | "ack_historical" | "ack_latest";
+  case:
+    | typeof reviewCases[number]["name"]
+    | "ack_historical"
+    | "ack_latest"
+    | "attribution_unique"
+    | "attribution_unrelated"
+    | "attribution_replacement";
   acknowledgements?: {
     operation: "replace" | "append" | "remove_items";
     snapshotId: string;
@@ -121,16 +131,28 @@ export function parseReviewRegistry(value: unknown): ReviewRegistry {
       typeof v === "string" && v.length > 0 && v.length <= 2048;
     check(
       record(r) &&
-        ["historical_removal", "append_ack", "ack_targeted_removal"].includes(
+        [
+          "historical_removal",
+          "append_ack",
+          "ack_targeted_removal",
+          "ack_attribution",
+        ].includes(
           String(r.experiment),
         ) &&
         ["empty", "replace", "append", "remove_items"].includes(
           String(r.operation),
         ) &&
         (reviewCases.some((item) => item.name === r.case) ||
-          r.case === "ack_historical" || r.case === "ack_latest") &&
+          r.case === "ack_historical" || r.case === "ack_latest" ||
+          [
+            "attribution_unique",
+            "attribution_unrelated",
+            "attribution_replacement",
+          ].includes(String(r.case))) &&
         (r.acknowledgements === undefined ||
-          Array.isArray(r.acknowledgements) && r.acknowledgements.length <= 6 &&
+          Array.isArray(r.acknowledgements) &&
+            r.acknowledgements.length <=
+              (r.experiment === "ack_attribution" ? 9 : 6) &&
             r.acknowledgements.every((ack) =>
               record(ack) &&
               ["replace", "append", "remove_items"].includes(
@@ -276,6 +298,54 @@ export async function removeReviewItems(
     return snapshot(await response.json());
   } catch {
     throw new ReviewFailure("delete_ambiguous");
+  }
+}
+
+export interface AttributionRemovalResult {
+  status: 200 | 400 | 404 | 409 | 422;
+  category:
+    | "acknowledged"
+    | "bad_request"
+    | "not_found"
+    | "conflict"
+    | "unprocessable";
+  snapshotId: string | null;
+}
+// Only the final attribution probe may record a definitive rejection as an
+// observation. The original removal transport and its callers stay strict.
+export async function removeReviewAttributionItems(
+  input: Parameters<typeof removeReviewItems>[0],
+  deps: Parameters<typeof removeReviewItems>[1],
+): Promise<AttributionRemovalResult> {
+  let status: number | null = null;
+  try {
+    const snapshotId = await removeReviewItems(input, {
+      ...deps,
+      fetch: async (...args) => {
+        const response = await (deps.fetch ?? fetch)(...args);
+        status = response.status;
+        return response;
+      },
+    });
+    return { status: 200, category: "acknowledged", snapshotId };
+  } catch (error) {
+    if (
+      error instanceof ReviewFailure && error.message === "delete_unconfirmed"
+    ) {
+      if (status === 400) {
+        return { status, category: "bad_request", snapshotId: null };
+      }
+      if (status === 404) {
+        return { status, category: "not_found", snapshotId: null };
+      }
+      if (status === 409) {
+        return { status, category: "conflict", snapshotId: null };
+      }
+      if (status === 422) {
+        return { status, category: "unprocessable", snapshotId: null };
+      }
+    }
+    throw error;
   }
 }
 
@@ -572,14 +642,184 @@ export async function runReviewAckExperiment(deps: {
   ];
 }
 
+export async function runReviewAttributionExperiment(deps: {
+  uris: string[];
+  append: (uris: string[]) => Promise<string>;
+  remove: (uri: string, snapshotId: string) => Promise<string>;
+  finalRemove: (
+    uri: string,
+    snapshotId: string,
+  ) => Promise<AttributionRemovalResult>;
+  read: () => Promise<
+    {
+      snapshotId: string;
+      items: (string | null)[];
+      stable: boolean;
+      contentComplete: boolean;
+    }
+  >;
+  selectCase: (
+    selected:
+      | "attribution_unique"
+      | "attribution_unrelated"
+      | "attribution_replacement",
+  ) => void;
+  wait?: (ms: number) => Promise<void>;
+}) {
+  check(
+    deps.uris.length === 2 && deps.uris[0] !== deps.uris[1] &&
+      deps.uris.every((uri) => /^spotify:track:[A-Za-z0-9]{22}$/.test(uri)),
+    "cached_tracks_required",
+  );
+  const wait = deps.wait ??
+    ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const exact = (actual: (string | null)[], expected: (string | null)[]) =>
+    JSON.stringify(actual) === JSON.stringify(expected);
+  const confirm = async (expected: (string | null)[] | null) => {
+    let previous: Awaited<ReturnType<typeof deps.read>> | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const observed = await deps.read();
+      const eligible = observed.stable && observed.contentComplete &&
+        observed.items.length <= 2 && observed.items.every((uri) =>
+          uri !== null && deps.uris.includes(uri)
+        ) && (expected === null || exact(observed.items, expected));
+      if (eligible && previous && exact(previous.items, observed.items)) {
+        return observed;
+      }
+      previous = eligible ? observed : null;
+      if (attempt < 3) {
+        await wait(500 * 2 ** attempt);
+      }
+    }
+    throw new ReviewFailure("attribution_content_unconfirmed");
+  };
+  deps.selectCase("attribution_unique");
+  const empty = await confirm([]);
+  const versions = new Set([empty.snapshotId]);
+  let latest = empty.snapshotId;
+  const acknowledge = async (action: () => Promise<string>) => {
+    const value = await action();
+    check(
+      value.length > 0 && value.length <= 2048 && !versions.has(value),
+      "attribution_ack_not_advanced",
+    );
+    versions.add(value);
+    latest = value;
+    return value;
+  };
+  const [a, b] = deps.uris;
+  const observations: {
+    case:
+      | "attribution_unique"
+      | "attribution_unrelated"
+      | "attribution_replacement";
+    expectedSequenceObserved: boolean;
+    remainingCount: number;
+    targetRemainingCount: number;
+    unrelatedRemainingCount: number;
+  }[] = [];
+  const observe = (
+    name: typeof observations[number]["case"],
+    items: (string | null)[],
+    expected: string[],
+  ) => {
+    const result = {
+      case: name,
+      expectedSequenceObserved: exact(items, expected),
+      remainingCount: items.length,
+      targetRemainingCount: items.filter((uri) => uri === a).length,
+      unrelatedRemainingCount: items.filter((uri) => uri === b).length,
+    };
+    observations.push(result);
+    return result.expectedSequenceObserved;
+  };
+  const first = await acknowledge(() => deps.append([a]));
+  await confirm([a]);
+  await acknowledge(() => deps.remove(a, first));
+  const unique = await confirm(null);
+  if (!observe("attribution_unique", unique.items, [])) {
+    return {
+      observations,
+      allCasesCompleted: false,
+      candidateReady: false,
+      finalRemoval: null,
+    };
+  }
+  // Reconfirm empty before the next preparation write; no reset or PUT exists.
+  await confirm([]);
+  deps.selectCase("attribution_unrelated");
+  const second = await acknowledge(() => deps.append([a]));
+  await confirm([a]);
+  await acknowledge(() => deps.append([b]));
+  await confirm([a, b]);
+  await acknowledge(() => deps.remove(a, second));
+  const unrelated = await confirm(null);
+  if (!observe("attribution_unrelated", unrelated.items, [b])) {
+    return {
+      observations,
+      allCasesCompleted: false,
+      candidateReady: false,
+      finalRemoval: null,
+    };
+  }
+  await confirm([b]);
+  deps.selectCase("attribution_replacement");
+  const original = await acknowledge(() => deps.append([a]));
+  await confirm([b, a]);
+  await acknowledge(() => deps.remove(a, original));
+  const deleted = await confirm(null);
+  if (!exact(deleted.items, [b])) {
+    observe("attribution_replacement", deleted.items, [b]);
+    return {
+      observations,
+      allCasesCompleted: false,
+      candidateReady: false,
+      finalRemoval: null,
+    };
+  }
+  await confirm([b]);
+  const replacement = await acknowledge(() => deps.append([a]));
+  await confirm([b, a]);
+  const priorLatest = latest;
+  const final = await deps.finalRemove(a, original);
+  // This final historical target can validly no-op or be definitively rejected.
+  // Do not demand a new ACK, repeat the deletion, or substitute its replacement.
+  const preserved = await confirm(null);
+  const candidateReady = observe("attribution_replacement", preserved.items, [
+    b,
+    a,
+  ]);
+  return {
+    observations,
+    allCasesCompleted: true,
+    candidateReady,
+    finalRemoval: {
+      status: final.status,
+      category: final.category,
+      acknowledged: final.snapshotId !== null,
+      ackMatchesPreviousWrite: final.snapshotId === null
+        ? null
+        : final.snapshotId === priorLatest,
+      ackMatchesHistoricalTarget: final.snapshotId === null
+        ? null
+        : final.snapshotId === original,
+      targetMatchesReplacementAck: original === replacement,
+      contentPreserved: candidateReady,
+    },
+  };
+}
+
 export async function runReviewProof(
   input: ReviewProofInput,
-  experiment: "historical_removal" | "append_ack" | "ack_targeted_removal" =
-    "historical_removal",
+  experiment:
+    | "historical_removal"
+    | "append_ack"
+    | "ack_targeted_removal"
+    | "ack_attribution" = "historical_removal",
 ) {
   check(
     experiment === "historical_removal" || experiment === "append_ack" ||
-      experiment === "ack_targeted_removal",
+      experiment === "ack_targeted_removal" || experiment === "ack_attribution",
     "input_invalid",
   );
   check(input.authorized === true, "authorization_required");
@@ -857,7 +1097,7 @@ export async function runReviewProof(
     await writeReviewRegistry(input.registryPath, registry);
     const path = `/playlists/${created.id}/items`;
     let caseIndex = -1;
-    let ackCase: "ack_historical" | "ack_latest" = "ack_historical";
+    let ackCase: ReviewSnapshotReceipt["case"] = "ack_historical";
     const write = async (
       kind: "replace" | "append" | "remove_items",
       action: () => Promise<string>,
@@ -869,10 +1109,12 @@ export async function runReviewProof(
       registry!.receipt = {
         experiment,
         operation: kind,
-        case: experiment === "ack_targeted_removal"
+        case: experiment === "ack_targeted_removal" ||
+            experiment === "ack_attribution"
           ? ackCase
           : reviewCases[Math.max(0, caseIndex)].name,
-        ...(experiment === "ack_targeted_removal"
+        ...(experiment === "ack_targeted_removal" ||
+            experiment === "ack_attribution"
           ? {
             acknowledgements: [...(registry!.receipt?.acknowledgements ?? []), {
               operation: kind,
@@ -892,7 +1134,7 @@ export async function runReviewProof(
       await writeReviewRegistry(input.registryPath, registry!);
       return result;
     };
-    // Both entrypoints share the exact registry, owner and cleanup lifecycle.
+    // All entrypoints share the exact registry, owner and cleanup lifecycle.
     const read = async () => {
       const before = await request({
         method: "GET",
@@ -907,7 +1149,10 @@ export async function runReviewProof(
         method: "GET",
         path: `/playlists/${created.id}`,
       }) as SpotifyPlaylist;
-      if (experiment === "ack_targeted_removal") {
+      if (
+        experiment === "ack_targeted_removal" ||
+        experiment === "ack_attribution"
+      ) {
         for (const p of [before, after]) {
           check(
             p.id === created.id && spotifyPlaylistOwnedBy(p, identity) &&
@@ -925,7 +1170,8 @@ export async function runReviewProof(
         page.items.every((item) => item.uri !== null);
       check(registry!.receipt, "receipt_required");
       if (
-        experiment === "ack_targeted_removal" &&
+        (experiment === "ack_targeted_removal" ||
+          experiment === "ack_attribution") &&
         registry!.receipt.readbacks.length === 4
       ) registry!.receipt.readbacks.shift();
       registry!.receipt.readbacks.push({
@@ -948,6 +1194,91 @@ export async function runReviewProof(
         items: page.items.map((item) => item.uri),
       };
     };
+    if (experiment === "ack_attribution") {
+      ackCase = "attribution_unique";
+      registry.receipt = {
+        experiment,
+        operation: "empty",
+        case: ackCase,
+        initialEmptySnapshotId: null,
+        acknowledgedSnapshotId: null,
+        acknowledgements: [],
+        readbacks: [],
+      };
+      await writeReviewRegistry(input.registryPath, registry);
+      const removalDependencies = {
+        tokens,
+        pacing,
+        authorize: async (id: string) =>
+          (await current()).pending === "remove_items" && await authorize(id),
+      };
+      const result = await runReviewAttributionExperiment({
+        uris,
+        read,
+        selectCase: (selected) => {
+          ackCase = selected;
+        },
+        append: (target) =>
+          write(
+            "append",
+            async () =>
+              (await request({
+                method: "POST",
+                path,
+                body: { uris: target },
+              }) as { snapshotId: string }).snapshotId,
+          ),
+        remove: (uri, snapshotId) =>
+          write(
+            "remove_items",
+            () =>
+              removeReviewItems(
+                { playlistId: created.id, uri, snapshotId },
+                removalDependencies,
+              ),
+          ),
+        finalRemove: async (uri, snapshotId) => {
+          await validateFixture();
+          registry!.pending = "remove_items";
+          await writeReviewRegistry(input.registryPath, registry!);
+          const outcome = await removeReviewAttributionItems({
+            playlistId: created.id,
+            uri,
+            snapshotId,
+          }, removalDependencies);
+          registry!.receipt = {
+            experiment,
+            operation: "remove_items",
+            case: ackCase,
+            initialEmptySnapshotId: registry!.receipt!.initialEmptySnapshotId,
+            acknowledgedSnapshotId: outcome.snapshotId,
+            acknowledgements: [
+              ...registry!.receipt!.acknowledgements!,
+              ...(outcome.snapshotId === null ? [] : [{
+                operation: "remove_items" as const,
+                snapshotId: outcome.snapshotId,
+              }]),
+            ],
+            readbacks: [],
+          };
+          await writeReviewRegistry(input.registryPath, registry!);
+          registry!.pending = null;
+          await writeReviewRegistry(input.registryPath, registry!);
+          return outcome;
+        },
+      });
+      await cleanup();
+      return {
+        recoveredFixture: false,
+        freshExperiment: true,
+        cleanupConfirmed: true,
+        experiment: "ack_attribution",
+        ...result,
+        originalProofPassed: false,
+        readVersionConsistencyVerified: false,
+        historicalSnapshotGuarantee: false,
+      };
+    }
     if (experiment === "ack_targeted_removal") {
       registry.receipt = {
         experiment,

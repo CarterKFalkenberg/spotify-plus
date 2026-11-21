@@ -1,11 +1,14 @@
+import { runReviewAttributionProof } from "./review-attribution-proof.ts";
 import { runReviewAckProof } from "./review-ack-proof.ts";
 import {
   observeReviewCase,
   parseReviewRegistry,
+  removeReviewAttributionItems,
   removeReviewItems,
   reviewProofFailure,
   runReviewAckExperiment,
   runReviewAppendExperiment,
+  runReviewAttributionExperiment,
   runReviewExperiment,
   runReviewProof,
 } from "./review-proof.ts";
@@ -824,4 +827,230 @@ Deno.test("ACK-targeted entrypoint rejects authorization before provider calls a
       "review_registry_invalid",
     );
   }
+});
+
+Deno.test("attribution probe covers unique, unrelated edits and replacement preservation/no-op/rejection", async () => {
+  for (
+    const finalBehavior of ["preserve", "noop", "reject", "remove_replacement"]
+  ) {
+    let items: string[] = [], revision = 0, writes = 0;
+    const versions = new Map<string, string[]>();
+    const save = () => {
+      writes++;
+      const id = "private-ack-" + ++revision;
+      versions.set(id, [...items]);
+      return Promise.resolve(id);
+    };
+    const result = await runReviewAttributionExperiment({
+      uris,
+      selectCase: () => {},
+      wait: () => Promise.resolve(),
+      append: (target) => {
+        items.push(...target);
+        return save();
+      },
+      remove: (uri, id) => {
+        const old = versions.get(id)!;
+        if (!old.includes(uri)) throw new Error("Missing historical URI");
+        items = items.filter((value) => value !== uri);
+        return save();
+      },
+      finalRemove: () => {
+        writes++;
+        if (finalBehavior === "remove_replacement") {
+          items = items.filter((uri) => uri !== uris[0]);
+        }
+        return Promise.resolve(
+          finalBehavior === "reject"
+            ? {
+              status: 400 as const,
+              category: "bad_request" as const,
+              snapshotId: null,
+            }
+            : {
+              status: 200 as const,
+              category: "acknowledged" as const,
+              snapshotId: finalBehavior === "noop"
+                ? "private-ack-" + revision
+                : "private-final-ack",
+            },
+        );
+      },
+      read: () =>
+        Promise.resolve({
+          snapshotId: "private-unchanged-read",
+          items: [...items],
+          stable: true,
+          contentComplete: true,
+        }),
+    });
+    equal(writes, 9);
+    equal(result.allCasesCompleted, true);
+    equal(result.observations.map((r) => r.expectedSequenceObserved), [
+      true,
+      true,
+      finalBehavior !== "remove_replacement",
+    ]);
+    equal(result.candidateReady, finalBehavior !== "remove_replacement");
+    equal(
+      result.finalRemoval?.ackMatchesPreviousWrite,
+      finalBehavior === "reject" ? null : finalBehavior === "noop",
+    );
+    equal(/private|spotify:/.test(JSON.stringify(result)), false);
+  }
+});
+
+Deno.test("attribution early negative outcomes stop without resetting or further writes", async () => {
+  for (const negative of ["unique", "unrelated"]) {
+    let items: string[] = [], writes = 0, removes = 0;
+    const result = await runReviewAttributionExperiment({
+      uris,
+      selectCase: () => {},
+      wait: () => Promise.resolve(),
+      append: (target) => {
+        items.push(...target);
+        return Promise.resolve("ack" + ++writes);
+      },
+      remove: () => {
+        removes++;
+        if (negative === "unique") items = [uris[0]];
+        else items = removes === 1 ? [] : [];
+        return Promise.resolve("ack" + ++writes);
+      },
+      finalRemove: () => {
+        throw new Error("Must not reach final probe");
+      },
+      read: () =>
+        Promise.resolve({
+          snapshotId: "empty",
+          items: [...items],
+          stable: true,
+          contentComplete: true,
+        }),
+    });
+    equal(result.candidateReady, false);
+    equal(result.allCasesCompleted, false);
+    equal(writes, negative === "unique" ? 2 : 5);
+    equal(result.observations.length, negative === "unique" ? 1 : 2);
+  }
+});
+
+Deno.test("only narrow final attribution HTTP rejections are observations; errors never replay", async () => {
+  for (const status of [400, 404, 409, 422, 401, 403, 408, 429, 500]) {
+    const t = transport();
+    let calls = 0;
+    t.deps.fetch = () => {
+      calls++;
+      return Promise.resolve(new Response("private-provider-body", { status }));
+    };
+    if ([400, 404, 409, 422].includes(status)) {
+      const result = await removeReviewAttributionItems(removal, t.deps);
+      equal(result.status, status);
+      equal(result.snapshotId, null);
+      equal(JSON.stringify(result).includes("private"), false);
+    } else {
+      equal(
+        (await failure(() => removeReviewAttributionItems(removal, t.deps)))
+          .includes("private"),
+        false,
+      );
+    }
+    equal(calls, 1);
+  }
+});
+
+Deno.test("attribution entrypoint is checked and only its private receipt allows nine ACKs", async () => {
+  equal(
+    await failure(() =>
+      runReviewAttributionProof(
+        { authorized: false } as Parameters<
+          typeof runReviewAttributionProof
+        >[0],
+      )
+    ),
+    "review_authorization_required",
+  );
+  const r = {
+    version: 1,
+    operation: crypto.randomUUID(),
+    epoch: 1,
+    ownerFingerprint: "a".repeat(64),
+    playlistId: "p".repeat(22),
+    state: "created",
+    pending: null,
+    receipt: {
+      experiment: "ack_attribution",
+      operation: "remove_items",
+      case: "attribution_replacement",
+      initialEmptySnapshotId: "empty",
+      acknowledgedSnapshotId: "ack",
+      readbacks: [],
+      acknowledgements: Array.from(
+        { length: 9 },
+        (_, i) => ({ operation: "append", snapshotId: "ack" + i }),
+      ),
+    },
+  };
+  equal(parseReviewRegistry(r).receipt?.acknowledgements?.length, 9);
+  equal(
+    await failure(() =>
+      parseReviewRegistry({
+        ...r,
+        receipt: {
+          ...r.receipt,
+          acknowledgements: [...r.receipt.acknowledgements, {
+            operation: "append",
+            snapshotId: "extra",
+          }],
+        },
+      })
+    ),
+    "review_registry_invalid",
+  );
+  equal(
+    await failure(() =>
+      parseReviewRegistry({
+        ...r,
+        receipt: {
+          ...r.receipt,
+          experiment: "ack_targeted_removal",
+          case: "ack_latest",
+        },
+      })
+    ),
+    "review_registry_invalid",
+  );
+});
+
+Deno.test("attribution preparation rejects a repeated ACK before the next case", async () => {
+  let items: string[] = [], writes = 0;
+  const code = await failure(() =>
+    runReviewAttributionExperiment({
+      uris,
+      selectCase: () => {},
+      wait: () => Promise.resolve(),
+      append: (target) => {
+        items.push(...target);
+        writes++;
+        return Promise.resolve("same-private-ack");
+      },
+      remove: () => {
+        items = [];
+        writes++;
+        return Promise.resolve("same-private-ack");
+      },
+      finalRemove: () => {
+        throw new Error("Final probe must not run");
+      },
+      read: () =>
+        Promise.resolve({
+          snapshotId: "empty",
+          items: [...items],
+          stable: true,
+          contentComplete: true,
+        }),
+    })
+  );
+  equal(code, "review_attribution_ack_not_advanced");
+  equal(writes, 2);
 });
