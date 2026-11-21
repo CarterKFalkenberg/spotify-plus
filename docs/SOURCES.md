@@ -1,5 +1,7 @@
 # Sources and the shared song pool
 
+The November 21 [Liked Songs review specification](LIKED-SONGS-FANOUT.md) adds an independent exact-track backlog. Sources still governs the shared pool described below, but does not govern that backlog or its destination configuration. A review destination does not automatically become an enabled Source. Existing independent membership and annotation-preservation rules still apply when review actions change Spotify membership.
+
 Accepted October 21, 2026 in the Sources planning chat; tracked in [issue #72](https://github.com/CarterKFalkenberg/spotify-plus/issues/72). This specification extends the original Liked Songs scope. Implementation and live verification remain separate from this accepted plan.
 
 ## Product contract

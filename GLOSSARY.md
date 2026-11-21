@@ -1,6 +1,6 @@
 # Spotify Plus
 
-Personal music organization through tags, selected Spotify sources and disposable generated playlists.
+Personal music organization through Liked Songs review into maintained playlists, tags, selected Spotify sources and disposable generated playlists.
 
 ## Language
 
@@ -28,3 +28,12 @@ An app-managed Spotify playlist containing a snapshot of a tag query's matching 
 
 **Annotation**:
 The user's persistent tagging information, preserved independently of Spotify membership and cached metadata.
+
+### Liked Songs review
+
+**Destination playlist**:
+An existing Spotify playlist the user has chosen to offer as a destination during Liked Songs review.
+_Avoid_: Generated playlist (which specifically describes a tag-query snapshot).
+
+**Liked Songs backlog**:
+The user's currently liked Spotify tracks awaiting review for playlist placement, ordered from oldest-liked to newest-liked. Each Spotify track is reviewed separately, even when several tracks represent the same song.

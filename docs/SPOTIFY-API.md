@@ -1,5 +1,13 @@
 # Spotify API contract notes
 
+## Accepted Liked Songs review extension — November 21, 2026
+
+The [accepted specification](LIKED-SONGS-FANOUT.md) narrowly extends the historical contracts below: validated exact-track unliking after Done/confirmed Discard, re-liking for most-recent Undo, additions to configured owned non-generated playlists, and safe reversal of only that action's additions. Ordinary login/bootstrap scopes and optional playback consent remain unchanged. Existing runtime guards remain in place until a separately tested implementation introduces explicit operation authorization; historical statements prohibiting track writes describe the pre-extension implementation.
+
+Current official docs were inspected November 21 for [saving library items](https://developer.spotify.com/documentation/web-api/reference/save-library-items), [adding playlist items](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist) and [removing playlist items](https://developer.spotify.com/documentation/web-api/reference/remove-items-playlist). Use the current `/me/library` and `/playlists/{id}/items` contracts. Save does not document an original liked-date input; removal does not document a stable occurrence ID or atomic reject-on-newer-snapshot guarantee. Exact date restoration and arbitrary concurrent-edit reversal cannot be promised from these contracts. The specification records conservative Undo behavior and outstanding controlled proofs. Documentation is not live-response evidence, and product acceptance does not authorize real-library test mutations.
+
+## Historical API baseline
+
 Checked against official documentation on October 10, 2026. No authenticated Spotify request has been made in this session. **Documented** and **live verified** are separate statuses. The first build stage must record redacted real-response evidence.
 
 ## Changes to the supplied brief
