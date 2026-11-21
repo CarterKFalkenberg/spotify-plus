@@ -32,9 +32,26 @@ same snapshot before proceeding:
 A/B are conceptual labels, never logged Spotify identifiers. All writes are
 single dispatches. Scenario removal sends only the documented URI/snapshot body.
 Reads bracket the single bounded items page with equal playlist snapshots.
-Snapshot disagreement, unexpected size, unavailable items or invalid schemas
-block a usable observation. Every scenario write is registered as pending before
+After each acknowledged replace, append or removal, the helper makes at most four
+readback attempts, waiting 500, 1,000 and 2,000 milliseconds between them. Only
+reads repeat. Each attempt retains the before/items/after snapshot bracket and
+bounded complete page checks. Baseline/append confirmation still requires the
+exact acknowledged snapshot and exact ordered URI sequence; append must also
+advance the acknowledged snapshot. Removal requires its exact acknowledged
+snapshot, while the resulting sequence remains an observation of the contract
+under test. Snapshot disagreement, unexpected size or unavailable items that
+persist through the bound block the observation. Provider errors and invalid
+schemas stop immediately. Every scenario write is registered as pending before
 dispatch. A lost response never triggers an immediate replay.
+
+Exhausted readback mismatches retain the fixed blocker code and add only fixed
+`stage`/`case`, attempt and item counts, and `stableReadback`, `snapshotMatches`,
+`sequenceMatches` and `acknowledgementAdvanced` evidence. Nullable fields mean no
+such assertion applies (in particular, removal has no promised sequence). No
+snapshot values or track identifiers enter the output. Evidence describes the
+last bounded attempt; it does not diagnose a propagation delay or prove why an
+earlier read differed. Earlier runs without this evidence cannot retrospectively
+establish whether their combined baseline check failed on snapshot or sequence.
 
 The output contains only fixed case names, counts, booleans and fixed blocker
 codes. `passed:true` means the bounded experiment completed and fixture cleanup
@@ -122,4 +139,7 @@ The Node test spawns a Deno child with network denied and only temporary fixture
 write permission, stubs provider/DB behavior with synthetic values, and checks
 actual durable registry recovery for lost append/create/cleanup, unresolved
 creation/cleanup, changed epoch/owner, legacy-only fixture ownership, conflicting
-explicit owner accounts, concurrent lock and stale temporary files.
+explicit owner accounts, concurrent lock and stale temporary files. Deno tests
+also cover delayed read convergence, persistent snapshot/sequence/bracket
+mismatches, unchanged append acknowledgements, bounded waits and unchanged
+mutation dispatch counts.

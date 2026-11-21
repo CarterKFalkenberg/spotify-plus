@@ -43,7 +43,22 @@ export interface ReviewRegistry {
   state: "creating" | "created" | "cleanup_pending" | "removed";
   pending: string | null;
 }
-class ReviewFailure extends Error {}
+interface ReadbackEvidence {
+  stage: "baseline" | "later_edit" | "removal";
+  case: typeof reviewCases[number]["name"];
+  attempts: number;
+  stableReadback: boolean;
+  snapshotMatches: boolean;
+  sequenceMatches: boolean | null;
+  acknowledgementAdvanced: boolean | null;
+  expectedCount: number | null;
+  observedCount: number;
+}
+class ReviewFailure extends Error {
+  constructor(code: string, readonly evidence?: ReadbackEvidence) {
+    super(code);
+  }
+}
 function check(value: unknown, code: string): asserts value {
   if (!value) throw new ReviewFailure(code);
 }
@@ -242,42 +257,81 @@ export async function runReviewExperiment(deps: {
   uris: string[];
   replace: (uris: string[]) => Promise<string>;
   append: (uris: string[]) => Promise<string>;
-  read: () => Promise<{ snapshotId: string; items: (string | null)[] }>;
+  read: () => Promise<{
+    snapshotId: string;
+    items: (string | null)[];
+    stable?: boolean;
+  }>;
   remove: (uri: string, snapshotId: string) => Promise<string>;
+  wait?: (ms: number) => Promise<void>;
 }) {
   check(
     deps.uris.length === 2 && deps.uris[0] !== deps.uris[1] &&
       deps.uris.every((uri) => /^spotify:track:[A-Za-z0-9]{22}$/.test(uri)),
     "cached_tracks_required",
   );
+  const wait = deps.wait ??
+    ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  // Only GET readbacks repeat. Each acknowledged mutation remains one dispatch.
+  // Equality with the acknowledged snapshot and exact sequences still gate writes.
+  const confirm = async (
+    scenario: typeof reviewCases[number],
+    stage: ReadbackEvidence["stage"],
+    expectedSnapshot: string,
+    expected: string[] | null,
+    acknowledgementAdvanced: boolean | null = null,
+  ) => {
+    for (let attempt = 0;; attempt++) {
+      const observed = await deps.read();
+      const evidence: ReadbackEvidence = {
+        stage,
+        case: scenario.name,
+        attempts: attempt + 1,
+        stableReadback: observed.stable !== false,
+        snapshotMatches: observed.snapshotId === expectedSnapshot,
+        sequenceMatches: expected === null
+          ? null
+          : JSON.stringify(observed.items) === JSON.stringify(expected),
+        acknowledgementAdvanced,
+        expectedCount: expected?.length ?? null,
+        observedCount: observed.items.length,
+      };
+      if (
+        evidence.stableReadback && evidence.snapshotMatches &&
+        evidence.sequenceMatches !== false && acknowledgementAdvanced !== false
+      ) return observed;
+      if (attempt === 3) {
+        throw new ReviewFailure(
+          stage === "baseline"
+            ? "baseline_unconfirmed"
+            : stage === "later_edit"
+            ? "later_edit_unconfirmed"
+            : "removal_readback_unconfirmed",
+          evidence,
+        );
+      }
+      await wait(500 * 2 ** attempt);
+    }
+  };
   const observations = [];
   for (const scenario of reviewCases) {
     const baseline = scenario.baseline.map((i) => deps.uris[i]);
     const baselineSnapshot = await deps.replace(baseline);
-    const acknowledged = await deps.read();
-    check(
-      acknowledged.snapshotId === baselineSnapshot &&
-        JSON.stringify(acknowledged.items) === JSON.stringify(baseline),
-      "baseline_unconfirmed",
-    );
+    await confirm(scenario, "baseline", baselineSnapshot, baseline);
     if (scenario.later.length) {
       const later = scenario.later.map((i) => deps.uris[i]);
       const laterSnapshot = await deps.append(later);
-      const changed = await deps.read();
-      check(
-        laterSnapshot !== baselineSnapshot &&
-          changed.snapshotId === laterSnapshot &&
-          JSON.stringify(changed.items) ===
-            JSON.stringify([...baseline, ...later]),
-        "later_edit_unconfirmed",
+      await confirm(
+        scenario,
+        "later_edit",
+        laterSnapshot,
+        [...baseline, ...later],
+        laterSnapshot !== baselineSnapshot,
       );
     }
     const removedSnapshot = await deps.remove(deps.uris[0], baselineSnapshot);
-    const observed = await deps.read();
-    check(
-      observed.snapshotId === removedSnapshot,
-      "removal_readback_unconfirmed",
-    );
+    // Removal sequence is the experiment's observation, not an assumed guarantee.
+    const observed = await confirm(scenario, "removal", removedSnapshot, null);
     observations.push(
       observeReviewCase(scenario.name, observed.items, deps.uris),
     );
@@ -613,13 +667,10 @@ export async function runReviewProof(input: ReviewProofInput) {
           method: "GET",
           path: `/playlists/${created.id}`,
         }) as SpotifyPlaylist;
-        check(
-          before.snapshotId === after.snapshotId && page.total <= 4 &&
+        return {
+          stable: before.snapshotId === after.snapshotId && page.total <= 4 &&
             page.total === page.items.length && page.nextOffset === null &&
             page.items.every((item) => item.uri !== null),
-          "readback_unstable",
-        );
-        return {
           snapshotId: after.snapshotId,
           items: page.items.map((item) => item.uri),
         };
@@ -647,6 +698,9 @@ export function reviewProofFailure(error: unknown) {
       : error instanceof SpotifyError
       ? `spotify_${error.kind}`
       : "review_proof_failed",
+    ...(error instanceof ReviewFailure && error.evidence
+      ? { evidence: error.evidence }
+      : {}),
   };
 }
 if (import.meta.main) {

@@ -234,6 +234,7 @@ Deno.test("experiment distinguishes historical-snapshot preservation from curren
     };
     const removals: string[] = [];
     const observations = await runReviewExperiment({
+      wait: () => Promise.resolve(),
       uris,
       replace: (target) => {
         items = [...target];
@@ -276,6 +277,7 @@ Deno.test("experiment refuses unacknowledged baseline and does not repeat ambigu
     let items: string[] = [], revision = 0, appends = 0, removals = 0;
     const code = await failure(() =>
       runReviewExperiment({
+        wait: () => Promise.resolve(),
         uris,
         replace: (target) => {
           items = [...target];
@@ -337,4 +339,174 @@ Deno.test("registry validation refuses corrupt fixture scope and redaction drops
       .unknownItemCount,
     1,
   );
+});
+
+Deno.test("acknowledged mutations converge through bounded reads without repeat writes", async () => {
+  let items: string[] = [], revision = 0, readsSinceWrite = 0;
+  const writes = { replace: 0, append: 0, remove: 0 };
+  const waits: number[] = [];
+  let stage = "baseline";
+  const changed = () => {
+    readsSinceWrite = 0;
+    return String(++revision);
+  };
+  const observations = await runReviewExperiment({
+    uris,
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
+    },
+    replace: (target) => {
+      writes.replace++;
+      stage = "baseline";
+      items = [...target];
+      return Promise.resolve(changed());
+    },
+    append: (target) => {
+      writes.append++;
+      stage = "later_edit";
+      items.push(...target);
+      return Promise.resolve(changed());
+    },
+    remove: (uri) => {
+      writes.remove++;
+      stage = "removal";
+      items = items.filter((item) => item !== uri);
+      return Promise.resolve(changed());
+    },
+    read: () => {
+      const attempt = ++readsSinceWrite;
+      return Promise.resolve({
+        snapshotId: attempt === 1 ? "stale" : String(revision),
+        stable: attempt !== 2,
+        items: attempt === 3 && stage !== "removal" ? [] : [...items],
+      });
+    },
+  });
+  equal(observations.length, 4);
+  equal(writes, { replace: 4, append: 2, remove: 4 });
+  equal(waits.length, 26);
+  equal(waits.every((ms) => [500, 1000, 2000].includes(ms)), true);
+});
+
+Deno.test("persistent readback mismatches expose only fixed evidence and stop before another write", async () => {
+  for (const stage of ["baseline", "later_edit", "removal"]) {
+    for (const kind of ["snapshot", "sequence", "unstable"]) {
+      // Removal's resulting sequence is an observation, not a promised contract.
+      if (stage === "removal" && kind === "sequence") continue;
+      let items: string[] = [], revision = 0, currentStage = "baseline";
+      const writes = { replace: 0, append: 0, remove: 0 };
+      const waits: number[] = [];
+      let result;
+      try {
+        await runReviewExperiment({
+          uris,
+          wait: (ms) => {
+            waits.push(ms);
+            return Promise.resolve();
+          },
+          replace: (target) => {
+            writes.replace++;
+            currentStage = "baseline";
+            items = [...target];
+            return Promise.resolve(String(++revision));
+          },
+          append: (target) => {
+            writes.append++;
+            currentStage = "later_edit";
+            items.push(...target);
+            return Promise.resolve(String(++revision));
+          },
+          remove: (uri) => {
+            writes.remove++;
+            currentStage = "removal";
+            items = items.filter((item) => item !== uri);
+            return Promise.resolve(String(++revision));
+          },
+          read: () => {
+            const fail = currentStage === stage;
+            return Promise.resolve({
+              snapshotId: fail && kind === "snapshot"
+                ? "private-snapshot-value"
+                : String(revision),
+              stable: !(fail && kind === "unstable"),
+              items: fail && kind === "sequence" ? [uris[1]] : [...items],
+            });
+          },
+        });
+        throw new Error("Expected mismatch");
+      } catch (error) {
+        result = reviewProofFailure(error);
+      }
+      equal(result.passed, false);
+      equal(
+        result.blocker,
+        stage === "baseline"
+          ? "review_baseline_unconfirmed"
+          : stage === "later_edit"
+          ? "review_later_edit_unconfirmed"
+          : "review_removal_readback_unconfirmed",
+      );
+      equal(result.evidence?.stage, stage);
+      equal(
+        result.evidence?.case,
+        stage === "later_edit" ? "later_same_uri" : "unique",
+      );
+      equal(result.evidence?.attempts, 4);
+      equal(result.evidence?.stableReadback, kind !== "unstable");
+      equal(result.evidence?.snapshotMatches, kind !== "snapshot");
+      equal(
+        result.evidence?.sequenceMatches,
+        stage === "removal" ? null : kind !== "sequence",
+      );
+      equal(waits, [500, 1000, 2000]);
+      equal(
+        writes,
+        stage === "baseline"
+          ? { replace: 1, append: 0, remove: 0 }
+          : stage === "later_edit"
+          ? { replace: 3, append: 1, remove: 2 }
+          : { replace: 1, append: 0, remove: 1 },
+      );
+      const output = JSON.stringify(result);
+      equal(output.includes("private-snapshot-value"), false);
+      equal(output.includes("spotify:"), false);
+    }
+  }
+});
+
+Deno.test("append acknowledgement must advance even when readback snapshot and sequence match", async () => {
+  let items: string[] = [], revision = 0, appends = 0, removals = 0;
+  let result;
+  try {
+    await runReviewExperiment({
+      uris,
+      wait: () => Promise.resolve(),
+      replace: (target) => {
+        items = [...target];
+        return Promise.resolve(String(++revision));
+      },
+      append: (target) => {
+        appends++;
+        items.push(...target);
+        return Promise.resolve(String(revision));
+      },
+      remove: (uri) => {
+        removals++;
+        items = items.filter((item) => item !== uri);
+        return Promise.resolve(String(++revision));
+      },
+      read: () => Promise.resolve({ snapshotId: String(revision), items }),
+    });
+    throw new Error("Expected unchanged acknowledgement failure");
+  } catch (error) {
+    result = reviewProofFailure(error);
+  }
+  equal(result.blocker, "review_later_edit_unconfirmed");
+  equal(result.evidence?.acknowledgementAdvanced, false);
+  equal(result.evidence?.snapshotMatches, true);
+  equal(result.evidence?.sequenceMatches, true);
+  equal(result.evidence?.attempts, 4);
+  equal(appends, 1);
+  equal(removals, 2);
 });
