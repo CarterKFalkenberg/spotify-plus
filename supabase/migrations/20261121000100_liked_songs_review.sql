@@ -42,7 +42,7 @@ create table app.review_operations (
  uri text not null check(uri ~ '^spotify:track:[A-Za-z0-9]{22}$'),
  kind text not null check(kind in ('done','discard')),
  status text not null default 'queued' check(status in ('queued','adding','unliking','completed','undoing','undone','cancelled','needs_attention')),
- phase text not null default 'adding' check(phase in ('adding','unlike_pending','unlike_sending','unlike_check','restore_pending','restore_sending','restore_check','terminal')),
+ phase text not null default 'adding' check(phase in ('adding','unlike_pending','unlike_sending','unlike_check','restore_pending','restore_sending','restore_check','reversing','terminal')),
  error_code text,
  job_id uuid references app.jobs(id) on delete set null,
  undo_request_id uuid,
@@ -63,8 +63,9 @@ create unique index review_single_active on app.review_operations(epoch) where s
 create table app.review_operation_items (
  operation_id uuid not null references app.review_operations(id) on delete cascade,
  playlist_id text not null,
- state text not null default 'pending' check(state in ('pending','sending','confirmed','preexisting','unconfirmed','reversal_unavailable')),
+ state text not null default 'pending' check(state in ('pending','sending','confirmed','preexisting','unconfirmed','reverse_sending','reverse_check','reversed','reversal_unavailable')),
  snapshot_id text,
+ reverse_snapshot_id text,
  primary key(operation_id,playlist_id)
 );
 create table app.review_memberships (
@@ -396,12 +397,34 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
   elsif p_event='restore_retry' then
    if o.phase not in ('restore_sending','restore_check') then raise exception 'invalid_action'; end if;
    update app.review_operations set phase='restore_pending' where id=o.id;
+  elsif p_event='restored' then
+   if o.phase not in ('restore_sending','restore_check') or o.status<>'undoing' then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase='reversing' where id=o.id;
+   insert into app.source_memberships(epoch,source_id,track_key,added_at) values(p_epoch,'liked',o.track_key,now()) on conflict(epoch,source_id,track_key) do nothing;
+   perform app.refresh_source_pool(p_epoch);
+   perform app.review_restart_liked(p_epoch);
+  elsif p_event='reverse_intent' then
+   if o.phase<>'reversing' or o.status<>'undoing' or o.id is distinct from (select undo_id from app.review_state where epoch=p_epoch)
+    or item_row.state<>'confirmed' or item_row.snapshot_id is null or p_snapshot is distinct from item_row.snapshot_id
+    or not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=p_playlist
+     and m.status='present' and m.occurrences=1 and m.snapshot_id=item_row.snapshot_id and m.checked_at>now()-interval '1 minute') then raise exception 'invalid_action'; end if;
+   if not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=p_playlist and d.owned and d.available)
+    or exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=p_playlist) then raise exception 'unknown_playlist'; end if;
+   update app.review_operation_items set state='reverse_sending' where operation_id=o.id and playlist_id=p_playlist;
+   delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
+  elsif p_event='reverse_check' then
+   if o.phase<>'reversing' or item_row.state<>'reverse_sending' then raise exception 'invalid_action'; end if;
+   update app.review_operation_items set state='reverse_check',reverse_snapshot_id=p_snapshot where operation_id=o.id and playlist_id=p_playlist;
+  elsif p_event='reversed' then
+   if o.phase<>'reversing' or item_row.state<>'reverse_check'
+    or not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=p_playlist
+     and m.status='absent' and m.occurrences=0 and m.checked_at>now()-interval '1 minute') then raise exception 'invalid_action'; end if;
+   update app.review_operation_items set state='reversed' where operation_id=o.id and playlist_id=p_playlist;
+  elsif p_event='reverse_unavailable' then
+   if o.phase<>'reversing' or item_row.state not in ('confirmed','unconfirmed','reverse_sending','reverse_check') then raise exception 'invalid_action'; end if;
+   update app.review_operation_items set state='reversal_unavailable' where operation_id=o.id and playlist_id=p_playlist;
   elsif p_event='undone' then
-   if o.phase not in ('restore_sending','restore_check') then raise exception 'invalid_action'; end if;
-   -- URI-only removal cannot prove exact occurrence attribution under external
-   -- edits. Preserve additions until the separately scoped live proof supports
-   -- a safe reversal contract; never simulate success by removing another copy.
-   update app.review_operation_items set state='reversal_unavailable' where operation_id=o.id and state in ('confirmed','unconfirmed');
+   if o.phase<>'reversing' or exists(select 1 from app.review_operation_items where operation_id=o.id and state not in ('preexisting','reversed','reversal_unavailable')) then raise exception 'invalid_action'; end if;
    update app.review_operations set status='undone',phase='terminal',error_code=case when exists(select 1 from app.review_operation_items where operation_id=o.id and state='reversal_unavailable') then 'playlist_reversal_unavailable' end,
     reversal_incomplete=exists(select 1 from app.review_operation_items where operation_id=o.id and state='reversal_unavailable') where id=o.id;
    insert into app.source_memberships(epoch,source_id,track_key,added_at) values(p_epoch,'liked',o.track_key,now()) on conflict(epoch,source_id,track_key) do nothing;
@@ -418,7 +441,7 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
 $$;
 -- Exact-match, durable, current operation capability. No ordinary transport
 -- request or browser-supplied flag grants track or curated-playlist writes.
-create function public.app_review_authorize(p_epoch bigint,p_job uuid,p_lease uuid,p_operation uuid,p_action text,p_method text,p_path text,p_uri text) returns boolean language plpgsql security definer set search_path='' as $$
+create function public.app_review_authorize(p_epoch bigint,p_job uuid,p_lease uuid,p_operation uuid,p_action text,p_method text,p_path text,p_uri text,p_snapshot text default null) returns boolean language plpgsql security definer set search_path='' as $$
  declare worker_state jsonb; o app.review_operations; pid text;
  begin
   worker_state:=public.app_review_worker(p_epoch,p_job,p_lease); if worker_state is null then return false; end if;
@@ -432,7 +455,14 @@ create function public.app_review_authorize(p_epoch bigint,p_job uuid,p_lease uu
     and exists(select 1 from app.review_destinations where epoch=p_epoch and id=pid and configured and owned and available)
     and not exists(select 1 from app.playlists where epoch=p_epoch and spotify_id=pid);
   end if;
-  return false; -- Reversal requires a proven occurrence-safe remote contract.
+  if p_action='reverse' and p_method='DELETE' then
+   pid:=substring(p_path from '^/playlists/([A-Za-z0-9]{22})/items$');
+   return pid is not null and o.phase='reversing' and o.status='undoing' and o.id=(select undo_id from app.review_state where epoch=p_epoch)
+    and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and i.playlist_id=pid and i.state='reverse_sending' and i.snapshot_id=p_snapshot)
+    and exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=pid and d.owned and d.available)
+    and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=pid);
+  end if;
+  return false;
  end;
 $$;
 

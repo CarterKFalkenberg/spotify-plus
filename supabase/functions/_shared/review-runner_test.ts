@@ -39,6 +39,9 @@ function fixture() {
   };
   let allowed = true;
   let appendError: unknown;
+  let reverseError: unknown;
+  let liked = true;
+  let ownerProfile = "profile";
   const db = {
     rpc: (_name: string, args: Record<string, unknown>) => {
       if (_name === "app_review_worker") return Promise.resolve(state);
@@ -51,9 +54,9 @@ function fixture() {
       Promise.resolve({ accountId: "owner", id: "profile" }),
     getPlaylist: () =>
       Promise.resolve({
-        ownerId: "profile",
+        ownerId: ownerProfile,
         ownerAccountId: null,
-        ownerProfileId: "profile",
+        ownerProfileId: ownerProfile,
         snapshotId: "before",
         total: 0,
         id: playlist,
@@ -72,7 +75,7 @@ function fixture() {
       }),
     containsTracks: () => {
       events.push("contains");
-      return Promise.resolve([true]);
+      return Promise.resolve([liked]);
     },
     reviewAppend: () => {
       events.push("append");
@@ -83,6 +86,18 @@ function fixture() {
     reviewUnlike: () => {
       events.push("unlike");
       return Promise.resolve();
+    },
+    reviewReverse: (
+      _operation: string,
+      _playlist: string,
+      _uri: string,
+      snapshot: string,
+    ) => {
+      strictEqual(snapshot, "before");
+      events.push("reverse");
+      return reverseError
+        ? Promise.reject(reverseError)
+        : Promise.resolve({ snapshotId: "removed" });
     },
     reviewRestore: () => {
       events.push("restore");
@@ -101,6 +116,9 @@ function fixture() {
     run: () => run(job, 200000),
     deny: () => allowed = false,
     fail: (error: unknown) => appendError = error,
+    failReverse: (error: unknown) => reverseError = error,
+    setLiked: (value: boolean) => liked = value,
+    setOwner: (value: string) => ownerProfile = value,
   };
 }
 Deno.test("review commits append intent before dispatch and never unlikes in that invocation", async () => {
@@ -147,7 +165,7 @@ Deno.test("review restores liked membership using durable intent and later verif
   f.state.operation!.phase = "restore_pending";
   f.state.operation!.status = "undoing";
   await f.run();
-  deepStrictEqual(f.events, ["contains", "restore_intent", "undone"]);
+  deepStrictEqual(f.events, ["contains", "restore_intent", "restored"]);
 });
 Deno.test("review unlike pending rechecks changed destination snapshot before unliking", async () => {
   const f = fixture();
@@ -170,4 +188,112 @@ Deno.test("review unlike pending only sends after every fresh destination versio
     "unlike",
     "unlike_check",
   ]);
+});
+
+function reversingFixture() {
+  const f = fixture();
+  f.state.operation!.phase = "reversing";
+  f.state.operation!.status = "undoing";
+  f.state.items[0].state = "confirmed";
+  f.state.items[0].snapshot_id = "before";
+  f.state.memberships[0].status = "present";
+  f.state.memberships[0].occurrences = 1;
+  return f;
+}
+Deno.test("Undo restores like before any playlist reversal and verifies it later", async () => {
+  const f = reversingFixture();
+  f.state.operation!.phase = "restore_pending";
+  f.setLiked(false);
+  await f.run();
+  deepStrictEqual(f.events, [
+    "contains",
+    "restore_intent",
+    "restore",
+    "restore_check",
+  ]);
+  f.events.length = 0;
+  f.setLiked(true);
+  f.state.operation!.phase = "restore_check";
+  await f.run();
+  deepStrictEqual(f.events, ["contains", "restored"]);
+});
+Deno.test("Undo sends only acknowledged one-copy same-version reversal after durable intent", async () => {
+  const f = reversingFixture();
+  await f.run();
+  deepStrictEqual(f.events, ["reverse_intent", "reverse", "reverse_check"]);
+});
+Deno.test("Undo preserves preexisting, unconfirmed, changed and duplicate memberships", async () => {
+  for (
+    const scenario of [
+      "preexisting",
+      "unconfirmed",
+      "changed",
+      "duplicate",
+      "liveChanged",
+    ]
+  ) {
+    const f = reversingFixture();
+    if (["preexisting", "unconfirmed"].includes(scenario)) {
+      f.state.items[0].state = scenario;
+    }
+    if (scenario === "changed") f.state.memberships[0].snapshot_id = "changed";
+    if (scenario === "duplicate") f.state.memberships[0].occurrences = 2;
+    if (scenario === "ownerChanged") f.setOwner("another-profile");
+    if (scenario === "liveChanged") {
+      f.state.items[0].snapshot_id = "different-ack";
+      f.state.memberships[0].snapshot_id = "different-ack";
+    }
+    await f.run();
+    deepStrictEqual(f.events, [
+      scenario === "preexisting" ? "undone" : "reverse_unavailable",
+    ]);
+  }
+});
+Deno.test("Undo stale intent never dispatches and stale observations are refreshed", async () => {
+  const denied = reversingFixture();
+  denied.deny();
+  strictEqual(await denied.run(), null);
+  deepStrictEqual(denied.events, ["reverse_intent"]);
+  const stale = reversingFixture();
+  stale.state.memberships[0].checked_at = new Date(0).toISOString();
+  await stale.run();
+  deepStrictEqual(stale.events, ["scan"]);
+});
+Deno.test("Undo ambiguous and reclaimed removals reconcile without replay", async () => {
+  const f = reversingFixture();
+  f.failReverse(new SpotifyError("network", null, null, true));
+  await f.run();
+  deepStrictEqual(f.events, ["reverse_intent", "reverse", "reverse_check"]);
+  f.events.length = 0;
+  f.state.items[0].state = "reverse_sending";
+  await f.run();
+  deepStrictEqual(f.events, ["reverse_check"]);
+  f.events.length = 0;
+  f.state.items[0].state = "reverse_check";
+  await f.run();
+  deepStrictEqual(f.events, ["reverse_unavailable"]);
+});
+Deno.test("Undo removal acknowledgement alone cannot complete; read absence is required", async () => {
+  const f = reversingFixture();
+  f.state.items[0].state = "reverse_check";
+  f.state.memberships = [];
+  await f.run();
+  deepStrictEqual(f.events, ["scan"]);
+  f.events.length = 0;
+  f.state.memberships = [{
+    playlist_id: playlist,
+    status: "absent",
+    snapshot_id: "removed",
+    next_offset: 0,
+    observed: 0,
+    occurrences: 0,
+    total: 0,
+    checked_at: new Date(100000).toISOString(),
+  }];
+  await f.run();
+  deepStrictEqual(f.events, ["reversed"]);
+  f.events.length = 0;
+  f.state.items[0].state = "reversed";
+  await f.run();
+  deepStrictEqual(f.events, ["undone"]);
 });

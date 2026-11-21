@@ -49,6 +49,7 @@ type ReviewSpotify = Pick<
   | "reviewAppend"
   | "reviewUnlike"
   | "reviewRestore"
+  | "reviewReverse"
 >;
 export function createReviewRunner(input: {
   db: Database;
@@ -220,10 +221,14 @@ export function createReviewRunner(input: {
         // Even an already satisfied pending command traverses the durable intent
         // state before finalization; no raw HTTP acknowledgement is assumed.
         if (o.phase.endsWith("pending")) {
-          await transition(restoring ? "restore_intent" : "unlike_intent");
+          if (
+            !await transition(restoring ? "restore_intent" : "unlike_intent")
+          ) return null;
         }
-        await transition(restoring ? "undone" : "completed");
-        return { done: true };
+        if (!await transition(restoring ? "restored" : "completed")) {
+          return null;
+        }
+        return restoring ? { done: false, retryMs: 1000 } : { done: true };
       }
       if (!o.phase.endsWith("pending")) {
         await transition(restoring ? "restore_retry" : "unlike_retry");
@@ -283,6 +288,103 @@ export function createReviewRunner(input: {
       }
       await transition(restoring ? "restore_check" : "unlike_check");
       return { done: false, retryMs: 1000 };
+    }
+    if (o.phase === "reversing") {
+      for (const item of state.items) {
+        if (
+          ["preexisting", "reversed", "reversal_unavailable"].includes(
+            item.state,
+          )
+        ) continue;
+        const unavailable = async () => {
+          if (!await transition("reverse_unavailable", item.playlist_id)) {
+            return null;
+          }
+          return { done: false, retryMs: 1000 };
+        };
+        if (item.state === "unconfirmed") return await unavailable();
+        if (item.state === "reverse_sending") {
+          // A reclaimed send intent may already have reached Spotify. Never
+          // dispatch it again; only a later complete read can settle absence.
+          if (!await transition("reverse_check", item.playlist_id)) return null;
+          return { done: false, retryMs: 1000 };
+        }
+        const membership = state.memberships.find((m) =>
+          m.playlist_id === item.playlist_id
+        );
+        if (
+          !membership || ["unknown", "checking"].includes(membership.status) ||
+          !membership.checked_at ||
+          Date.parse(membership.checked_at) < now() - 60000
+        ) {
+          await scan(item.playlist_id);
+          return { done: false, retryMs: 1000 };
+        }
+        if (item.state === "reverse_check") {
+          if (membership.status !== "absent" || membership.occurrences !== 0) {
+            return await unavailable();
+          }
+          if (!await transition("reversed", item.playlist_id)) return null;
+          return { done: false, retryMs: 1000 };
+        }
+        if (
+          item.state !== "confirmed" || membership.status !== "present" ||
+          membership.occurrences !== 1 || !item.snapshot_id ||
+          membership.snapshot_id !== item.snapshot_id
+        ) return await unavailable();
+        if (now() >= deadline - 20000) return { done: false, retryMs: 1000 };
+        try {
+          const live = await client.getPlaylist(item.playlist_id);
+          if (
+            !spotifyPlaylistOwnedBy(live, identity) ||
+            live.snapshotId !== item.snapshot_id
+          ) return await unavailable();
+        } catch (error) {
+          if (
+            error instanceof SpotifyError &&
+            ["forbidden", "not_found"].includes(error.kind)
+          ) return await unavailable();
+          throw error;
+        }
+        // Fresh reads narrow attribution; they are not a remote atomic version
+        // precondition. The provider can still change after this last read.
+        if (
+          !await transition(
+            "reverse_intent",
+            item.playlist_id,
+            item.snapshot_id,
+          )
+        ) return null;
+        await wait(550);
+        try {
+          const result = await client.reviewReverse(
+            o.id,
+            item.playlist_id,
+            state.uri,
+            item.snapshot_id,
+          );
+          await transition(
+            "reverse_check",
+            item.playlist_id,
+            result.snapshotId,
+          );
+        } catch (error) {
+          if (
+            error instanceof SpotifyError &&
+            ["forbidden", "not_found"].includes(error.kind)
+          ) return await unavailable();
+          await transition("reverse_check", item.playlist_id);
+          if (
+            error instanceof SpotifyError &&
+            ["authentication", "cooldown", "rate_limit", "quota"].includes(
+              error.kind,
+            )
+          ) throw error;
+        }
+        return { done: false, retryMs: 1000 };
+      }
+      if (!await transition("undone")) return null;
+      return { done: true };
     }
     // Revalidate every selected destination, including acknowledged additions,
     // before permitting unlike. Present is never inferred from a missing cache.
@@ -390,6 +492,7 @@ export function reviewJobs(
             p_method: operation.method,
             p_path: operation.path,
             p_uri: operation.uri,
+            p_snapshot: operation.snapshotId ?? null,
           }),
         fetch: request,
       });

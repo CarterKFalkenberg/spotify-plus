@@ -81,7 +81,7 @@ export interface SpotifyDependencies {
   isManagedPlaylist(id: string): Promise<boolean>;
   authorizeReview?: (
     authorization: ReviewAuthorization,
-    request: { method: string; path: string; uri: string },
+    request: { method: string; path: string; uri: string; snapshotId?: string },
   ) => Promise<boolean>;
   fetch?: typeof fetch;
   now?: () => number;
@@ -191,6 +191,7 @@ interface Prepared {
     method: string;
     path: string;
     uri: string;
+    snapshotId?: string;
   };
   operation: Operation;
   method: SpotifyRequest["method"];
@@ -265,6 +266,7 @@ function prepare(input: SpotifyRequest): Prepared {
         ),
     );
     let uri: string;
+    let snapshotId: string | undefined;
     if (
       path === "/me/library" &&
       ((method === "DELETE" && authorization.action === "unlike") ||
@@ -305,6 +307,7 @@ function prepare(input: SpotifyRequest): Prepared {
             text(body.snapshot_id) && body.snapshot_id.length > 0,
         );
         uri = body.items[0].uri;
+        snapshotId = body.snapshot_id;
         serialized = JSON.stringify({
           items: [{ uri }],
           snapshot_id: body.snapshot_id,
@@ -312,7 +315,13 @@ function prepare(input: SpotifyRequest): Prepared {
         operation = "review_reverse";
       }
     } else throw new SpotifyError("guard");
-    review = { authorization: { ...authorization }, method, path, uri };
+    review = {
+      authorization: { ...authorization },
+      method,
+      path,
+      uri,
+      ...(snapshotId === undefined ? {} : { snapshotId }),
+    };
   } else if (method === "GET") {
     requireGuard(body === undefined);
     if (path === "/me") operation = "identity";

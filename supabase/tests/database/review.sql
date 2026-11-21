@@ -89,6 +89,47 @@ do $$ declare o app.review_operations; lease uuid:='22222222-2222-4222-8222-2222
  select * into o from app.review_operations;
  perform public.app_review_transition(1,o.job_id,lease,'restore_intent');
  perform pg_temp.assert(public.app_review_authorize(1,o.job_id,lease,o.id,'restore','PUT','/me/library',o.uri),'most recent Undo restore allowed');
+ begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'reverse_before_restore_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ perform public.app_review_transition(1,o.job_id,lease,'restored');
+end $$;
+savepoint attributable_reversal;
+do $$ declare o app.review_operations; lease uuid:='22222222-2222-4222-8222-222222222222'; begin
+ select * into o from app.review_operations;
+ update app.review_operation_items set state='confirmed',snapshot_id='appended' where operation_id=o.id and playlist_id=repeat('p',22);
+ insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,occurrences,checked_at) values(1,o.track_key,repeat('p',22),'present','appended',2,now())
+  on conflict(epoch,track_key,playlist_id) do update set status='present',snapshot_id='appended',occurrences=2,checked_at=now();
+ begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'duplicate_reversal_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ update app.review_memberships set occurrences=1,snapshot_id='changed' where track_key=o.track_key and playlist_id=repeat('p',22);
+ begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'changed_reversal_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ update app.review_memberships set snapshot_id='appended',checked_at=now()-interval '2 minutes' where track_key=o.track_key and playlist_id=repeat('p',22);
+ begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'stale_reversal_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ update app.review_memberships set checked_at=now() where track_key=o.track_key and playlist_id=repeat('p',22);
+ perform pg_temp.assert(not public.app_review_authorize(1,o.job_id,lease,o.id,'reverse','DELETE','/playlists/'||repeat('p',22)||'/items',o.uri,'appended'),'reverse requires durable intent');
+ update app.review_destinations set owned=false where id=repeat('p',22);
+ begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'unowned_reverse_accepted'; exception when raise_exception then if sqlerrm<>'unknown_playlist' then raise; end if; end;
+ update app.review_destinations set owned=true where id=repeat('p',22);
+ insert into app.playlists(epoch,name,spotify_id,query,retention,track_count,status) values(1,'Synthetic generated',repeat('p',22),'{}','month',1,'ready');
+ begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'generated_reverse_accepted'; exception when raise_exception then if sqlerrm<>'unknown_playlist' then raise; end if; end;
+ delete from app.playlists where epoch=1 and spotify_id=repeat('p',22);
+ perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended');
+ perform pg_temp.assert(public.app_review_authorize(1,o.job_id,lease,o.id,'reverse','DELETE','/playlists/'||repeat('p',22)||'/items',o.uri,'appended'),'exact acknowledged snapshot authorizes reversal');
+ perform pg_temp.assert(not public.app_review_authorize(1,o.job_id,lease,o.id,'reverse','DELETE','/playlists/'||repeat('p',22)||'/items',o.uri,'different'),'wrong snapshot cannot reverse');
+ perform pg_temp.assert(not public.app_review_authorize(1,o.job_id,lease,o.id,'reverse','DELETE','/playlists/'||repeat('p',22)||'/items','spotify:track:'||repeat('2',22),'appended'),'other track version cannot reverse');
+ perform pg_temp.assert(not public.app_review_authorize(1,o.job_id,gen_random_uuid(),o.id,'reverse','DELETE','/playlists/'||repeat('p',22)||'/items',o.uri,'appended'),'stale reversal lease cannot dispatch');
+ perform pg_temp.assert(not public.app_review_authorize(1,o.job_id,lease,o.id,'reverse','DELETE','/playlists/'||repeat('q',22)||'/items',o.uri,'appended'),'preexisting destination cannot reverse');
+ perform public.app_review_transition(1,o.job_id,lease,'reverse_check',repeat('p',22),'removed');
+ perform pg_temp.assert(not public.app_review_authorize(1,o.job_id,lease,o.id,'reverse','DELETE','/playlists/'||repeat('p',22)||'/items',o.uri,'appended'),'checking reversal cannot replay');
+ begin perform public.app_review_transition(1,o.job_id,lease,'reversed',repeat('p',22)); raise exception 'unobserved_reversal_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ perform public.app_review_scan(1,o.job_id,lease,repeat('p',22),jsonb_build_object('status','absent','snapshotId','removed','offset',0,'observed',0,'occurrences',0,'total',0));
+ perform public.app_review_transition(1,o.job_id,lease,'reversed',repeat('p',22));
+ perform public.app_review_transition(1,o.job_id,lease,'undone');
+ perform pg_temp.assert((select not reversal_incomplete from app.review_operations where id=o.id),'verified attributable reversal completes Undo');
+ perform pg_temp.assert((select snapshot_id='appended' and reverse_snapshot_id='removed' from app.review_operation_items where operation_id=o.id and playlist_id=repeat('p',22)),'append and reversal receipts remain separate');
+end $$;
+rollback to attributable_reversal;
+do $$ declare o app.review_operations; lease uuid:='22222222-2222-4222-8222-222222222222'; begin
+ select * into o from app.review_operations;
+ perform public.app_review_transition(1,o.job_id,lease,'reverse_unavailable',repeat('p',22));
  perform public.app_review_transition(1,o.job_id,lease,'undone');
  perform pg_temp.assert(app.review_current(1)=o.track_key,'Undo returns exact track for correction');
  perform pg_temp.assert((select reversal_incomplete from app.review_operations where id=o.id),'unattributable addition reported honestly');

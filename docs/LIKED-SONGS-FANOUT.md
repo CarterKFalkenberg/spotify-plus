@@ -64,6 +64,12 @@ Official Spotify references inspected November 21, 2026; no live account calls w
 
 Verify ordinary and duplicate-track removal, interrupted writes, liked-date behavior and concurrent-edit safety in controlled authorized proofs before shipping. Preserve the user's intent while reporting limitations; tests and docs must not claim guarantees unavailable from the remote contract. Actual real-library content remains outside model context. Any new live mutation proof still needs its applicable scoped authorization; this interview performs none.
 
+## Bounded Undo implementation boundary
+
+The implementation attempts playlist reversal only for an acknowledged app append when a fresh complete read finds exactly one matching URI and the current playlist snapshot exactly matches that append's acknowledgement. Fresh owner identity and a service-only capability bind the exact playlist, track URI, snapshot and current Undo operation. Preexisting memberships, unconfirmed appends, duplicates, changed snapshots and unavailable destinations remain intact and produce an incomplete-reversal result. The like is restored and verified before any playlist removal; original Spotify liked-date restoration remains unsupported.
+
+Each removal has a durable send intent. Reclaimed or ambiguous removals enter read-only reconciliation and are never dispatched again. A successful HTTP acknowledgement alone cannot finish reversal: a subsequent complete read must show that URI absent. Confirmed append and removal snapshot receipts remain separate. These are local recovery guarantees; Spotify's documented snapshot parameter allows application despite later edits and provides no atomic version precondition. An edit after the last read can still race the dispatch. The authorization and mutation proof must establish observed behavior separately; synthetic tests and this bounded implementation do not establish live Undo acceptance or guarantee preservation under arbitrary concurrent Spotify edits.
+
 ## Acceptance
 
 - From the default screen on phone and desktop, configure owned destinations and review an oldest-first exact-track backlog using Done, Skip, confirmed Discard and most-recent Undo.

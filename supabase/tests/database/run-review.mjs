@@ -137,7 +137,7 @@ try {
   );
   await sql(await readFile(new URL("./review.sql", import.meta.url), "utf8"));
   console.log(
-    "Synthetic review operations, authorization, stale scans, Sources independence and safe Undo baseline passed.",
+    "Synthetic review operations, authorization, stale scans, Sources independence and bounded Undo passed.",
   );
 } finally {
   await command(["rm", "--force", "--volumes", rest]).catch(() => {});
