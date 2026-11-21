@@ -31,7 +31,9 @@ do $$ declare oid uuid; jid uuid; lease uuid:='77777777-7777-4777-8777-777777777
  select s.active_id into oid from app.review_state s;
  select job_id into jid from app.review_operations where id=oid;
  perform pg_temp.assert((select count(*)=1 and bool_and(playlist_id=repeat('q',22) and state='pending') from app.review_operation_items where operation_id=oid),'already-added-only Done freezes its eligible destination for revalidation');
- perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=repeat('1',64)),'cached presence is cleared before worker confirmation');
+ -- Command completion enqueues read-only checks and creates fresh unknown
+ -- placeholders. Those rows must carry none of the prior presence proof.
+ perform pg_temp.assert((select count(*)=2 and bool_and(status='unknown' and snapshot_id is null and checked_at is null and observed=0 and occurrences=0) from app.review_memberships where epoch=1 and track_key=repeat('1',64)),'cached presence proof is cleared before worker confirmation');
  update app.jobs set state='running',lease_token=lease,lease_until=now()+interval '1 hour' where id=jid;
  perform pg_temp.assert(not public.app_review_authorize(1,jid,lease,oid,'unlike','DELETE','/me/library','spotify:track:'||repeat('1',22)),'already-added label never directly authorizes unlike');
  begin perform public.app_review_transition(1,jid,lease,'unlike_prepare'); raise exception 'unverified_done_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
@@ -118,7 +120,7 @@ do $$ declare oid uuid; jid uuid; revision text; begin
  perform public.app_review_command(1,'cancel',jsonb_build_object('revision',revision,'operationId',oid));
  perform pg_temp.assert((select active_id is null from app.review_state),'cancel clears active failure');
  perform pg_temp.assert((select status='cancelled' from app.review_operations where id=oid),'cancel retains operation evidence');
- perform pg_temp.assert((select state='confirmed' from app.review_operation_items where operation_id=oid),'cancel preserves acknowledged addition evidence');
+ perform pg_temp.assert((select count(*)>0 and bool_and(state='confirmed') from app.review_operation_items where operation_id=oid),'cancel preserves acknowledged addition evidence');
  perform pg_temp.assert(exists(select 1 from app.review_receipts where request_id='66666666-6666-4666-8666-666666666666'),'cancel retains idempotency receipt');
  perform pg_temp.assert(exists(select 1 from app.review_drafts where track_key=repeat('1',64)),'cancel restores saved draft for correction');
  perform pg_temp.assert(exists(select 1 from app.source_memberships where source_id='liked' and track_key=repeat('1',64)),'cancel never unlikes');
