@@ -1,5 +1,7 @@
 # Spotify Song Tagger: build plan
 
+Accepted November 21, 2026: implement [Liked Songs playlist review](LIKED-SONGS-FANOUT.md) as the default phone/desktop entry point, independently of tagging Sources. The specification includes configured owned destinations, exact-track oldest-first review, Done/Skip/confirmed Discard, durable drafts/sessions, optional listening and most-recent Undo. It is accepted but not implemented or live verified by this documentation change; the historical stage plan below is retained. The new entry-point decision supersedes the returning-home policy below while preserving tagging.
+
 Updated October 21, 2026 for the user's [accepted decisions](DECISIONS.md) and strict $0/month budget. The original MVP and optional queue playback have shipped; their historical stage plan is retained below. The current Sources extension follows [SOURCES.md](SOURCES.md): independent source memberships, resumable playlist ingestion, logical song grouping and shared eligibility throughout the app. A specification or historical deployment receipt does not prove this extension is deployed.
 
 ## Outcome and scope
