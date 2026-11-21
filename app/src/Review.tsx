@@ -619,14 +619,23 @@ export function Review({
               )}
               {operation.status === "needs_attention" && (
                 <>
-                  <button
-                    disabled={busy || !!pending || conflict}
-                    onClick={() =>
-                      void execute("retry", { operationId: operation.id })
-                    }
-                  >
-                    Retry incomplete action
-                  </button>
+                  {operation.errorCode === "library_write_unresolved" ? (
+                    <p>
+                      Spotify’s response to the liked-track change was not
+                      confirmed. Manual reconciliation is required before review
+                      can continue; retrying or reversing it could conflict with
+                      a delayed request.
+                    </p>
+                  ) : (
+                    <button
+                      disabled={busy || !!pending || conflict}
+                      onClick={() =>
+                        void execute("retry", { operationId: operation.id })
+                      }
+                    >
+                      Retry incomplete action
+                    </button>
+                  )}
                   <p>
                     {operation.canCancel
                       ? "Return to review keeps confirmed playlist additions. This action has not sent an unlike."

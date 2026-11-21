@@ -759,3 +759,40 @@ for (const { width, height, font } of [
         .toBe(true);
     }
   });
+
+for (const kind of ["done", "discard"])
+  test(`unresolved liked-track write blocks retries and opposite actions (${kind})`, async ({
+    page,
+  }) => {
+    const f = await fixture(page);
+    f.data().operation = {
+      id: uuid,
+      trackKey,
+      kind,
+      status: "needs_attention",
+      errorCode: "library_write_unresolved",
+      completedDestinations: 1,
+      totalDestinations: 1,
+      reversalIncomplete: false,
+      canCancel: false,
+    };
+    await page.reload();
+    await expect(
+      page.getByText("Manual reconciliation is required", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Retry incomplete action" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Return to review", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Done", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Discard", exact: true }),
+    ).toBeDisabled();
+    expect(
+      f.calls.filter((c) => c.body && c.path.startsWith("/api/review/")),
+    ).toHaveLength(0);
+  });

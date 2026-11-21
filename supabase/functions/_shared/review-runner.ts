@@ -30,6 +30,7 @@ interface Operation {
   phase: string;
   kind: string;
   verification_started_at?: string | null;
+  library_write_state: "not_sent" | "sending" | "acknowledged" | "not_needed";
 }
 export interface ReviewWorkerState {
   accountId: string;
@@ -213,6 +214,11 @@ export function createReviewRunner(input: {
     }
     if (o.phase.startsWith("restore_") || o.phase.startsWith("unlike_")) {
       const restoring = o.phase.startsWith("restore_");
+      // An expired local lease or a later contains read cannot settle an
+      // outstanding remote request. Never permit a second or opposite write.
+      if (o.library_write_state === "sending") {
+        return await attention("library_write_unresolved");
+      }
       const liked = (await client.containsTracks([state.uri]))[0];
       const satisfied = restoring ? liked : !liked;
       if (!restoring && o.phase.endsWith("pending")) {
@@ -246,12 +252,15 @@ export function createReviewRunner(input: {
         }
       }
       if (satisfied) {
-        // Even an already satisfied pending command traverses the durable intent
-        // state before finalization; no raw HTTP acknowledgement is assumed.
         if (o.phase.endsWith("pending")) {
+          // Record an already-satisfied observation without inventing a send.
           if (
-            !await transition(restoring ? "restore_intent" : "unlike_intent")
-          ) return null;
+            !await transition(
+              restoring ? "restore_satisfied" : "unlike_satisfied",
+            )
+          ) {
+            return null;
+          }
         }
         if (!await transition(restoring ? "restored" : "completed")) {
           return null;
@@ -259,8 +268,9 @@ export function createReviewRunner(input: {
         return restoring ? { done: false, retryMs: 1000 } : { done: true };
       }
       if (!o.phase.endsWith("pending")) {
-        await transition(restoring ? "restore_retry" : "unlike_retry");
-        return { done: false, retryMs: 1000 };
+        // A durable ACK settles this request, but a contrary observation still
+        // cannot be reported as completion. Retry may check again, without send.
+        return await attention("membership_changed");
       }
       if (!await transition(restoring ? "restore_intent" : "unlike_intent")) {
         return null;
@@ -270,12 +280,28 @@ export function createReviewRunner(input: {
         if (restoring) await client.reviewRestore(o.id, state.uri);
         else await client.reviewUnlike(o.id, state.uri);
       } catch (error) {
-        // Both successful and ambiguous idempotent library writes are verified
-        // by containment in a later bounded invocation, including after crash.
+        const rejected = error instanceof SpotifyError && !error.ambiguous &&
+          ([
+            "guard",
+            "authentication",
+            "forbidden",
+            "not_found",
+            "rate_limit",
+            "quota",
+            "cooldown",
+            "control_unavailable",
+          ].includes(error.kind) ||
+            (error.kind === "http" && error.status !== null &&
+              error.status >= 400 && error.status < 500 &&
+              error.status !== 408));
+        if (!rejected) return await attention("library_write_unresolved");
+        // Only a known non-send or definitive rejection releases the intent.
         if (
-          error instanceof SpotifyError &&
-          ["forbidden", "not_found", "guard"].includes(error.kind)
+          !await transition(restoring ? "restore_rejected" : "unlike_rejected")
         ) {
+          return null;
+        }
+        if (["forbidden", "not_found", "guard"].includes(error.kind)) {
           return await attention(
             error.kind === "guard"
               ? "destination_unavailable"
@@ -284,7 +310,11 @@ export function createReviewRunner(input: {
         }
         throw error;
       }
-      await transition(restoring ? "restore_check" : "unlike_check");
+      // Persist the remote acknowledgement before any later membership check.
+      // If this transaction fails, the durable send remains unresolved.
+      if (!await transition(restoring ? "restore_check" : "unlike_check")) {
+        return null;
+      }
       return { done: false, retryMs: 1000 };
     }
     if (o.phase === "reversing") {

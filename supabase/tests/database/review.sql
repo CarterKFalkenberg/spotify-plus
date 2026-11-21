@@ -81,9 +81,33 @@ do $$ declare o app.review_operations; j uuid; lease uuid:='22222222-2222-4222-8
  begin perform public.app_review_transition(1,j,lease,'unlike_intent'); raise exception 'prior_round_unlike_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
  perform public.app_review_scan(1,j,lease,repeat('p',22),jsonb_build_object('status','present','snapshotId','before','offset',1,'observed',1,'occurrences',1,'total',1));
  perform public.app_review_scan(1,j,lease,repeat('q',22),jsonb_build_object('status','present','snapshotId','preexisting','offset',1,'observed',1,'occurrences',1,'total',1));
+ begin
+  perform public.app_review_transition(1,j,lease,'unlike_satisfied');
+  perform public.app_review_transition(1,j,lease,'completed');
+  perform pg_temp.assert((select library_write_state='not_needed' and not ever_unlike_intent from app.review_operations where id=o.id),'initial desired state requires no invented send');
+  raise exception 'rollback_noop_probe';
+ exception when raise_exception then if sqlerrm<>'rollback_noop_probe' then raise; end if; end;
  perform public.app_review_transition(1,j,lease,'unlike_intent');
  perform pg_temp.assert(public.app_review_authorize(1,j,lease,o.id,'unlike','DELETE','/me/library',o.uri),'Done can unlike only matching URI');
  perform pg_temp.assert(not public.app_review_authorize(1,j,lease,o.id,'unlike','DELETE','/me/library','spotify:track:'||repeat('2',22)),'other version remains guarded');
+ begin perform public.app_review_transition(1,j,lease,'unlike_satisfied'); raise exception 'unresolved_noop_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ begin
+  perform public.app_review_transition(1,j,lease,'unlike_check');
+  raise exception 'rollback_lost_ack';
+ exception when raise_exception then if sqlerrm<>'rollback_lost_ack' then raise; end if; end;
+ perform pg_temp.assert((select library_write_state='sending' and library_write_acknowledged_at is null from app.review_operations where id=o.id),'rolled back ACK remains unresolved despite remote success');
+ begin perform public.app_review_transition(1,j,lease,'completed'); raise exception 'unacknowledged_completion_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ begin
+  perform public.app_review_transition(1,j,lease,'attention',null,null,'library_write_unresolved');
+  update app.jobs set state='done',lease_token=null,lease_until=null where id=j;
+  begin perform public.app_review_command(1,'retry',jsonb_build_object('revision',(select revision::text from app.review_state),'operationId',o.id)); raise exception 'unresolved_retry_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+  begin perform public.app_review_command(1,'undo',jsonb_build_object('revision',(select revision::text from app.review_state),'operationId',o.id,'requestId',gen_random_uuid())); raise exception 'delayed_unlike_opposite_accepted'; exception when raise_exception then if sqlerrm<>'playlist_busy' then raise; end if; end;
+  begin perform public.app_review_command(1,'discard',jsonb_build_object('revision',(select revision::text from app.review_state),'trackKey',o.track_key,'confirmation',true,'requestId',gen_random_uuid())); raise exception 'delayed_unlike_second_accepted'; exception when raise_exception then if sqlerrm<>'playlist_busy' then raise; end if; end;
+  perform pg_temp.assert((select active_id=o.id from app.review_state),'unresolved unlike retains serialization fence');
+  raise exception 'rollback_unresolved_probe';
+ exception when raise_exception then if sqlerrm<>'rollback_unresolved_probe' then raise; end if; end;
+ perform public.app_review_transition(1,j,lease,'unlike_check');
+ perform pg_temp.assert((select library_write_state='acknowledged' and library_write_acknowledged_at is not null from app.review_operations where id=o.id),'remote ACK persisted separately before completion');
  perform public.app_review_transition(1,j,lease,'completed');
  perform pg_temp.assert(not exists(select 1 from app.source_memberships where source_id='liked' and track_key=o.track_key),'Done removes liked membership');
  perform pg_temp.assert(exists(select 1 from app.source_memberships where source_id=repeat('p',22) and track_key=o.track_key),'Done retains independent playlist membership');
@@ -97,9 +121,32 @@ select public.app_review_command(1,'undo',jsonb_build_object('revision',(select 
 update app.jobs set state='running',lease_token='22222222-2222-4222-8222-222222222222',lease_until=now()+interval '1 hour' where kind='review' and state='queued';
 do $$ declare o app.review_operations; lease uuid:='22222222-2222-4222-8222-222222222222'; begin
  select * into o from app.review_operations;
+ begin
+  perform public.app_review_transition(1,o.job_id,lease,'restore_satisfied');
+  perform public.app_review_transition(1,o.job_id,lease,'restored');
+  perform pg_temp.assert((select library_write_state='not_needed' from app.review_operations where id=o.id),'already liked Undo does not dispatch');
+  raise exception 'rollback_restore_noop';
+ exception when raise_exception then if sqlerrm<>'rollback_restore_noop' then raise; end if; end;
  perform public.app_review_transition(1,o.job_id,lease,'restore_intent');
  perform pg_temp.assert(public.app_review_authorize(1,o.job_id,lease,o.id,'restore','PUT','/me/library',o.uri),'most recent Undo restore allowed');
  begin perform public.app_review_transition(1,o.job_id,lease,'reverse_intent',repeat('p',22),'appended'); raise exception 'reverse_before_restore_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ begin perform public.app_review_transition(1,o.job_id,lease,'restore_satisfied'); raise exception 'unresolved_restore_noop_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ begin
+  perform public.app_review_transition(1,o.job_id,lease,'restore_rejected');
+  perform pg_temp.assert((select library_write_state='not_sent' and phase='restore_pending' from app.review_operations where id=o.id),'definitive restore rejection releases intent');
+  raise exception 'rollback_definite_restore';
+ exception when raise_exception then if sqlerrm<>'rollback_definite_restore' then raise; end if; end;
+ begin perform public.app_review_transition(1,o.job_id,lease,'restored'); raise exception 'unacknowledged_restoration_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ begin
+  perform public.app_review_transition(1,o.job_id,lease,'attention',null,null,'library_write_unresolved');
+  update app.jobs set state='done',lease_token=null,lease_until=null where id=o.job_id;
+  begin perform public.app_review_command(1,'retry',jsonb_build_object('revision',(select revision::text from app.review_state),'operationId',o.id)); raise exception 'unresolved_restore_retry_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+  begin perform public.app_review_command(1,'discard',jsonb_build_object('revision',(select revision::text from app.review_state),'trackKey',o.track_key,'confirmation',true,'requestId',gen_random_uuid())); raise exception 'delayed_restore_opposite_accepted'; exception when raise_exception then if sqlerrm<>'playlist_busy' then raise; end if; end;
+  perform pg_temp.assert((select active_id=o.id from app.review_state),'unresolved restore retains serialization fence');
+  raise exception 'rollback_restore_probe';
+ exception when raise_exception then if sqlerrm<>'rollback_restore_probe' then raise; end if; end;
+ perform public.app_review_transition(1,o.job_id,lease,'restore_check');
+ perform pg_temp.assert((select library_write_state='acknowledged' and library_write_acknowledged_at is not null from app.review_operations where id=o.id),'restore acknowledgement durable before reversal');
  perform public.app_review_transition(1,o.job_id,lease,'restored');
 end $$;
 savepoint attributable_reversal;
@@ -179,11 +226,17 @@ do $$ declare oid uuid; jid uuid; lease uuid:=gen_random_uuid(); started timesta
  perform pg_temp.assert((select count(*)=20 from app.review_operation_items where operation_id=oid),'slow round covers twenty destinations');
  perform pg_temp.assert(public.app_review_authorize(1,jid,lease,oid,'unlike','DELETE','/me/library','spotify:track:'||repeat('1',22)),'slow round retains early confirmed memberships without rolling expiration');
  perform pg_temp.assert((select ever_unlike_intent from app.review_operations where id=oid),'unlike intent is durably remembered before dispatch');
- perform public.app_review_transition(1,jid,lease,'unlike_check');
- perform public.app_review_transition(1,jid,lease,'unlike_retry');
- perform pg_temp.assert((select ever_unlike_intent from app.review_operations where id=oid),'uncertain unlike retry cannot erase prior intent');
- perform pg_temp.assert((select verification_started_at>started from app.review_operations where id=oid),'uncertain unlike retry creates a new server round');
- perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=app.review_current(1)),'uncertain retry clears preceding round proof');
+ -- Lease reclamation preserves the unresolved send; contains is no receipt.
+ update app.jobs set lease_token=gen_random_uuid() where id=jid;
+ perform pg_temp.assert(public.app_review_worker(1,jid,lease) is null,'old send owner is fenced after reclaim');
+ select lease_token into lease from app.jobs where id=jid;
+ perform pg_temp.assert((public.app_review_worker(1,jid,lease)->'operation'->>'library_write_state')='sending','reclaimed intent remains unresolved');
+ begin perform public.app_review_transition(1,jid,lease,'completed'); raise exception 'reclaimed_completion_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ -- Only a definitive rejection, never a contains observation, releases intent.
+ perform public.app_review_transition(1,jid,lease,'unlike_rejected');
+ perform pg_temp.assert((select ever_unlike_intent from app.review_operations where id=oid),'definitively rejected unlike retry cannot erase prior intent');
+ perform pg_temp.assert((select verification_started_at>started from app.review_operations where id=oid),'definitively rejected unlike retry creates a new server round');
+ perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=app.review_current(1)),'definitive rejection clears preceding round proof');
  begin perform public.app_review_transition(1,jid,lease,'unlike_intent'); raise exception 'retry_reused_round_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
  perform public.app_review_transition(1,jid,lease,'attention',null,null,'destination_unavailable');
  update app.jobs set state='done',lease_token=null,lease_until=null where id=jid;

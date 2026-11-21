@@ -23,6 +23,7 @@ function fixture() {
       status: "adding",
       phase: "adding",
       kind: "done",
+      library_write_state: "not_sent",
     },
     items: [{ playlist_id: playlist, state: "pending", snapshot_id: null }],
     destinations: [playlist],
@@ -41,6 +42,9 @@ function fixture() {
   let allowed = true;
   let appendError: unknown;
   let reverseError: unknown;
+  let libraryError: unknown;
+  let ackFailure: "throw" | "deny" | null = null;
+  let durable = false;
   let liked = true;
   let ownerProfile = "profile";
   let metadataSnapshot = "before";
@@ -55,6 +59,29 @@ function fixture() {
       events.push(String(args.p_event ?? "scan"));
       if (_name === "app_review_scan") {
         observations.push(args.p_observation as Record<string, unknown>);
+      }
+      if (
+        ackFailure &&
+        ["unlike_check", "restore_check"].includes(String(args.p_event))
+      ) {
+        return ackFailure === "deny"
+          ? Promise.resolve(false)
+          : Promise.reject(new Error("synthetic_ack_storage_failed"));
+      }
+      if (durable && allowed && state.operation) {
+        const o = state.operation;
+        const event = String(args.p_event);
+        const prefix = event.startsWith("restore_") ? "restore" : "unlike";
+        if (event.endsWith("_intent")) {
+          o.phase = `${prefix}_sending`;
+          o.library_write_state = "sending";
+        } else if (["unlike_check", "restore_check"].includes(event)) {
+          o.phase = event;
+          o.library_write_state = "acknowledged";
+        } else if (event.endsWith("_rejected")) {
+          o.phase = `${prefix}_pending`;
+          o.library_write_state = "not_sent";
+        } else if (event === "attention") o.status = "needs_attention";
       }
       return Promise.resolve(allowed);
     },
@@ -105,7 +132,7 @@ function fixture() {
     },
     reviewUnlike: () => {
       events.push("unlike");
-      return Promise.resolve();
+      return libraryError ? Promise.reject(libraryError) : Promise.resolve();
     },
     reviewReverse: (
       _operation: string,
@@ -121,7 +148,7 @@ function fixture() {
     },
     reviewRestore: () => {
       events.push("restore");
-      return Promise.resolve();
+      return libraryError ? Promise.reject(libraryError) : Promise.resolve();
     },
   };
   const run = createReviewRunner({
@@ -145,6 +172,9 @@ function fixture() {
     fail: (error: unknown) => appendError = error,
     failReverse: (error: unknown) => reverseError = error,
     setLiked: (value: boolean) => liked = value,
+    failLibrary: (error: unknown) => libraryError = error,
+    failAck: (mode: "throw" | "deny" = "throw") => ackFailure = mode,
+    durable: () => durable = true,
     setOwner: (value: string) => ownerProfile = value,
   };
 }
@@ -192,7 +222,7 @@ Deno.test("review restores liked membership using durable intent and later verif
   f.state.operation!.phase = "restore_pending";
   f.state.operation!.status = "undoing";
   await f.run();
-  deepStrictEqual(f.events, ["contains", "restore_intent", "restored"]);
+  deepStrictEqual(f.events, ["contains", "restore_satisfied", "restored"]);
 });
 Deno.test("review unlike pending requires an item read from its final round before unliking", async () => {
   const f = fixture();
@@ -242,6 +272,7 @@ Deno.test("Undo restores like before any playlist reversal and verifies it later
   f.events.length = 0;
   f.setLiked(true);
   f.state.operation!.phase = "restore_check";
+  f.state.operation!.library_write_state = "acknowledged";
   await f.run();
   deepStrictEqual(f.events, ["contains", "restored"]);
 });
@@ -406,11 +437,116 @@ Deno.test("prior-round presence cannot authorize unlike even when already unlike
   await f.run();
   deepStrictEqual(f.events, ["contains", "scan"]);
 });
-Deno.test("uncertain unlike retries begin a new round before any second dispatch", async () => {
+Deno.test("an acknowledged write with contrary membership stays incomplete without redispatch", async () => {
+  for (const restoring of [false, true]) {
+    const f = fixture();
+    f.state.operation!.phase = restoring ? "restore_check" : "unlike_check";
+    f.state.operation!.library_write_state = "acknowledged";
+    f.setLiked(!restoring);
+    await f.run();
+    deepStrictEqual(f.events, ["contains", "attention"]);
+  }
+});
+
+function libraryFixture(restoring: boolean) {
   const f = fixture();
-  f.state.operation!.phase = "unlike_check";
-  await f.run();
-  deepStrictEqual(f.events, ["contains", "unlike_retry"]);
+  f.durable();
+  f.state.items = [];
+  f.state.operation!.kind = "discard";
+  f.state.operation!.status = restoring ? "undoing" : "unliking";
+  f.state.operation!.phase = restoring ? "restore_pending" : "unlike_pending";
+  f.setLiked(!restoring);
+  return f;
+}
+Deno.test("delayed unlike/restore never sends D2 or permits completion even when contains becomes desired", async () => {
+  for (const restoring of [false, true]) {
+    const f = libraryFixture(restoring);
+    f.failLibrary(new SpotifyError("network", null, null, true));
+    await f.run();
+    deepStrictEqual(f.events, [
+      "contains",
+      restoring ? "restore_intent" : "unlike_intent",
+      restoring ? "restore" : "unlike",
+      "attention",
+    ]);
+    strictEqual(f.state.operation!.library_write_state, "sending");
+    for (const liked of [!restoring, restoring]) {
+      // Simulate attempted retries/reclaimed workers before and after D1 lands.
+      f.state.operation!.status = restoring ? "undoing" : "unliking";
+      f.setLiked(liked);
+      f.events.length = 0;
+      await f.run();
+      deepStrictEqual(f.events, ["attention"]);
+    }
+    strictEqual(f.state.operation!.status, "needs_attention");
+  }
+});
+Deno.test("reclaimed send intent cannot be settled by an already desired membership", async () => {
+  for (const restoring of [false, true]) {
+    const f = libraryFixture(restoring);
+    f.state.operation!.phase = restoring ? "restore_sending" : "unlike_sending";
+    f.state.operation!.library_write_state = "sending";
+    f.setLiked(restoring);
+    await f.run();
+    deepStrictEqual(f.events, ["attention"]);
+  }
+});
+Deno.test("a successful remote response whose ACK cannot persist remains unresolved after reclaim", async () => {
+  for (const restoring of [false, true]) {
+    const f = libraryFixture(restoring);
+    f.failAck();
+    try {
+      await f.run();
+      throw new Error("expected failure");
+    } catch (e) {
+      strictEqual((e as Error).message, "synthetic_ack_storage_failed");
+    }
+    strictEqual(f.state.operation!.library_write_state, "sending");
+    f.setLiked(restoring);
+    f.events.length = 0;
+    await f.run();
+    deepStrictEqual(f.events, ["attention"]);
+  }
+});
+Deno.test("an initial already desired membership completes without a send intent", async () => {
+  for (const restoring of [false, true]) {
+    const f = libraryFixture(restoring);
+    f.setLiked(restoring);
+    await f.run();
+    deepStrictEqual(f.events, [
+      "contains",
+      restoring ? "restore_satisfied" : "unlike_satisfied",
+      restoring ? "restored" : "completed",
+    ]);
+  }
+});
+Deno.test("definitive library rejections release intent while ambiguous failures retain it", async () => {
+  for (const restoring of [false, true]) {
+    for (
+      const error of [
+        new SpotifyError("rate_limit", 429),
+        new SpotifyError("forbidden", 403),
+        new SpotifyError("control_unavailable"),
+        new SpotifyError("http", 500, null, true),
+      ]
+    ) {
+      const f = libraryFixture(restoring);
+      f.failLibrary(error);
+      try {
+        await f.run();
+      } catch (e) {
+        strictEqual(e, error);
+      }
+      strictEqual(
+        f.state.operation!.library_write_state,
+        error.ambiguous ? "sending" : "not_sent",
+      );
+      strictEqual(
+        f.events.includes(restoring ? "restore_rejected" : "unlike_rejected"),
+        !error.ambiguous,
+      );
+    }
+  }
 });
 
 Deno.test("review invalidates a partial walk when item-page totals change despite unchanged metadata", async () => {
@@ -435,4 +571,49 @@ Deno.test("review invalidates a partial walk when item-page totals change despit
   strictEqual(f.observations[0].offset, 0);
   strictEqual(f.observations[0].observed, 0);
   strictEqual(f.observations[0].reset, true);
+});
+
+Deno.test("a lost lease while persisting ACK leaves a reclaimed send unresolved", async () => {
+  for (const restoring of [false, true]) {
+    const f = libraryFixture(restoring);
+    f.failAck("deny");
+    strictEqual(await f.run(), null);
+    strictEqual(f.state.operation!.library_write_state, "sending");
+    f.setLiked(restoring);
+    f.events.length = 0;
+    await f.run();
+    deepStrictEqual(f.events, ["attention"]);
+  }
+});
+Deno.test("unclassified failures never release library send intents", async () => {
+  for (
+    const error of [
+      new Error("synthetic"),
+      new SpotifyError("network"),
+      new SpotifyError("response"),
+      new SpotifyError("http", 408),
+    ]
+  ) {
+    const f = libraryFixture(false);
+    f.failLibrary(error);
+    await f.run();
+    strictEqual(f.state.operation!.library_write_state, "sending");
+    strictEqual(f.events.includes("unlike_rejected"), false);
+    strictEqual(f.events.at(-1), "attention");
+  }
+});
+
+Deno.test("persisted successful ACK permits later confirmation without another dispatch", async () => {
+  for (const restoring of [false, true]) {
+    const f = libraryFixture(restoring);
+    await f.run();
+    strictEqual(f.state.operation!.library_write_state, "acknowledged");
+    f.setLiked(restoring);
+    f.events.length = 0;
+    await f.run();
+    deepStrictEqual(f.events, [
+      "contains",
+      restoring ? "restored" : "completed",
+    ]);
+  }
 });

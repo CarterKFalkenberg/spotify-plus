@@ -46,6 +46,10 @@ create table app.review_operations (
  error_code text,
  verification_started_at timestamptz,
  ever_unlike_intent boolean not null default false,
+ -- One library command at a time. Only an acknowledged response (or an initial
+ -- no-send observation) permits completion; reads cannot settle a lost send.
+ library_write_state text not null default 'not_sent' check(library_write_state in ('not_sent','sending','acknowledged','not_needed')),
+ library_write_acknowledged_at timestamptz,
  job_id uuid references app.jobs(id) on delete set null,
  undo_request_id uuid,
  reversal_incomplete boolean not null default false,
@@ -255,7 +259,7 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    if o.status<>'completed' then raise exception 'invalid_action'; end if;
    insert into app.jobs(kind,epoch,payload,priority) values('review',p_epoch,jsonb_build_object('operationId',oid),12) returning id into jid;
    insert into app.review_receipts values(p_epoch,rid,p_command,o.track_key,oid);
-   update app.review_operations set status='undoing',phase='restore_pending',undo_request_id=rid,job_id=jid,error_code=null where id=oid;
+   update app.review_operations set status='undoing',phase='restore_pending',library_write_state='not_sent',library_write_acknowledged_at=null,undo_request_id=rid,job_id=jid,error_code=null where id=oid;
    update app.review_state set active_id=oid,last_id=oid where epoch=p_epoch;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
    delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=oid);
@@ -275,7 +279,7 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    oid:=(p_input->>'operationId')::uuid;
    if oid is distinct from s.active_id then raise exception 'unknown_action'; end if;
    select * into o from app.review_operations where id=oid and epoch=p_epoch for update;
-   if o.status<>'needs_attention' then raise exception 'invalid_action'; end if;
+   if o.status<>'needs_attention' or o.library_write_state='sending' then raise exception 'invalid_action'; end if;
    update app.review_operations set status=case when o.phase like 'restore_%' then 'undoing' else 'queued' end,error_code=null where id=oid;
    update app.jobs set state='queued',retry_at=now(),last_error=null where id=o.job_id and state<>'running';
    -- An unconfirmed append is deliberately retained. Retry reconciles only.
@@ -383,12 +387,13 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    update app.review_operation_items set state='pending' where operation_id=o.id and playlist_id=p_playlist;
    delete from app.review_playlist_cache where epoch=p_epoch and playlist_id=p_playlist;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key and playlist_id=p_playlist;
-  elsif p_event in ('unlike_prepare','unlike_intent') then
-   if (p_event='unlike_prepare' and o.phase<>'adding') or (p_event='unlike_intent' and o.phase<>'unlike_pending') or exists(select 1 from app.review_operation_items where operation_id=o.id and state not in ('confirmed','preexisting','unconfirmed'))
+  elsif p_event in ('unlike_prepare','unlike_intent','unlike_satisfied') then
+   if (p_event='unlike_prepare' and o.phase<>'adding') or (p_event in ('unlike_intent','unlike_satisfied') and (o.phase<>'unlike_pending' or o.library_write_state<>'not_sent')) or exists(select 1 from app.review_operation_items where operation_id=o.id and state not in ('confirmed','preexisting','unconfirmed'))
     or exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=i.playlist_id and d.configured and d.owned and d.available and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id)))
     or (p_event='unlike_prepare' and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at is not null)))
-    or (p_event='unlike_intent' and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>=o.verification_started_at))) then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase=case when p_event='unlike_prepare' then 'unlike_pending' else 'unlike_sending' end,status='unliking',
+    or (p_event in ('unlike_intent','unlike_satisfied') and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>=o.verification_started_at))) then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase=case when p_event='unlike_prepare' then 'unlike_pending' when p_event='unlike_satisfied' then 'unlike_check' else 'unlike_sending' end,status='unliking',
+    library_write_state=case when p_event='unlike_intent' then 'sending' when p_event='unlike_satisfied' then 'not_needed' else library_write_state end,
     verification_started_at=case when p_event='unlike_prepare' then clock_timestamp() else verification_started_at end,
     ever_unlike_intent=case when p_event='unlike_intent' then true else ever_unlike_intent end where id=o.id;
    if p_event='unlike_prepare' then
@@ -396,15 +401,15 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
     delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=o.id);
    end if;
   elsif p_event='unlike_check' then
-   if o.phase not in ('unlike_sending','unlike_check') then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase='unlike_check' where id=o.id;
-  elsif p_event='unlike_retry' then
-   if o.phase not in ('unlike_sending','unlike_check') then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase='unlike_pending',verification_started_at=clock_timestamp() where id=o.id;
+   if o.phase<>'unlike_sending' or o.library_write_state<>'sending' then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase='unlike_check',library_write_state='acknowledged',library_write_acknowledged_at=clock_timestamp() where id=o.id;
+  elsif p_event='unlike_rejected' then
+   if o.phase<>'unlike_sending' or o.library_write_state<>'sending' then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase='unlike_pending',library_write_state='not_sent',verification_started_at=clock_timestamp() where id=o.id;
    delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
    delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=o.id);
   elsif p_event='completed' then
-   if o.phase not in ('unlike_sending','unlike_check') then raise exception 'invalid_action'; end if;
+   if o.phase<>'unlike_check' or o.library_write_state not in ('acknowledged','not_needed') then raise exception 'invalid_action'; end if;
    update app.review_operations set phase='terminal',status='completed',completed_at=now(),error_code=null where id=o.id;
    delete from app.source_memberships where epoch=p_epoch and source_id='liked' and track_key=o.track_key;
    delete from app.review_drafts where epoch=p_epoch and track_key=o.track_key;
@@ -413,17 +418,17 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    perform app.review_restart_liked(p_epoch);
    delete from app.review_operations where epoch=p_epoch and id<>o.id and status in ('completed','undone','cancelled');
    perform app.review_enqueue_checks(p_epoch);
-  elsif p_event='restore_intent' then
-   if o.phase<>'restore_pending' or o.id is distinct from (select undo_id from app.review_state where epoch=p_epoch) then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase='restore_sending' where id=o.id;
+  elsif p_event in ('restore_intent','restore_satisfied') then
+   if o.phase<>'restore_pending' or o.library_write_state<>'not_sent' or o.id is distinct from (select undo_id from app.review_state where epoch=p_epoch) then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase=case when p_event='restore_satisfied' then 'restore_check' else 'restore_sending' end,library_write_state=case when p_event='restore_satisfied' then 'not_needed' else 'sending' end where id=o.id;
   elsif p_event='restore_check' then
-   if o.phase not in ('restore_sending','restore_check') then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase='restore_check' where id=o.id;
-  elsif p_event='restore_retry' then
-   if o.phase not in ('restore_sending','restore_check') then raise exception 'invalid_action'; end if;
-   update app.review_operations set phase='restore_pending' where id=o.id;
+   if o.phase<>'restore_sending' or o.library_write_state<>'sending' then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase='restore_check',library_write_state='acknowledged',library_write_acknowledged_at=clock_timestamp() where id=o.id;
+  elsif p_event='restore_rejected' then
+   if o.phase<>'restore_sending' or o.library_write_state<>'sending' then raise exception 'invalid_action'; end if;
+   update app.review_operations set phase='restore_pending',library_write_state='not_sent' where id=o.id;
   elsif p_event='restored' then
-   if o.phase not in ('restore_sending','restore_check') or o.status<>'undoing' then raise exception 'invalid_action'; end if;
+   if o.phase<>'restore_check' or o.library_write_state not in ('acknowledged','not_needed') or o.status<>'undoing' then raise exception 'invalid_action'; end if;
    update app.review_operations set phase='reversing' where id=o.id;
    insert into app.source_memberships(epoch,source_id,track_key,added_at) values(p_epoch,'liked',o.track_key,now()) on conflict(epoch,source_id,track_key) do nothing;
    perform app.refresh_source_pool(p_epoch);
@@ -461,7 +466,7 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
    perform app.review_restart_liked(p_epoch);
    perform app.review_enqueue_checks(p_epoch);
   elsif p_event='attention' then
-   if p_error not in ('addition_unconfirmed','destination_unavailable','track_unavailable','membership_changed','spotify_forbidden','spotify_unavailable') then raise exception 'invalid_input'; end if;
+   if p_error not in ('addition_unconfirmed','destination_unavailable','track_unavailable','membership_changed','spotify_forbidden','spotify_unavailable','library_write_unresolved') then raise exception 'invalid_input'; end if;
    update app.review_operations set status='needs_attention',error_code=p_error where id=o.id;
   else raise exception 'invalid_input'; end if;
   return true;
@@ -475,10 +480,10 @@ create function public.app_review_authorize(p_epoch bigint,p_job uuid,p_lease uu
   worker_state:=public.app_review_worker(p_epoch,p_job,p_lease); if worker_state is null then return false; end if;
   select * into o from app.review_operations where id=p_operation and job_id=p_job and epoch=p_epoch;
   if not found or o.uri is distinct from p_uri or o.status='needs_attention' or o.id is distinct from (select active_id from app.review_state where epoch=p_epoch) then return false; end if;
-  if p_action='unlike' then return o.phase='unlike_sending' and p_method='DELETE' and p_path='/me/library'
+  if p_action='unlike' then return o.phase='unlike_sending' and o.library_write_state='sending' and p_method='DELETE' and p_path='/me/library'
    and not exists(select 1 from app.review_operation_items i where i.operation_id=o.id and (not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>=o.verification_started_at)
     or not exists(select 1 from app.review_destinations d where d.epoch=p_epoch and d.id=i.playlist_id and d.configured and d.owned and d.available and not exists(select 1 from app.playlists p where p.epoch=p_epoch and p.spotify_id=d.id)))); end if;
-  if p_action='restore' then return o.phase='restore_sending' and o.status='undoing' and o.id=(select undo_id from app.review_state where epoch=p_epoch) and p_method='PUT' and p_path='/me/library'; end if;
+  if p_action='restore' then return o.phase='restore_sending' and o.library_write_state='sending' and o.status='undoing' and o.id=(select undo_id from app.review_state where epoch=p_epoch) and p_method='PUT' and p_path='/me/library'; end if;
   if p_action='append' and p_method='POST' then
    pid:=substring(p_path from '^/playlists/([A-Za-z0-9]{22})/items$');
    return pid is not null and o.phase='adding' and exists(select 1 from app.review_operation_items where operation_id=o.id and playlist_id=pid and state='sending')
