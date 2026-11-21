@@ -172,17 +172,23 @@ do $$ declare oid uuid; jid uuid; lease uuid:=gen_random_uuid(); started timesta
  perform public.app_review_transition(1,jid,lease,'unlike_intent');
  perform pg_temp.assert((select count(*)=20 from app.review_operation_items where operation_id=oid),'slow round covers twenty destinations');
  perform pg_temp.assert(public.app_review_authorize(1,jid,lease,oid,'unlike','DELETE','/me/library','spotify:track:'||repeat('1',22)),'slow round retains early confirmed memberships without rolling expiration');
+ perform pg_temp.assert((select ever_unlike_intent from app.review_operations where id=oid),'unlike intent is durably remembered before dispatch');
  perform public.app_review_transition(1,jid,lease,'unlike_check');
  perform public.app_review_transition(1,jid,lease,'unlike_retry');
+ perform pg_temp.assert((select ever_unlike_intent from app.review_operations where id=oid),'uncertain unlike retry cannot erase prior intent');
  perform pg_temp.assert((select verification_started_at>started from app.review_operations where id=oid),'uncertain unlike retry creates a new server round');
  perform pg_temp.assert(not exists(select 1 from app.review_memberships where epoch=1 and track_key=app.review_current(1)),'uncertain retry clears preceding round proof');
  begin perform public.app_review_transition(1,jid,lease,'unlike_intent'); raise exception 'retry_reused_round_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
+ perform public.app_review_transition(1,jid,lease,'attention',null,null,'destination_unavailable');
+ update app.jobs set state='done',lease_token=null,lease_until=null where id=jid;
+ perform pg_temp.assert(not (app.review_operation_dto(oid)->>'canCancel')::boolean,'post-intent pending failure never exposes cancellation');
+ begin perform public.app_review_command(1,'cancel',jsonb_build_object('revision',(select revision::text from app.review_state),'operationId',oid)); raise exception 'ambiguous_unlike_cancel_accepted'; exception when raise_exception then if sqlerrm<>'invalid_action' then raise; end if; end;
 end $$;
 rollback to slow_final_round;
 -- Definitively settled failures can return to their saved draft. Ambiguous
 -- sends and a live worker lease cannot expose cancellation.
 savepoint cancellation;
-do $$ declare oid uuid; jid uuid; revision text; begin
+do $$ declare oid uuid; jid uuid; revision text; lease uuid:=gen_random_uuid(); target text; begin
  select s.revision::text into revision from app.review_state s;
  perform public.app_review_command(1,'draft',jsonb_build_object('revision',revision,'trackKey',repeat('1',64),'destinationIds',jsonb_build_array(repeat('p',22))));
  select s.revision::text into revision from app.review_state s;
@@ -198,13 +204,30 @@ do $$ declare oid uuid; jid uuid; revision text; begin
  update app.jobs set state='running',lease_until=now()+interval '1 hour',lease_token=gen_random_uuid() where id=jid;
  perform pg_temp.assert(not (app.review_operation_dto(oid)->>'canCancel')::boolean,'live lease cannot cancel');
  update app.jobs set state='done',lease_token=null,lease_until=null where id=jid;
+ -- Re-enter work as a retry would, then fail the final round before the first
+ -- unlike intent. This definitive failure can safely return to the draft.
+ update app.review_operations set status='adding',error_code=null where id=oid;
+ update app.jobs set state='running',lease_token=lease,lease_until=now()+interval '1 hour' where id=jid;
+ insert into app.review_memberships(epoch,track_key,playlist_id,status,snapshot_id,checked_at)
+  select 1,o.track_key,i.playlist_id,'present','confirmed',clock_timestamp() from app.review_operation_items i join app.review_operations o on o.id=i.operation_id where o.id=oid
+  on conflict(epoch,track_key,playlist_id) do update set status='present',snapshot_id='confirmed',checked_at=clock_timestamp();
+ perform public.app_review_transition(1,jid,lease,'unlike_prepare');
+ select playlist_id into target from app.review_operation_items where operation_id=oid order by playlist_id limit 1;
+ perform public.app_review_scan(1,jid,lease,target,jsonb_build_object('status','unavailable','snapshotId',null,'offset',0,'observed',0,'occurrences',0,'total',null));
+ perform public.app_review_transition(1,jid,lease,'attention',null,null,'destination_unavailable');
+ update app.jobs set state='done',lease_token=null,lease_until=null where id=jid;
+ perform pg_temp.assert((select not ever_unlike_intent from app.review_operations where id=oid),'final round failure preserves never-dispatched proof');
+ perform pg_temp.assert((app.review_operation_dto(oid)->>'canCancel')::boolean,'pre-intent final round failure exposes Return to review');
  select s.revision::text into revision from app.review_state s;
  perform public.app_review_command(1,'cancel',jsonb_build_object('revision',revision,'operationId',oid));
  perform pg_temp.assert((select active_id is null from app.review_state),'cancel clears active failure');
  perform pg_temp.assert((select status='cancelled' from app.review_operations where id=oid),'cancel retains operation evidence');
  perform pg_temp.assert((select count(*)>0 and bool_and(state='confirmed') from app.review_operation_items where operation_id=oid),'cancel preserves acknowledged addition evidence');
  perform pg_temp.assert(exists(select 1 from app.review_receipts where request_id='66666666-6666-4666-8666-666666666666'),'cancel retains idempotency receipt');
- perform pg_temp.assert(exists(select 1 from app.review_drafts where track_key=repeat('1',64)),'cancel restores saved draft for correction');
+ perform pg_temp.assert((select destination_ids=jsonb_build_array(repeat('p',22)) from app.review_drafts where track_key=repeat('1',64)),'cancel restores the exact saved draft for correction');
+ perform public.app_review_command(1,'done',jsonb_build_object('revision','0','trackKey',repeat('1',64),'requestId','66666666-6666-4666-8666-666666666666'));
+ perform pg_temp.assert((select active_id is null from app.review_state),'cancelled Done request replay cannot restart the operation');
+ perform pg_temp.assert((select status='cancelled' and not ever_unlike_intent from app.review_operations where id=oid),'cancelled operation retains its no-intent evidence');
  perform pg_temp.assert(exists(select 1 from app.source_memberships where source_id='liked' and track_key=repeat('1',64)),'cancel never unlikes');
 end $$;
 rollback to cancellation;

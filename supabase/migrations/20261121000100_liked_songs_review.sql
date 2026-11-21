@@ -45,6 +45,7 @@ create table app.review_operations (
  phase text not null default 'adding' check(phase in ('adding','unlike_pending','unlike_sending','unlike_check','restore_pending','restore_sending','restore_check','reversing','terminal')),
  error_code text,
  verification_started_at timestamptz,
+ ever_unlike_intent boolean not null default false,
  job_id uuid references app.jobs(id) on delete set null,
  undo_request_id uuid,
  reversal_incomplete boolean not null default false,
@@ -115,7 +116,7 @@ create function app.review_operation_dto(p_id uuid) returns jsonb language sql s
  select jsonb_build_object('id',o.id,'trackKey',o.track_key,'kind',o.kind,'status',o.status,'errorCode',o.error_code,
  'completedDestinations',(select count(*) from app.review_operation_items i where i.operation_id=o.id and i.state in ('confirmed','preexisting')),
  'totalDestinations',(select count(*) from app.review_operation_items i where i.operation_id=o.id),'reversalIncomplete',o.reversal_incomplete,
- 'canCancel',o.status='needs_attention' and o.phase='adding'
+ 'canCancel',o.status='needs_attention' and o.phase in ('adding','unlike_pending') and not o.ever_unlike_intent
   and not exists(select 1 from app.review_operation_items i where i.operation_id=o.id and i.state in ('sending','unconfirmed'))
   and not exists(select 1 from app.jobs j where j.id=o.job_id and j.state='running' and j.lease_until>now()))
  from app.review_operations o where o.id=p_id;
@@ -264,8 +265,9 @@ create function public.app_review_command(p_epoch bigint,p_command text,p_input 
    if oid is distinct from s.active_id then raise exception 'unknown_action'; end if;
    select * into o from app.review_operations where id=oid and epoch=p_epoch for update;
    if (app.review_operation_dto(oid)->>'canCancel')::boolean is distinct from true then raise exception 'invalid_action'; end if;
-   -- No unlike intent was committed. Keep the saved draft and every confirmed
-   -- addition; uncertain dispatched writes never qualify for cancellation.
+   -- The durable ever-intent flag must remain false, including across retries.
+   -- Keep the saved draft and every confirmed addition; uncertain dispatched
+   -- writes never qualify for cancellation.
    update app.review_operations set status='cancelled',phase='terminal' where id=oid;
    update app.jobs set state='cancelled',lease_token=null,lease_until=null where id=o.job_id;
    update app.review_state set active_id=null,last_id=null,focus_track=o.track_key where epoch=p_epoch;
@@ -387,7 +389,8 @@ create function public.app_review_transition(p_epoch bigint,p_job uuid,p_lease u
     or (p_event='unlike_prepare' and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at is not null)))
     or (p_event='unlike_intent' and exists(select 1 from app.review_operation_items i where i.operation_id=o.id and not exists(select 1 from app.review_memberships m where m.epoch=p_epoch and m.track_key=o.track_key and m.playlist_id=i.playlist_id and m.status='present' and m.checked_at>=o.verification_started_at))) then raise exception 'invalid_action'; end if;
    update app.review_operations set phase=case when p_event='unlike_prepare' then 'unlike_pending' else 'unlike_sending' end,status='unliking',
-    verification_started_at=case when p_event='unlike_prepare' then clock_timestamp() else verification_started_at end where id=o.id;
+    verification_started_at=case when p_event='unlike_prepare' then clock_timestamp() else verification_started_at end,
+    ever_unlike_intent=case when p_event='unlike_intent' then true else ever_unlike_intent end where id=o.id;
    if p_event='unlike_prepare' then
     delete from app.review_memberships where epoch=p_epoch and track_key=o.track_key;
     delete from app.review_playlist_cache where epoch=p_epoch and playlist_id in (select playlist_id from app.review_operation_items where operation_id=o.id);
