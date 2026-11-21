@@ -3526,6 +3526,18 @@ dialog::backdrop {
   padding: 12px 0 22px;
   color: var(--muted);
 }
+.review-session {
+  position: relative;
+}
+.review-session summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.review-session[open] {
+  flex-basis: 100%;
+}
 .review-layout {
   display: grid;
   grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
@@ -3569,6 +3581,13 @@ dialog::backdrop {
 .review-song .queue-playback {
   margin: 18px 0;
   flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+.review-spotify-link {
+  grid-column: 1 / -1;
+}
+.review-intro {
+  margin: 0 0 12px;
 }
 .review-destinations {
   display: grid;
@@ -3685,6 +3704,11 @@ dialog::backdrop {
   background: var(--paper);
 }
 @media (max-width: 640px) {
+  .workspace-tabs.review-navigation button {
+    flex-basis: 13%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .workspace-tabs .nav-review {
     order: -1;
   }
@@ -3692,9 +3716,23 @@ dialog::backdrop {
     flex-basis: 22%;
   }
   .review .section-heading {
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+  .review .section-heading h2 {
+    font-size: 22px;
+    margin: 0;
+  }
+  .review .section-heading button {
+    padding: 10px;
+    min-height: 44px;
+    font-size: 12px;
+  }
+  .review-intro {
+    font-size: 12px;
+    margin-bottom: 8px;
   }
   .review .eyebrow {
     display: none;
@@ -3704,7 +3742,7 @@ dialog::backdrop {
   }
   .review-counts {
     font-size: 13px;
-    padding: 4px 0 16px;
+    padding: 0 0 4px;
     gap: 8px;
   }
   .review-counts .compact {
@@ -3715,41 +3753,71 @@ dialog::backdrop {
   .review-layout {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 14px;
   }
   .review-song {
     position: static;
     display: grid;
-    grid-template-columns: 100px minmax(0, 1fr);
-    gap: 16px;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 8px 12px;
     width: 100%;
   }
   .review-cover {
     margin: 0;
   }
   .review-song h3 {
-    font-size: 24px;
+    font-size: 22px;
     margin-top: 0;
   }
   .review-song p {
     font-size: 13px;
-    margin: 6px 0;
+    margin: 3px 0;
   }
   .review-song .queue-playback {
-    margin: 14px 0;
+    margin: 4px 0;
+    justify-content: flex-start;
+  }
+  .review-song .listen-caption {
+    flex: 1 1 100px;
+    text-align: left;
+    font-size: 11px;
+  }
+  .review-spotify-link {
+    font-size: 13px;
   }
   .review-choices {
     width: 100%;
   }
+  .review-choices h3 {
+    margin: 0 0 4px;
+  }
+  .review-choices > p {
+    margin: 0 0 6px;
+    font-size: 12px;
+  }
   .review-destination {
     grid-template-columns: 20px minmax(0, 1fr);
-    padding: 12px;
-    gap: 6px 10px;
+    min-height: 64px;
+    padding: 7px 10px;
+    gap: 2px 8px;
+  }
+  .review-destination-identity {
+    gap: 8px;
+  }
+  .review-destination-identity strong {
+    font-size: 13px;
+  }
+  .review-destination-identity img,
+  .review-destination-placeholder {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
   }
   .review-destination > span:last-child {
     grid-column: 2;
     max-width: none;
-    padding-left: 54px;
+    padding-left: 40px;
+    font-size: 11px;
   }
   .review-destination input {
     grid-row: 1 / 3;

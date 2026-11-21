@@ -88,6 +88,7 @@ function operation(raw: unknown): ReviewOperationDTO {
     completedDestinations: count(v.completedDestinations),
     totalDestinations: count(v.totalDestinations),
     reversalIncomplete: bool(v.reversalIncomplete),
+    canCancel: v.canCancel === undefined ? false : bool(v.canCancel),
   } as ReviewOperationDTO;
   if (result.completedDestinations > result.totalDestinations) fail();
   return result;

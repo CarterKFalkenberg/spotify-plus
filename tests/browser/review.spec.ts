@@ -161,6 +161,12 @@ async function fixture(
         };
         data.undo = null;
       }
+      if (path.endsWith("/cancel")) {
+        data.operation = null;
+        data.current = song;
+        // A confirmed addition survives returning to the saved review draft.
+        data.destinations[1]!.membership = "present";
+      }
       data = { ...data, revision: String(Number(data.revision) + 1) };
       json = data;
     } else
@@ -267,6 +273,7 @@ test("Skip persists across reload, new session returns it, and Discard requires 
   await expect(
     page.getByRole("heading", { name: "All set for this session" }),
   ).toBeVisible();
+  await page.locator(".review-session summary").click();
   await page.getByRole("button", { name: "Start new session" }).click();
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   expect(calls.some((c) => c.path.endsWith("/discard"))).toBe(false);
@@ -405,6 +412,69 @@ test("in-flight progress survives reload and incomplete work offers truthful rec
   ).toHaveLength(0);
 });
 
+for (const canCancel of [false, true])
+  test(`return to review requires settled server permission (${canCancel}) and preserves confirmed additions`, async ({
+    page,
+  }) => {
+    const f = await fixture(page);
+    f.data().operation = {
+      id: uuid,
+      trackKey,
+      kind: "done",
+      status: "needs_attention",
+      errorCode: "destination_unavailable",
+      completedDestinations: 1,
+      totalDestinations: 2,
+      reversalIncomplete: false,
+      canCancel,
+    };
+    f.data().draft = {
+      trackKey,
+      revision: "1",
+      destinationIds: [destination(2).id],
+    };
+    await page.reload();
+    const back = page.getByRole("button", {
+      name: "Return to review",
+      exact: true,
+    });
+    if (!canCancel) {
+      await expect(back).toBeDisabled();
+      await expect(
+        page.getByText("Return to review is unavailable", { exact: false }),
+      ).toBeVisible();
+      expect(
+        f.calls.filter((c) => c.body && c.path.startsWith("/api/review/")),
+      ).toEqual([]);
+      return;
+    }
+    await expect(back).toBeEnabled();
+    await expect(
+      page.getByText("This action has not sent an unlike.", { exact: false }),
+    ).toBeVisible();
+    await back.click();
+    await expect(
+      page.getByRole("heading", { name: "Synthetic oldest track" }),
+    ).toBeVisible();
+    await expect(page.locator(".review-destination").nth(1)).toContainText(
+      "Already added",
+    );
+    await expect(
+      page.locator(".review-destination").nth(1).getByRole("checkbox"),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Skip for now" }),
+    ).toBeEnabled();
+    expect(
+      f.calls.filter((c) => c.body && c.path.startsWith("/api/review/")),
+    ).toEqual([
+      {
+        path: "/api/review/cancel",
+        body: { revision: "1", operationId: uuid },
+      },
+    ]);
+  });
+
 for (const width of [320, 390])
   test(`review choices and persistent actions reflow at ${width}px with 200% text`, async ({
     page,
@@ -439,4 +509,48 @@ for (const width of [320, 390])
         );
       })
       .toBe(true);
+  });
+
+for (const { width, height } of [
+  { width: 320, height: 740 },
+  { width: 390, height: 844 },
+])
+  test(`phone opening controls and first destination are unobstructed at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await fixture(page);
+    const playback = page.getByRole("button", { name: "Enable playback" });
+    await expect(playback).toBeVisible();
+    const firstDestination = page.locator(".review-destination").first();
+    await page.screenshot({
+      path: info.outputPath(`synthetic-review-viewport-${width}.png`),
+    });
+    for (const [target, boundary] of [
+      [playback, page.locator(".review-actions")],
+      [firstDestination, page.locator(".review-actions")],
+      ...["Skip for now", "Discard", "Done"].map((name) => [
+        page.getByRole("button", { name, exact: true }),
+        page.locator(".workspace-tabs"),
+      ]),
+    ]) {
+      await expect
+        .poll(async () => {
+          const box = await target!.boundingBox();
+          const actions = await boundary!.boundingBox();
+          if (!box || !actions || box.y < 0 || box.y + box.height > actions.y)
+            return false;
+          return target!.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return [0.1, 0.5, 0.9].every((fraction) => {
+              const hit = document.elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height * fraction,
+              );
+              return !!hit && (hit === element || element.contains(hit));
+            });
+          });
+        })
+        .toBe(true);
+    }
   });

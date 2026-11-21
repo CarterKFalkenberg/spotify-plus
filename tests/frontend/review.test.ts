@@ -120,3 +120,23 @@ it("preserves conflict codes for explicit multi-device recovery", async () => {
     reviewCommand("session", { revision: "2" }),
   ).rejects.toMatchObject({ code: "stale_revision", status: 409 });
 });
+it("requires an explicit boolean from the server before returning to review", () => {
+  const operation = {
+    id: uuid,
+    trackKey: "a".repeat(64),
+    kind: "done",
+    status: "needs_attention",
+    errorCode: "destination_unavailable",
+    completedDestinations: 1,
+    totalDestinations: 2,
+    reversalIncomplete: false,
+  };
+  expect(review({ ...state(), operation }).operation!.canCancel).toBe(false);
+  expect(
+    review({ ...state(), operation: { ...operation, canCancel: true } })
+      .operation!.canCancel,
+  ).toBe(true);
+  expect(() =>
+    review({ ...state(), operation: { ...operation, canCancel: "true" } }),
+  ).toThrow();
+});

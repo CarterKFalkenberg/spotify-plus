@@ -224,13 +224,19 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
           </button>
         </p>
       )}
-      <nav ref={navigation} className="workspace-tabs" aria-label="Workspace">
+      <nav
+        ref={navigation}
+        className={`workspace-tabs ${tab === "review" ? "review-navigation" : ""}`}
+        aria-label="Workspace"
+      >
         <button
           className="nav-review"
+          aria-label="Review likes"
           aria-pressed={tab === "review"}
           onClick={() => setTab("review")}
         >
-          <Icon name="queue" /> Review likes
+          <Icon name="queue" />{" "}
+          {mobile && tab === "review" ? "Review" : "Review likes"}
         </button>
         <button
           className="nav-queue"
@@ -255,17 +261,21 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
         </button>
         <button
           className="nav-create"
+          aria-label="Make a playlist"
           aria-pressed={tab === "builder"}
           onClick={() => setTab("builder")}
         >
-          <Icon name="builder" /> Make a playlist
+          <Icon name="builder" />{" "}
+          {mobile && tab === "review" ? "Create" : "Make a playlist"}
         </button>
         <button
           className="nav-playlists"
+          aria-label="Your playlists"
           aria-pressed={tab === "playlists"}
           onClick={() => setTab("playlists")}
         >
-          <Icon name="playlists" /> Your playlists
+          <Icon name="playlists" />{" "}
+          {mobile && tab === "review" ? "Playlists" : "Your playlists"}
         </button>
         <button
           className="nav-tags"
@@ -276,6 +286,7 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
         </button>
         <button
           className="nav-arrivals mobile-only"
+          aria-label={`New arrivals ${status?.newCount ?? "—"}`}
           aria-pressed={tab === "queue"}
           onClick={() => {
             setNewOnly(true);
@@ -283,7 +294,8 @@ export function Workspace({ playbackAllowed }: { playbackAllowed: boolean }) {
             setTab("queue");
           }}
         >
-          <Icon name="queue" /> New arrivals{" "}
+          <Icon name="queue" />{" "}
+          {mobile && tab === "review" ? "New" : "New arrivals"}{" "}
           <span>{status?.newCount ?? "—"}</span>
         </button>
         <button

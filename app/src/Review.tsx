@@ -265,14 +265,18 @@ export function Review({
         <div>
           <p className="eyebrow">One song at a time</p>
           <h2 id="review-title">Liked Songs review</h2>
-          <p className="muted">
-            Oldest liked first · Choose where it belongs, then Done.
-          </p>
         </div>
-        <button disabled={locked} onClick={() => void configure()}>
-          Choose destinations
+        <button
+          aria-label="Choose destinations"
+          disabled={locked}
+          onClick={() => void configure()}
+        >
+          Destinations
         </button>
       </div>
+      <p className="muted review-intro">
+        Oldest liked first · Choose playlists, then Done.
+      </p>
       {error && (
         <div role="alert" className="notice">
           {error}
@@ -396,14 +400,21 @@ export function Review({
       {data && !config && (
         <>
           <div className="review-counts">
-            {data.remaining} waiting · {data.skipped} skipped this session{" "}
-            <button
-              className="compact"
-              disabled={locked}
-              onClick={() => void execute("session")}
-            >
-              Start new session
-            </button>
+            {data.remaining} waiting · {data.skipped} skipped{" "}
+            <details className="review-session">
+              <summary>Session</summary>
+              <p>
+                Skipped tracks stay aside until you start a new session. Saved
+                choices remain.
+              </p>
+              <button
+                className="compact"
+                disabled={locked}
+                onClick={() => void execute("session")}
+              >
+                Start new session
+              </button>
+            </details>
           </div>
           {data.syncStatus !== "ready" && (
             <p className="notice" role="status">
@@ -456,21 +467,22 @@ export function Review({
                       Liked {new Date(metadata.likedAt).toLocaleDateString()}
                     </p>
                   )}
-                  <QueuePlayback
-                    trackKey={current.trackKey}
-                    available={!!metadata?.playableUri && !!metadata.durationMs}
-                    active={active && playbackAllowed && !operating}
-                  />
-                  {metadata?.spotifyUrl && (
-                    <a
-                      href={metadata.spotifyUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open in Spotify ↗
-                    </a>
-                  )}
                 </div>
+                <QueuePlayback
+                  trackKey={current.trackKey}
+                  available={!!metadata?.playableUri && !!metadata.durationMs}
+                  active={active && playbackAllowed && !operating}
+                />
+                {metadata?.spotifyUrl && (
+                  <a
+                    className="review-spotify-link"
+                    href={metadata.spotifyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in Spotify ↗
+                  </a>
+                )}
               </div>
               <div className="review-choices">
                 <h3>Add to your playlists</h3>
@@ -548,14 +560,31 @@ export function Review({
                 </p>
               )}
               {operation.status === "needs_attention" && (
-                <button
-                  disabled={busy || !!pending || conflict}
-                  onClick={() =>
-                    void execute("retry", { operationId: operation.id })
-                  }
-                >
-                  Retry incomplete action
-                </button>
+                <>
+                  <button
+                    disabled={busy || !!pending || conflict}
+                    onClick={() =>
+                      void execute("retry", { operationId: operation.id })
+                    }
+                  >
+                    Retry incomplete action
+                  </button>
+                  <p>
+                    {operation.canCancel
+                      ? "Return to review keeps confirmed playlist additions. This action has not sent an unlike."
+                      : "Return to review is unavailable until the remote changes are safely reconciled."}
+                  </p>
+                  <button
+                    disabled={
+                      busy || !!pending || conflict || !operation.canCancel
+                    }
+                    onClick={() =>
+                      void execute("cancel", { operationId: operation.id })
+                    }
+                  >
+                    Return to review
+                  </button>
+                </>
               )}
             </div>
           )}
